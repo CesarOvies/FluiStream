@@ -160,3 +160,4 @@ dotnet build src/desktop/FluiStream.Desktop.csproj -c Release
 <p align="center">
   Desenvolvido por <strong><a href="https://github.com/CesarOvies">Cesar Ovies</a></strong> sob a licença MIT.
 </p>
+

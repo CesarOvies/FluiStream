@@ -1,4 +1,4 @@
-﻿# FluiStream — Script de Compilação Automatizada Multiplataforma
+# FluiStream — Script de Compilação Automatizada Multiplataforma
 # Padrão Cesar Ovies Engineering Standards
 
 param (
@@ -65,3 +65,4 @@ $sha512Lines | Out-File -FilePath (Join-Path $dist "SHA512SUMS.txt") -Encoding u
 Write-Host "==========================================" -ForegroundColor Green
 Write-Host "   Build concluído com sucesso em dist/   " -ForegroundColor Green
 Write-Host "==========================================" -ForegroundColor Green
+

@@ -96,6 +96,29 @@ public partial class MainForm : Form
             {
                 _webView.CoreWebView2.Navigate("https://cesarovies.github.io/FluiStream/");
             }
+
+            // Ponte de mensagens com o Web App
+            _webView.CoreWebView2.WebMessageReceived += (s, args) =>
+            {
+                try
+                {
+                    string json = args.WebMessageAsJson;
+                    using var doc = System.Text.Json.JsonDocument.Parse(json);
+                    if (doc.RootElement.TryGetProperty("type", out var typeEl) && typeEl.GetString() == "START_UPDATE")
+                    {
+                        string? downloadUrl = doc.RootElement.TryGetProperty("downloadUrl", out var urlEl) ? urlEl.GetString() : null;
+                        string? version = doc.RootElement.TryGetProperty("version", out var verEl) ? verEl.GetString() : null;
+                        if (!string.IsNullOrEmpty(downloadUrl))
+                        {
+                            BeginInvoke(() => ShowUpdatePrompt(version, downloadUrl, null));
+                        }
+                    }
+                }
+                catch
+                {
+                    // Ignore
+                }
+            };
         }
         catch (Exception ex)
         {
@@ -105,18 +128,20 @@ public partial class MainForm : Form
 
     private async Task CheckUpdatesBackgroundAsync()
     {
-        var (available, newVersion, downloadUrl, _) = await UpdateService.CheckForUpdatesAsync();
+        var (available, newVersion, downloadUrl, releaseNotes) = await UpdateService.CheckForUpdatesAsync();
         if (available && !string.IsNullOrEmpty(downloadUrl))
         {
             BeginInvoke(() =>
             {
-                ShowUpdatePrompt(newVersion, downloadUrl);
+                ShowUpdatePrompt(newVersion, downloadUrl, releaseNotes);
             });
         }
     }
 
-    private void ShowUpdatePrompt(string? newVersion, string downloadUrl)
+    private void ShowUpdatePrompt(string? newVersion, string downloadUrl, string? releaseNotes)
     {
+        string currentVer = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "1.0.0";
+
         using var promptForm = new Form
         {
             FormBorderStyle = FormBorderStyle.FixedDialog,
@@ -126,7 +151,7 @@ public partial class MainForm : Form
             StartPosition = FormStartPosition.CenterParent,
             BackColor = Color.FromArgb(22, 27, 34), // #161B22
             ForeColor = Color.FromArgb(230, 237, 243),
-            ClientSize = new Size(460, 220),
+            ClientSize = new Size(500, 320),
             Text = LocalizationService.Get("UpdateAvailableTitle")
         };
 
@@ -136,13 +161,48 @@ public partial class MainForm : Form
             _ = DwmSetWindowAttribute(promptForm.Handle, 20, ref useDarkMode, sizeof(int));
         }
 
-        var lbl = new Label
+        var lblHeader = new Label
         {
-            Text = $"{LocalizationService.Get("UpdatePrompt")}\n\nVersão: {newVersion}",
+            Text = $"🚀 Nova Versão Disponível: v{currentVer} → {newVersion}",
             TextAlign = ContentAlignment.MiddleCenter,
             Dock = DockStyle.Top,
-            Height = 100,
-            Font = new Font("Segoe UI", 10, FontStyle.Regular)
+            Height = 44,
+            Font = new Font("Segoe UI", 11, FontStyle.Bold),
+            ForeColor = Color.FromArgb(16, 185, 129) // Emerald
+        };
+
+        var txtNotes = new TextBox
+        {
+            Multiline = true,
+            ReadOnly = true,
+            ScrollBars = ScrollBars.Vertical,
+            BackColor = Color.FromArgb(13, 17, 23),
+            ForeColor = Color.FromArgb(139, 148, 158),
+            BorderStyle = BorderStyle.FixedSingle,
+            Location = new Point(20, 52),
+            Size = new Size(460, 120),
+            Text = !string.IsNullOrWhiteSpace(releaseNotes) 
+                ? releaseNotes 
+                : "Melhorias de desempenho, estabilidade na reprodução e atualizações visuais."
+        };
+
+        var lblStatus = new Label
+        {
+            Text = LocalizationService.Get("UpdatePrompt"),
+            TextAlign = ContentAlignment.MiddleCenter,
+            Location = new Point(20, 180),
+            Size = new Size(460, 24),
+            Font = new Font("Segoe UI", 9, FontStyle.Regular)
+        };
+
+        var progressBar = new ProgressBar
+        {
+            Location = new Point(20, 210),
+            Size = new Size(460, 14),
+            Minimum = 0,
+            Maximum = 100,
+            Value = 0,
+            Visible = false
         };
 
         var btnUpdate = new Button
@@ -151,7 +211,9 @@ public partial class MainForm : Form
             BackColor = Color.FromArgb(35, 134, 54),
             ForeColor = Color.White,
             FlatStyle = FlatStyle.Flat,
-            Size = new Size(160, 36)
+            Size = new Size(180, 38),
+            Font = new Font("Segoe UI", 9, FontStyle.Bold),
+            Cursor = Cursors.Hand
         };
         btnUpdate.FlatAppearance.BorderSize = 0;
 
@@ -161,27 +223,51 @@ public partial class MainForm : Form
             BackColor = Color.FromArgb(33, 38, 45),
             ForeColor = Color.FromArgb(230, 237, 243),
             FlatStyle = FlatStyle.Flat,
-            Size = new Size(140, 36),
-            DialogResult = DialogResult.Cancel
+            Size = new Size(140, 38),
+            DialogResult = DialogResult.Cancel,
+            Cursor = Cursors.Hand
         };
         btnCancel.FlatAppearance.BorderColor = Color.FromArgb(48, 54, 61);
 
         int totalWidth = btnCancel.Width + 16 + btnUpdate.Width;
         int startX = (promptForm.ClientSize.Width - totalWidth) / 2;
-        btnCancel.Location = new Point(startX, 140);
-        btnUpdate.Location = new Point(startX + btnCancel.Width + 16, 140);
+        btnCancel.Location = new Point(startX, 245);
+        btnUpdate.Location = new Point(startX + btnCancel.Width + 16, 245);
 
         btnUpdate.Click += async (s, e) =>
         {
             btnUpdate.Enabled = false;
             btnCancel.Enabled = false;
-            btnUpdate.Text = "Baixando...";
+            progressBar.Visible = true;
+            lblStatus.Text = "Baixando atualização: 0%...";
+
             string tempZip = Path.Combine(Path.GetTempPath(), "FluiStream_Update.zip");
-            await UpdateService.DownloadUpdateAsync(downloadUrl, tempZip);
-            UpdateService.ApplyUpdateAndRestart(tempZip);
+            var progress = new Progress<int>(pct =>
+            {
+                progressBar.Value = pct;
+                lblStatus.Text = $"Baixando atualização: {pct}%";
+            });
+
+            try
+            {
+                await UpdateService.DownloadUpdateAsync(downloadUrl, tempZip, progress);
+                lblStatus.Text = "Substituindo arquivos e reiniciando aplicação...";
+                await Task.Delay(400);
+                UpdateService.ApplyUpdateAndRestart(tempZip);
+            }
+            catch (Exception ex)
+            {
+                btnUpdate.Enabled = true;
+                btnCancel.Enabled = true;
+                progressBar.Visible = false;
+                lblStatus.Text = $"Erro ao atualizar: {ex.Message}";
+            }
         };
 
-        promptForm.Controls.Add(lbl);
+        promptForm.Controls.Add(lblHeader);
+        promptForm.Controls.Add(txtNotes);
+        promptForm.Controls.Add(lblStatus);
+        promptForm.Controls.Add(progressBar);
         promptForm.Controls.Add(btnCancel);
         promptForm.Controls.Add(btnUpdate);
         promptForm.ShowDialog(this);
@@ -233,3 +319,4 @@ public partial class MainForm : Form
         dialog.ShowDialog(this);
     }
 }
+

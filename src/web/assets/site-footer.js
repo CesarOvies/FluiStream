@@ -35,3 +35,4 @@ class SiteFooter extends HTMLElement {
 if (typeof customElements !== 'undefined' && !customElements.get('site-footer')) {
   customElements.define('site-footer', SiteFooter);
 }
+

@@ -147,3 +147,4 @@ public static class UpdateService
         Environment.Exit(0);
     }
 }
+

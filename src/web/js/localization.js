@@ -86,7 +86,15 @@ export const translations = {
     footerRights: 'Todos os direitos reservados.',
     season: 'Temporada',
     episode: 'Episódio',
-    seriesEpisodesCount: '{count} episódios'
+    seriesEpisodesCount: '{count} episódios',
+    updateNotificationTitle: 'Nova Versão Disponível!',
+    updateNotificationBody: 'O FluiStream v{latest} já está disponível (sua versão: v{current}).',
+    btnUpdateNow: 'Atualizar Agora',
+    btnRemindLater: 'Lembrar Depois',
+    updateDownloading: 'Baixando atualização...',
+    updateCompleteRestart: 'Atualização concluída. Reiniciando...',
+    btnCheckUpdates: 'Verificar Atualizações',
+    updateUpToDate: 'Você já está usando a versão mais recente!'
   },
   'en-US': {
     appName: 'FluiStream',
@@ -163,7 +171,15 @@ export const translations = {
     footerRights: 'All rights reserved.',
     season: 'Season',
     episode: 'Episode',
-    seriesEpisodesCount: '{count} episodes'
+    seriesEpisodesCount: '{count} episodes',
+    updateNotificationTitle: 'New Version Available!',
+    updateNotificationBody: 'FluiStream v{latest} is now available (your version: v{current}).',
+    btnUpdateNow: 'Update Now',
+    btnRemindLater: 'Remind Later',
+    updateDownloading: 'Downloading update...',
+    updateCompleteRestart: 'Update complete. Restarting...',
+    btnCheckUpdates: 'Check for Updates',
+    updateUpToDate: 'You are already using the latest version!'
   },
   'es': {
     appName: 'FluiStream',
@@ -240,7 +256,15 @@ export const translations = {
     footerRights: 'Todos los derechos reservados.',
     season: 'Temporada',
     episode: 'Episodio',
-    seriesEpisodesCount: '{count} episodios'
+    seriesEpisodesCount: '{count} episodios',
+    updateNotificationTitle: '¡Nueva Versión Disponible!',
+    updateNotificationBody: 'FluiStream v{latest} ya está disponible (su versión: v{current}).',
+    btnUpdateNow: 'Actualizar Ahora',
+    btnRemindLater: 'Recordar Más Tarde',
+    updateDownloading: 'Descargando actualización...',
+    updateCompleteRestart: 'Actualización completada. Reiniciando...',
+    btnCheckUpdates: 'Buscar Actualizaciones',
+    updateUpToDate: '¡Ya estás usando la versión más reciente!'
   }
 };
 

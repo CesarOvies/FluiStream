@@ -26,3 +26,4 @@ FluiStream adota uma arquitetura híbrida de alto desempenho:
 - Gitflow estrito: `main` (apenas releases oficiais via PR) e `develop` (desenvolvimento contínuo).
 - Regra de Ouro 1: Proibido commit sem testes prévios validados.
 - Regra de Ouro 2: Proibido git push sem autorização explícita do usuário.
+

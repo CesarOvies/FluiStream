@@ -9,6 +9,7 @@ import { EPGParser } from './epg-parser.js';
 import { XtreamApi } from './xtream-api.js';
 import { storage } from './storage.js';
 import { VideoPlayerController } from './player.js';
+import { APP_VERSION, checkForUpdate } from './version.js';
 
 class FluiStreamApp {
   constructor() {
@@ -35,6 +36,7 @@ class FluiStreamApp {
     this.bindEvents();
     await this.loadSavedState();
     this.render();
+    this.checkAppUpdates();
   }
 
   bindDomElements() {
@@ -79,7 +81,15 @@ class FluiStreamApp {
       xtreamUserInput: document.getElementById('input-xtream-user'),
       xtreamPassInput: document.getElementById('input-xtream-pass'),
       btnSubmitImport: document.getElementById('btn-submit-import'),
-      importStatusMsg: document.getElementById('import-status-text')
+      importStatusMsg: document.getElementById('import-status-text'),
+      // Update elements
+      updateToast: document.getElementById('update-toast'),
+      updateToastDesc: document.getElementById('update-toast-desc'),
+      updateToastNotes: document.getElementById('update-toast-notes'),
+      btnToastUpdate: document.getElementById('btn-toast-update'),
+      btnToastDismiss: document.getElementById('btn-toast-dismiss'),
+      btnCheckUpdatesManual: document.getElementById('btn-check-updates-manual'),
+      settingsUpdateStatus: document.getElementById('settings-update-status')
     };
   }
 
@@ -208,6 +218,66 @@ class FluiStreamApp {
           window.location.reload();
         }
       });
+    }
+
+    // Auto-update buttons
+    if (this.dom.btnToastDismiss) {
+      this.dom.btnToastDismiss.addEventListener('click', () => {
+        if (this.dom.updateToast) this.dom.updateToast.classList.add('hidden');
+      });
+    }
+
+    if (this.dom.btnCheckUpdatesManual) {
+      this.dom.btnCheckUpdatesManual.addEventListener('click', () => {
+        this.checkAppUpdates(true);
+      });
+    }
+  }
+
+  async checkAppUpdates(isManual = false) {
+    if (isManual && this.dom.settingsUpdateStatus) {
+      this.dom.settingsUpdateStatus.textContent = i18n.get('updateDownloading');
+    }
+
+    const info = await checkForUpdate(APP_VERSION);
+    if (info.available) {
+      if (this.dom.updateToast) {
+        this.dom.updateToastDesc.textContent = i18n.get('updateNotificationBody', {
+          latest: info.latestVersion,
+          current: info.currentVersion
+        });
+        if (this.dom.updateToastNotes) {
+          this.dom.updateToastNotes.textContent = info.releaseNotes ? info.releaseNotes.substring(0, 140) + '...' : '';
+        }
+        this.dom.updateToast.classList.remove('hidden');
+
+        if (this.dom.btnToastUpdate) {
+          this.dom.btnToastUpdate.onclick = () => {
+            // Se estiver rodando dentro do Desktop WebView2
+            if (window.chrome && window.chrome.webview && window.chrome.webview.postMessage) {
+              window.chrome.webview.postMessage({
+                type: 'START_UPDATE',
+                downloadUrl: info.downloadUrl,
+                version: info.latestVersion
+              });
+            } else {
+              // Navegador web: abrir página de releases no GitHub
+              window.open(info.releaseUrl, '_blank', 'noopener,noreferrer');
+            }
+          };
+        }
+      }
+
+      if (isManual && this.dom.settingsUpdateStatus) {
+        this.dom.settingsUpdateStatus.textContent = i18n.get('updateNotificationBody', {
+          latest: info.latestVersion,
+          current: info.currentVersion
+        });
+      }
+    } else {
+      if (isManual && this.dom.settingsUpdateStatus) {
+        this.dom.settingsUpdateStatus.textContent = i18n.get('updateUpToDate');
+      }
     }
   }
 
@@ -636,3 +706,4 @@ https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream
 document.addEventListener('DOMContentLoaded', () => {
   window.fluiStreamApp = new FluiStreamApp();
 });
+

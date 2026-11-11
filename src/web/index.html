@@ -272,8 +272,15 @@
           <p class="help-text" data-i18n="settingsCorsHelp">Usado na versão Web para contornar restrições CORS de streams remotos. O app Portable não necessita de proxy.</p>
         </div>
 
-        <div style="border-top: 1px solid var(--border-subtle); padding-top: 1rem;">
-          <button class="btn-secondary" id="btn-clear-all-data" style="color: var(--error-red); border-color: var(--error-red);" data-i18n="settingsClearData">
+        <div style="border-top: 1px solid var(--border-subtle); padding-top: 1rem; display: flex; flex-direction: column; gap: 0.75rem;">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <span style="font-size: 0.8125rem; color: var(--text-secondary);" data-i18n="settingsVersion">Versão 1.0.0 — Padrão Cesar Ovies</span>
+            <button class="btn-secondary" id="btn-check-updates-manual" data-i18n="btnCheckUpdates">
+              Verificar Atualizações
+            </button>
+          </div>
+          <div id="settings-update-status" style="font-size: 0.8125rem; color: var(--accent-blue);"></div>
+          <button class="btn-secondary" id="btn-clear-all-data" style="color: var(--error-red); border-color: var(--error-red); align-self: flex-start;" data-i18n="settingsClearData">
             Limpar Todos os Dados Salvos
           </button>
         </div>
@@ -283,6 +290,24 @@
       </div>
     </div>
   </div>
+
+  <!-- Toast Flutuante de Notificação de Auto-Atualização -->
+  <aside id="update-toast" class="update-toast hidden" role="alert" aria-live="polite">
+    <div class="update-toast-content">
+      <div class="update-toast-icon">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#10B981" stroke-width="2.2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+      </div>
+      <div class="update-toast-text">
+        <h4 id="update-toast-title" data-i18n="updateNotificationTitle" style="font-size: 0.9375rem; font-weight: 600; color: #E6EDF3; margin-bottom: 2px;">Nova Versão Disponível!</h4>
+        <p id="update-toast-desc" style="font-size: 0.8125rem; color: #8B949E; margin-bottom: 6px;"></p>
+        <div id="update-toast-notes" style="font-size: 0.75rem; color: #6E7681; max-height: 48px; overflow: hidden; text-overflow: ellipsis;"></div>
+      </div>
+    </div>
+    <div class="update-toast-actions">
+      <button class="btn-primary" id="btn-toast-update" data-i18n="btnUpdateNow">Atualizar Agora</button>
+      <button class="btn-secondary" id="btn-toast-dismiss" data-i18n="btnRemindLater">Lembrar Depois</button>
+    </div>
+  </aside>
 
   <!-- Web Component Footer Cesar Ovies -->
   <site-footer></site-footer>
@@ -297,3 +322,4 @@
   </script>
 </body>
 </html>
+

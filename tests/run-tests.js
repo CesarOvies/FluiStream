@@ -8,6 +8,7 @@ import { M3UParser, ItemType } from '../src/web/js/m3u-parser.js';
 import { EPGParser } from '../src/web/js/epg-parser.js';
 import { XtreamApi } from '../src/web/js/xtream-api.js';
 import { translations, SupportedLanguages } from '../src/web/js/localization.js';
+import { parseCleanVersion, isNewerVersion } from '../src/web/js/version.js';
 
 let totalTests = 0;
 let passedTests = 0;
@@ -112,6 +113,24 @@ test('Todos os 3 idiomas (pt-BR, en-US, es) devem possuir o mesmo conjunto de ch
   assert.deepEqual(ptKeys, esKeys, 'Chaves pt-BR e es devem ser idênticas');
 });
 
+console.log('\n--- 5. Testes do Auto-Update & Versioning ---');
+
+test('Deve fazer parse limpo de versão semântica', () => {
+  const v1 = parseCleanVersion('v1.2.3');
+  assert.deepEqual(v1, { major: 1, minor: 2, patch: 3 });
+
+  const v2 = parseCleanVersion('2.0.0-beta.1');
+  assert.deepEqual(v2, { major: 2, minor: 0, patch: 0 });
+});
+
+test('Deve detectar corretamente se há versão mais recente no Git', () => {
+  assert.equal(isNewerVersion('v1.0.1', '1.0.0'), true);
+  assert.equal(isNewerVersion('v1.1.0', '1.0.9'), true);
+  assert.equal(isNewerVersion('v2.0.0', '1.9.9'), true);
+  assert.equal(isNewerVersion('v1.0.0', '1.0.0'), false);
+  assert.equal(isNewerVersion('v0.9.8', '1.0.0'), false);
+});
+
 console.log(`\n========================================`);
 console.log(`Resultados dos Testes: ${passedTests}/${totalTests} passaram.`);
 console.log(`========================================\n`);
@@ -119,3 +138,4 @@ console.log(`========================================\n`);
 if (passedTests !== totalTests) {
   process.exit(1);
 }
+

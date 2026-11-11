@@ -16,3 +16,4 @@
 - Guia Eletrônico de Programação (EPG XMLTV) embutido (x-tvg-url) ou anexo externo.
 - Versão Web responsiva (PWA) e Versão Desktop Portable (.NET 10).
 - Documentação Técnica Completa: https://cesarovies.github.io/FluiStream/llms-full.txt
+
