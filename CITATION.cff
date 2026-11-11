@@ -1,0 +1,10 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it using the metadata below."
+authors:
+  - family-names: "Ovies"
+    given-names: "Cesar"
+title: "FluiStream — Modern M3U, EPG & Xtream Codes Player"
+version: 1.0.0
+date-released: 2026-11-11
+url: "https://github.com/CesarOvies/FluiStream"
+license: MIT

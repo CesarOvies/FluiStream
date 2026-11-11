@@ -1,0 +1,18 @@
+# FluiStream
+> Reprodutor moderno e fluido de listas M3U/M3U8 com EPG XMLTV e Xtream Codes API.
+
+## Informações Principais
+- Repositório: https://github.com/CesarOvies/FluiStream
+- Live Web App: https://cesarovies.github.io/FluiStream/
+- Autor: Cesar Ovies (https://github.com/CesarOvies)
+- Licença: MIT
+- Tecnologias: JavaScript (ES Modules), HTML5 Video, HLS.js, C# .NET 10, WebView2
+- Idiomas: Português (pt-BR), Inglês (en-US), Espanhol (es)
+- Execução: 100% User-Space (asInvoker), sem necessidade de instalação ou privilégios de Administrador.
+
+## Recursos
+- Categorização automática em: Ao Vivo (Live TV), Filmes (VOD) e Séries (com temporadas/episódios).
+- Importação por Arquivo Local (.m3u, .m3u8), URL direta ou Autenticação Xtream Codes API (player_api.php).
+- Guia Eletrônico de Programação (EPG XMLTV) embutido (x-tvg-url) ou anexo externo.
+- Versão Web responsiva (PWA) e Versão Desktop Portable (.NET 10).
+- Documentação Técnica Completa: https://cesarovies.github.io/FluiStream/llms-full.txt

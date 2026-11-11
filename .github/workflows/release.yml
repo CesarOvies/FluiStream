@@ -1,0 +1,67 @@
+name: Release Automation & Security Scan
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  build-release:
+    name: Build Multi-OS Portables & Defender Scan
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Run Tests
+        shell: pwsh
+        run: |
+          node tests/run-tests.js
+          dotnet test tests/desktop/iPlayerTV.Tests.csproj -c Release
+
+      - name: Compile Portables via build-all.ps1
+        shell: pwsh
+        run: |
+          ./build-all.ps1
+
+      - name: Generate Checksums
+        shell: pwsh
+        run: |
+          Get-FileHash -Path dist/* -Algorithm SHA256 | Format-List | Out-File -FilePath dist/SHA256SUMS.txt -Encoding utf8
+          Get-FileHash -Path dist/* -Algorithm SHA512 | Format-List | Out-File -FilePath dist/SHA512SUMS.txt -Encoding utf8
+
+      - name: Microsoft Defender Deep Scan
+        shell: pwsh
+        run: |
+          $defenderPath = "$env:ProgramFiles\Windows Defender\MpCmdRun.exe"
+          if (Test-Path $defenderPath) {
+            Write-Host "Running Microsoft Defender deep scan on dist folder..."
+            & $defenderPath -Scan -ScanType 3 -File "$pwd\dist"
+            if ($LASTEXITCODE -ne 0) {
+              Write-Error "Microsoft Defender scan detected threats or failed with code $LASTEXITCODE"
+              exit 1
+            }
+            Write-Host "Defender scan passed: 0 threats detected."
+          } else {
+            Write-Warning "MpCmdRun.exe not found on runner."
+          }
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*
+          generate_release_notes: true

@@ -1,0 +1,33 @@
+# Build results
+[Bb]in/
+[Oo]bj/
+dist/
+build/
+out/
+
+# Node / Web dependencies
+node_modules/
+.npm/
+
+# IDE & Editor files
+.vs/
+.vscode/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Operating System Files
+Thumbs.db
+ehthumbs.db
+[Dd]esktop.ini
+.DS_Store
+
+# Logs and temp files
+*.log
+*.tmp
+*.bak
+
+# WebView2 user data
+*.WebView2/
+EBWebView/

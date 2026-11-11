@@ -1,0 +1,28 @@
+# FluiStream — Especificação Técnica Completa
+
+## 1. Arquitetura
+FluiStream adota uma arquitetura híbrida de alto desempenho:
+1. **Core Web Player (Client-Side SPA / PWA)**:
+   - Parser M3U com classificação heurística inteligente.
+   - Parser EPG XMLTV com cálculo em tempo real de programas atuais e grade de horários.
+   - Connector Xtream Codes compatível com `player_api.php`, `get.php` e `xmltv.php`.
+   - Gerenciador de vídeo baseado em Hls.js e HTML5 Video com Picture-in-Picture, Fullscreen e controle de Aspect Ratio.
+   - Sistema de internacionalização (i18n) em 3 idiomas: pt-BR, en-US e es.
+2. **Desktop Portable (.NET 10 / User-Space)**:
+   - Executável independente compilado como Single-File (`win-x64`, `linux-x64`, `osx-arm64`).
+   - Manifest configurado como `asInvoker` (zero privilégios de Admin).
+   - Renderização via Microsoft Edge WebView2 acelerado por hardware sem restrições de CORS para streams IPTV remotos.
+   - DWM Dark Mode na janela do Windows 10/11.
+   - `UpdateService` com verificação de novas versões no GitHub Releases e script atômico de substituição.
+
+## 2. Modelos de Dados
+- **PlaylistItem**: `{ id, name, group, logo, url, duration, type: 'live' | 'movie' | 'series', seriesTitle, season, episode }`
+- **EpgProgram**: `{ title, desc, category, start: Date, stop: Date, progress: number, remainingMinutes: number }`
+- **XtreamCredentials**: `{ serverUrl, username, password, m3uUrl, epgUrl }`
+
+## 3. Segurança e Governança
+- Zero secrets no código cliente.
+- Isolamento de execução em User-Space (`%LOCALAPPDATA%`).
+- Gitflow estrito: `main` (apenas releases oficiais via PR) e `develop` (desenvolvimento contínuo).
+- Regra de Ouro 1: Proibido commit sem testes prévios validados.
+- Regra de Ouro 2: Proibido git push sem autorização explícita do usuário.

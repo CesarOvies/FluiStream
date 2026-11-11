@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://cesarovies.github.io/FluiStream/sitemap.xml
