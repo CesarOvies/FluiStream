@@ -4,6 +4,12 @@ on:
   push:
     tags:
       - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: 'Tag de versão (ex: v1.0.0)'
+        required: false
+        default: 'v1.0.0'
 
 permissions:
   contents: write
@@ -32,16 +38,10 @@ jobs:
           node tests/run-tests.js
           dotnet build src/desktop/FluiStream.Desktop.csproj -c Release --nologo
 
-      - name: Compile Portables via build-all.ps1
+      - name: Compile Multi-OS Portables via build-all.ps1
         shell: pwsh
         run: |
           ./build-all.ps1
-
-      - name: Generate Checksums
-        shell: pwsh
-        run: |
-          Get-FileHash -Path dist/* -Algorithm SHA256 | Format-List | Out-File -FilePath dist/SHA256SUMS.txt -Encoding utf8
-          Get-FileHash -Path dist/* -Algorithm SHA512 | Format-List | Out-File -FilePath dist/SHA512SUMS.txt -Encoding utf8
 
       - name: Microsoft Defender Deep Scan
         shell: pwsh
@@ -62,6 +62,7 @@ jobs:
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ github.ref_type == 'tag' && github.ref_name || inputs.tag_name || 'v1.0.0' }}
           files: |
             dist/*
           generate_release_notes: true

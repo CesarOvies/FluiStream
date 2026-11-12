@@ -1,16 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <OutputType>WinExe</OutputType>
-    <TargetFramework>net10.0-windows</TargetFramework>
+    <TargetFrameworks>net10.0-windows;net10.0</TargetFrameworks>
     <Nullable>enable</Nullable>
-    <UseWindowsForms>true</UseWindowsForms>
     <ImplicitUsings>enable</ImplicitUsings>
-    <ApplicationManifest>app.manifest</ApplicationManifest>
-    <ApplicationIcon>app.ico</ApplicationIcon>
-    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
-    <EnableWindowsTargeting>true</EnableWindowsTargeting>
-    <NoWarn>$(NoWarn);MSB3277</NoWarn>
     <AssemblyName>FluiStream</AssemblyName>
     <RootNamespace>FluiStream.Desktop</RootNamespace>
     <Version>1.0.0</Version>
@@ -19,10 +12,32 @@
     <Description>FluiStream — Reprodutor M3U, EPG &amp; Xtream Codes Portable</Description>
   </PropertyGroup>
 
-  <ItemGroup>
+  <!-- Windows Forms & WebView2 & LibVLC for Windows Target -->
+  <PropertyGroup Condition="'$(TargetFramework)' == 'net10.0-windows'">
+    <OutputType>WinExe</OutputType>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>app.ico</ApplicationIcon>
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <DefineConstants>$(DefineConstants);WINDOWS</DefineConstants>
+    <NoWarn>$(NoWarn);MSB3277</NoWarn>
+  </PropertyGroup>
+
+  <!-- Cross-Platform CLI / Local Host for Linux & macOS Target -->
+  <PropertyGroup Condition="'$(TargetFramework)' == 'net10.0'">
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(TargetFramework)' == 'net10.0-windows'">
     <PackageReference Include="LibVLCSharp.WinForms" Version="3.10.2" />
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.3124.44" />
     <PackageReference Include="VideoLAN.LibVLC.Windows" Version="3.0.24" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(TargetFramework)' != 'net10.0-windows'">
+    <Compile Remove="MainForm.cs" />
+    <Compile Remove="NativeBridge.cs" />
   </ItemGroup>
 
   <ItemGroup>
