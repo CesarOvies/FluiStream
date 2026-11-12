@@ -764,18 +764,39 @@ class FluiStreamApp {
 
   async checkAppUpdates(isManual = false) {
     if (isManual && this.dom.settingsUpdateStatus) {
-      this.dom.settingsUpdateStatus.textContent = i18n.get('statusParsingM3u') || 'Verificando...';
+      this.dom.settingsUpdateStatus.textContent = i18n.get('updateChecking');
     }
 
     const info = await UpdateChecker.checkForUpdates();
-    if (info.hasUpdate) {
+    const hasUpdate = Boolean(info?.available || info?.hasUpdate);
+    if (hasUpdate) {
+      const notifTitle = i18n.get('updateNotificationTitle');
+      const notifBody = i18n.get('updateNotificationBody', {
+        latest: info.latestVersion,
+        current: info.currentVersion
+      });
+
+      if (window.androidBridge?.notifyUpdateAvailable && info.apkDownloadUrl) {
+        try {
+          window.androidBridge.notifyUpdateAvailable(
+            info.latestVersion,
+            notifTitle,
+            notifBody,
+            info.releaseNotes || '',
+            info.apkDownloadUrl,
+            info.apkAssetName || '',
+            info.sha256SumsUrl || '',
+            info.releaseUrl || ''
+          );
+        } catch {
+          // Non-fatal if bridge call fails
+        }
+      }
+
       if (this.dom.updateToast) {
         this.dom.updateToast.classList.remove('hidden');
         if (this.dom.updateToastDesc) {
-          this.dom.updateToastDesc.textContent = i18n.get('updateNotificationBody', {
-            latest: info.latestVersion,
-            current: info.currentVersion
-          });
+          this.dom.updateToastDesc.textContent = notifBody;
         }
         if (this.dom.updateToastNotes && info.releaseNotes) {
           this.dom.updateToastNotes.textContent = info.releaseNotes;
@@ -789,6 +810,27 @@ class FluiStreamApp {
 
         if (this.dom.btnToastUpdate) {
           this.dom.btnToastUpdate.onclick = () => {
+            if (window.androidBridge?.requestAppUpdate && info.apkDownloadUrl) {
+              this.dom.updateToast.classList.add('hidden');
+              window.androidBridge.requestAppUpdate(
+                info.latestVersion,
+                info.releaseNotes || '',
+                info.apkDownloadUrl,
+                info.apkAssetName || '',
+                info.sha256SumsUrl || '',
+                info.releaseUrl || ''
+              );
+              return;
+            }
+            if (window.chrome?.webview && info.downloadUrl) {
+              this.dom.updateToast.classList.add('hidden');
+              window.chrome.webview.postMessage({
+                type: 'START_UPDATE',
+                version: info.latestVersion,
+                downloadUrl: info.downloadUrl
+              });
+              return;
+            }
             if (info.releaseUrl) {
               window.open(info.releaseUrl, '_blank', 'noopener,noreferrer');
             }
@@ -797,10 +839,7 @@ class FluiStreamApp {
       }
 
       if (isManual && this.dom.settingsUpdateStatus) {
-        this.dom.settingsUpdateStatus.textContent = i18n.get('updateNotificationBody', {
-          latest: info.latestVersion,
-          current: info.currentVersion
-        });
+        this.dom.settingsUpdateStatus.textContent = notifBody;
       }
     } else {
       if (isManual && this.dom.settingsUpdateStatus) {
