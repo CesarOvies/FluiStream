@@ -117,7 +117,7 @@ await test('Todos os 3 idiomas (pt-BR, en-US, es) devem possuir o mesmo conjunto
   const enKeys = Object.keys(translations['en-US']).sort();
   const esKeys = Object.keys(translations['es']).sort();
 
-  assert.equal(ptKeys.length, 230, `Esperado exatamente 230 chaves i18n em pt-BR, obtido ${ptKeys.length}`);
+  assert.equal(ptKeys.length, 242, `Esperado exatamente 242 chaves i18n em pt-BR, obtido ${ptKeys.length}`);
   assert.deepEqual(ptKeys, enKeys, 'Chaves pt-BR e en-US devem ser idênticas');
   assert.deepEqual(ptKeys, esKeys, 'Chaves pt-BR e es devem ser idênticas');
 
@@ -922,6 +922,38 @@ await test('Mute icon, volume bar, pause central, botões de cabeçalho e Format
   assert.match(appJs, /syncVolumeUi\(/);
   assert.match(appJs, /addEventListener\('volumechange'/);
   assert.match(appJs, /openStreamFormatSubModal\(/);
+});
+
+await test('Histórico limitado e limpeza, Teste de Velocidade real e Update apenas em Notificações', async () => {
+  await withMockLocalStorage(async () => {
+    const svc = new StorageService();
+    svc.saveSettings({ historyLimit: 5 });
+    for (let i = 1; i <= 8; i++) {
+      svc.addRecent({ id: `ch_${i}`, name: `Canal ${i}`, url: `http://ex.com/${i}.m3u8`, type: 'live' });
+    }
+    assert.equal(svc.getRecents().length, 5, 'Deve respeitar limite de histórico configurado');
+    svc.saveWatchProgress('ch_1', 60, 120);
+    svc.clearRecents(true);
+    assert.equal(svc.getRecents().length, 0, 'clearRecents() deve limpar todo o histórico');
+    assert.equal(svc.getWatchProgress('ch_1'), null, 'clearRecents(true) deve limpar progresso salvo');
+  });
+
+  for (const lang of ['pt-BR', 'en-US', 'es']) {
+    assert.ok(translations[lang].speedTestResult.includes('{mbps}'), `${lang}.speedTestResult deve interpolar {mbps}`);
+    assert.ok(translations[lang].speedTestResult.includes('{ms}'), `${lang}.speedTestResult deve interpolar {ms}`);
+  }
+
+  const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+  const html = readFileSync(resolve(rootDir, 'src/web/index.html'), 'utf-8');
+  const appJs = readFileSync(resolve(rootDir, 'src/web/js/app.js'), 'utf-8');
+  const mainFormCs = readFileSync(resolve(rootDir, 'src/desktop/MainForm.cs'), 'utf-8');
+
+  assert.match(html, /id="settings-history-limit-select"/);
+  assert.match(html, /id="btn-clear-history"/);
+  assert.equal(html.includes('id="update-toast"'), false, 'Não deve renderizar popup flutuante de atualização');
+  assert.match(appJs, /runFreeSpeedTest\(/);
+  assert.match(appJs, /notifyHostUpdateAvailable\(/);
+  assert.match(mainFormCs, /DispatchPendingUpdateNotification/);
 });
 
 console.log(`\n========================================`);

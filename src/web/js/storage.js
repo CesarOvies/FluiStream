@@ -313,11 +313,19 @@ export class StorageService {
   }
 
   // --- RECENTES ---
+  getHistoryLimit() {
+    const raw = parseInt(this.getSettings()?.historyLimit, 10);
+    return Number.isFinite(raw) ? Math.max(1, Math.min(500, raw)) : 30;
+  }
+
   getRecents() {
     try {
       const activeId = this.getActiveProfileId() || 'default';
       const data = localStorage.getItem(`fluistream_recents_${activeId}`) || localStorage.getItem('fluistream_recents');
-      return data ? JSON.parse(data) : [];
+      const list = data ? JSON.parse(data) : [];
+      if (!Array.isArray(list)) return [];
+      const limit = this.getHistoryLimit();
+      return list.slice(0, limit);
     } catch {
       return [];
     }
@@ -327,7 +335,11 @@ export class StorageService {
     if (!item || !item.url) return;
     try {
       const activeId = this.getActiveProfileId() || 'default';
-      let recents = this.getRecents();
+      const limit = this.getHistoryLimit();
+      const raw = localStorage.getItem(`fluistream_recents_${activeId}`) || localStorage.getItem('fluistream_recents');
+      let recents = [];
+      try { recents = raw ? JSON.parse(raw) : []; } catch { recents = []; }
+      if (!Array.isArray(recents)) recents = [];
       recents = recents.filter(x => x.url !== item.url);
       recents.unshift({
         id: item.id,
@@ -338,8 +350,32 @@ export class StorageService {
         url: item.url,
         playedAt: Date.now()
       });
-      if (recents.length > 30) recents = recents.slice(0, 30);
+      if (recents.length > limit) recents = recents.slice(0, limit);
       localStorage.setItem(`fluistream_recents_${activeId}`, JSON.stringify(recents));
+    } catch {
+      // Ignore
+    }
+  }
+
+  clearRecents(includeProgress = true) {
+    try {
+      const activeId = this.getActiveProfileId() || 'default';
+      localStorage.removeItem(`fluistream_recents_${activeId}`);
+      localStorage.removeItem('fluistream_recents');
+      if (includeProgress && typeof localStorage !== 'undefined') {
+        const keys = [];
+        if (typeof localStorage.length === 'number' && typeof localStorage.key === 'function') {
+          for (let i = 0; i < localStorage.length; i++) {
+            const k = localStorage.key(i);
+            if (k && k.startsWith('fluistream_watch_progress_')) keys.push(k);
+          }
+        } else {
+          for (const k of Object.keys(localStorage)) {
+            if (k.startsWith('fluistream_watch_progress_')) keys.push(k);
+          }
+        }
+        for (const k of keys) localStorage.removeItem(k);
+      }
     } catch {
       // Ignore
     }
@@ -450,12 +486,14 @@ export class StorageService {
       autoRefresh: false,
       autoPlayNext: true,
       epgTimeshift: 0,
+      historyLimit: 30,
       parentalPinHash: ''
     };
     try {
       const activeProfile = this.getActiveProfile();
       const globalData = localStorage.getItem('fluistream_settings');
       const globalCfg = globalData ? JSON.parse(globalData) : {};
+      const parsedLimit = parseInt(globalCfg.historyLimit, 10);
 
       return {
         corsProxy: activeProfile?.corsProxy ?? globalCfg.corsProxy ?? defaults.corsProxy,
@@ -469,6 +507,7 @@ export class StorageService {
         autoRefresh: globalCfg.autoRefresh ?? defaults.autoRefresh,
         autoPlayNext: globalCfg.autoPlayNext ?? defaults.autoPlayNext,
         epgTimeshift: globalCfg.epgTimeshift ?? defaults.epgTimeshift,
+        historyLimit: Number.isFinite(parsedLimit) ? Math.max(1, Math.min(500, parsedLimit)) : defaults.historyLimit,
         parentalPinHash: globalCfg.parentalPinHash ?? defaults.parentalPinHash
       };
     } catch {
@@ -479,7 +518,23 @@ export class StorageService {
   saveSettings(settings) {
     try {
       const merged = { ...this.getSettings(), ...(settings || {}) };
+      if (merged.historyLimit !== undefined) {
+        const n = parseInt(merged.historyLimit, 10);
+        merged.historyLimit = Number.isFinite(n) ? Math.max(1, Math.min(500, n)) : 30;
+      }
       localStorage.setItem('fluistream_settings', JSON.stringify(merged));
+      if (settings?.historyLimit !== undefined) {
+        const activeId = this.getActiveProfileId() || 'default';
+        const raw = localStorage.getItem(`fluistream_recents_${activeId}`);
+        if (raw) {
+          try {
+            const list = JSON.parse(raw);
+            if (Array.isArray(list) && list.length > merged.historyLimit) {
+              localStorage.setItem(`fluistream_recents_${activeId}`, JSON.stringify(list.slice(0, merged.historyLimit)));
+            }
+          } catch {}
+        }
+      }
       // Se há perfil ativo, sincroniza configurações individuais do perfil
       const activeProfile = this.getActiveProfile();
       if (activeProfile) {

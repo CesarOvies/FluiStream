@@ -248,7 +248,10 @@
         <aside class="home-featured-panel" id="home-featured-panel">
           <div class="home-featured-header">
             <h3 data-i18n="homeFeatured">Destaques &amp; Recentes</h3>
-            <button class="btn-secondary" id="btn-home-history" style="font-size: 0.74rem; padding: 0.25rem 0.6rem;" data-i18n="sidebarHistory">HISTÓRICO</button>
+            <div style="display: flex; align-items: center; gap: 0.4rem;">
+              <button class="btn-secondary hidden" id="btn-home-clear-history" style="font-size: 0.72rem; padding: 0.25rem 0.55rem; color: var(--accent-amber); border-color: rgba(245, 158, 11, 0.4);" data-i18n="btnClearHistory">Limpar</button>
+              <button class="btn-secondary" id="btn-home-history" style="font-size: 0.74rem; padding: 0.25rem 0.6rem;" data-i18n="sidebarHistory">HISTÓRICO</button>
+            </div>
           </div>
           <div class="home-featured-list" id="home-featured-list"></div>
         </aside>
@@ -289,11 +292,14 @@
             </div>
             <div class="sidebar-items-toolbar hidden" id="sidebar-items-toolbar">
               <span id="items-count-badge" class="help-text"></span>
-              <select class="select-custom" id="select-sort-items" aria-label="Sort">
-                <option value="default">Default</option>
-                <option value="alpha" data-i18n="sortAlpha">A-Z</option>
-                <option value="recent" data-i18n="sortRecent">Recentes</option>
-              </select>
+              <div style="display: flex; align-items: center; gap: 0.35rem;">
+                <button type="button" class="btn-secondary hidden" id="btn-sidebar-clear-history" style="font-size: 0.7rem; padding: 0.2rem 0.45rem; color: var(--accent-amber); border-color: rgba(245, 158, 11, 0.4);" data-i18n="btnClearHistory">Limpar</button>
+                <select class="select-custom" id="select-sort-items" aria-label="Sort">
+                  <option value="default">Default</option>
+                  <option value="alpha" data-i18n="sortAlpha">A-Z</option>
+                  <option value="recent" data-i18n="sortRecent">Recentes</option>
+                </select>
+              </div>
             </div>
           </div>
 
@@ -521,7 +527,7 @@
           <div class="settings-tile-icon">🚀</div>
           <div class="settings-tile-info">
             <h4 data-i18n="settingsSpeedTest">Teste de Velocidade</h4>
-            <span data-i18n="speedTestRun">Latência &amp; Mbps</span>
+            <span id="tile-speedtest-sub" data-i18n="speedTestRun">Latência &amp; Mbps</span>
           </div>
         </button>
 
@@ -742,6 +748,19 @@
           <p class="help-text" data-i18n="settingsPlayerEngineHelp"></p>
         </div>
 
+        <div class="form-group">
+          <label for="settings-history-limit-select" data-i18n="settingsHistoryLimit">Limite do Histórico de Visualizações</label>
+          <select id="settings-history-limit-select" class="form-control">
+            <option value="5">5</option>
+            <option value="10">10</option>
+            <option value="20">20</option>
+            <option value="30">30</option>
+            <option value="50">50</option>
+            <option value="100">100</option>
+          </select>
+          <p class="help-text" data-i18n="settingsHistoryLimitHelp"></p>
+        </div>
+
         <details class="advanced-debug-details" id="settings-advanced-details">
           <summary data-i18n="settingsAdvancedDebug">Avançado / Depuração (Web CORS)</summary>
           <div class="advanced-debug-body" style="display: flex; flex-direction: column; gap: 0.7rem;">
@@ -762,7 +781,11 @@
             <button class="btn-secondary" id="btn-check-updates-manual" data-i18n="btnCheckUpdates">Verificar Atualizações</button>
           </div>
           <div id="settings-update-status" style="font-size: 0.81rem; color: var(--accent-blue);"></div>
-          <button class="btn-secondary" id="btn-clear-all-data" style="color: var(--error-red); border-color: var(--error-red); align-self: flex-start;" data-i18n="settingsClearData">Limpar Todos os Dados Salvos</button>
+          <div style="display: flex; gap: 0.6rem; flex-wrap: wrap; align-items: center;">
+            <button type="button" class="btn-secondary" id="btn-clear-history" style="color: var(--accent-amber); border-color: var(--accent-amber);" data-i18n="settingsClearHistory">Limpar Histórico de Visualizações</button>
+            <button type="button" class="btn-secondary" id="btn-clear-all-data" style="color: var(--error-red); border-color: var(--error-red);" data-i18n="settingsClearData">Limpar Todos os Dados Salvos</button>
+          </div>
+          <div id="settings-history-status" style="font-size: 0.81rem; color: var(--accent-green);"></div>
         </div>
       </div>
       <div class="modal-footer">
@@ -1104,24 +1127,6 @@
       </div>
     </div>
   </div>
-
-  <!-- Toast Flutuante de Auto-Atualização -->
-  <aside id="update-toast" class="update-toast hidden" role="alert" aria-live="polite">
-    <div class="update-toast-content">
-      <div class="update-toast-icon">
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#10B981" stroke-width="2.2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-      </div>
-      <div class="update-toast-text">
-        <h4 id="update-toast-title" data-i18n="updateNotificationTitle" style="font-size: 0.9375rem; font-weight: 600; color: var(--text-primary); margin-bottom: 2px;">Nova Versão Disponível!</h4>
-        <p id="update-toast-desc" style="font-size: 0.8125rem; color: var(--text-secondary); margin-bottom: 6px;"></p>
-        <div id="update-toast-notes" style="font-size: 0.75rem; color: var(--text-muted); max-height: 48px; overflow: hidden; text-overflow: ellipsis;"></div>
-      </div>
-    </div>
-    <div class="update-toast-actions">
-      <button class="btn-primary" id="btn-toast-update" data-i18n="btnUpdateNow">Atualizar Agora</button>
-      <button class="btn-secondary" id="btn-toast-dismiss" data-i18n="btnRemindLater">Lembrar Depois</button>
-    </div>
-  </aside>
 
   <!-- Web Component Footer Cesar Ovies -->
   <site-footer id="site-footer"></site-footer>

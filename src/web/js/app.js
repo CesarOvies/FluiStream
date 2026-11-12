@@ -12,7 +12,7 @@ import { XtreamApi } from './xtream-api.js';
 import { storage } from './storage.js';
 import { VideoPlayerController, MultiScreenController } from './player.js';
 import { fetchRemoteText } from './network.js';
-import { UpdateChecker } from './version.js';
+import { UpdateChecker, APP_VERSION } from './version.js';
 
 const PARENTAL_CATEGORY_RE = /(?:adult|xxx|18\+|\+18|porn|erotic|sexy|hentai|nsfw)/i;
 
@@ -154,6 +154,7 @@ class FluiStreamApp {
       homeCountFav: document.getElementById('home-count-fav'),
       homeFeaturedList: document.getElementById('home-featured-list'),
       btnHomeHistory: document.getElementById('btn-home-history'),
+      btnHomeClearHistory: document.getElementById('btn-home-clear-history'),
       homeExpProfile: document.getElementById('home-exp-profile'),
       homeExpStatus: document.getElementById('home-exp-status'),
       homeExpDate: document.getElementById('home-exp-date'),
@@ -168,6 +169,7 @@ class FluiStreamApp {
       btnToggleSidebarMobile: document.getElementById('btn-toggle-sidebar-mobile'),
       sidebarCategorySearch: document.getElementById('sidebar-category-search'),
       sidebarItemsToolbar: document.getElementById('sidebar-items-toolbar'),
+      btnSidebarClearHistory: document.getElementById('btn-sidebar-clear-history'),
       sidebarCategoryList: document.getElementById('sidebar-category-list'),
       selectSortItems: document.getElementById('select-sort-items'),
       itemCountBadge: document.getElementById('items-count-badge'),
@@ -235,6 +237,7 @@ class FluiStreamApp {
       tileStreamFormatSub: document.getElementById('tile-stream-format-sub'),
       tileParentalSub: document.getElementById('tile-parental-sub'),
       tileDeviceModeSub: document.getElementById('tile-device-mode-sub'),
+      tileSpeedtestSub: document.getElementById('tile-speedtest-sub'),
       modalSettings: document.getElementById('modal-settings'),
       modalSettingsTitle: document.getElementById('modal-settings-title'),
       btnCloseSettings: document.getElementById('btn-close-settings'),
@@ -244,7 +247,10 @@ class FluiStreamApp {
       btnUseLocalProxy: document.getElementById('btn-use-local-proxy'),
       localProxyDetectStatus: document.getElementById('local-proxy-detect-status'),
       settingsPlayerEngineSelect: document.getElementById('settings-player-engine-select'),
+      settingsHistoryLimitSelect: document.getElementById('settings-history-limit-select'),
       btnSaveSettings: document.getElementById('btn-save-settings'),
+      btnClearHistory: document.getElementById('btn-clear-history'),
+      settingsHistoryStatus: document.getElementById('settings-history-status'),
       btnClearAllData: document.getElementById('btn-clear-all-data'),
       btnCheckUpdatesManual: document.getElementById('btn-check-updates-manual'),
       settingsUpdateStatus: document.getElementById('settings-update-status'),
@@ -382,14 +388,7 @@ class FluiStreamApp {
       seasonsPopup: document.getElementById('seasons-popup'),
       btnCloseSeasonsPopup: document.getElementById('btn-close-seasons-popup'),
       seasonsPopupList: document.getElementById('seasons-popup-list'),
-      seriesEpisodesContainer: document.getElementById('series-episodes-container'),
-
-      // Update Toast
-      updateToast: document.getElementById('update-toast'),
-      updateToastDesc: document.getElementById('update-toast-desc'),
-      updateToastNotes: document.getElementById('update-toast-notes'),
-      btnToastUpdate: document.getElementById('btn-toast-update'),
-      btnToastDismiss: document.getElementById('btn-toast-dismiss')
+      seriesEpisodesContainer: document.getElementById('series-episodes-container')
     };
   }
 
@@ -788,6 +787,12 @@ class FluiStreamApp {
     if (this.dom.btnHomeHistory) {
       this.dom.btnHomeHistory.addEventListener('click', () => this.openBrowseView('history'));
     }
+    if (this.dom.btnHomeClearHistory) {
+      this.dom.btnHomeClearHistory.addEventListener('click', () => this.clearWatchHistory(true));
+    }
+    if (this.dom.btnSidebarClearHistory) {
+      this.dom.btnSidebarClearHistory.addEventListener('click', () => this.clearWatchHistory(true));
+    }
     if (this.dom.btnHomeAccountInfo) {
       this.dom.btnHomeAccountInfo.addEventListener('click', () => this.openAccountModal());
     }
@@ -1042,9 +1047,21 @@ class FluiStreamApp {
             cfg.playerEngine = this.dom.settingsPlayerEngineSelect.value;
           }
         }
+        if (this.dom.settingsHistoryLimitSelect) {
+          cfg.historyLimit = parseInt(this.dom.settingsHistoryLimitSelect.value, 10) || 30;
+        }
         storage.saveSettings(cfg);
         this.closeModal(this.dom.modalSettings);
+        if (this.activeScreen === 'home') this.renderHomeHub();
+        if (this.activeScreen === 'browse') this.renderSidebarPanel();
         if (this.currentPlayingItem) this.playChannel(this.currentPlayingItem);
+      });
+    }
+    if (this.dom.btnClearHistory) {
+      this.dom.btnClearHistory.addEventListener('click', () => {
+        if (this.clearWatchHistory(true) && this.dom.settingsHistoryStatus) {
+          this.dom.settingsHistoryStatus.textContent = i18n.get('historyCleared');
+        }
       });
     }
     if (this.dom.btnClearAllData) {
@@ -1374,7 +1391,10 @@ class FluiStreamApp {
     // Featured / Recents + Continue Watching
     if (this.dom.homeFeaturedList) {
       const recents = storage.getRecents();
-      const list = recents.length > 0 ? recents.slice(0, 8) : this.playlist.items.slice(0, 8);
+      if (this.dom.btnHomeClearHistory) {
+        this.dom.btnHomeClearHistory.classList.toggle('hidden', recents.length === 0);
+      }
+      const list = recents.length > 0 ? recents.slice(0, storage.getHistoryLimit()) : this.playlist.items.slice(0, 8);
       if (list.length === 0) {
         this.dom.homeFeaturedList.innerHTML = `<p style="color: var(--text-secondary); font-size: 0.84rem; text-align: center; padding: 2rem 0;">${i18n.get('emptyHistory')}</p>`;
       } else {
@@ -1483,6 +1503,12 @@ class FluiStreamApp {
     this.dom.playerSection?.classList.remove('hidden');
     this.dom.playerIdleOverlay?.classList.toggle('hidden', playing);
     this.dom.sidebarItemsToolbar?.classList.toggle('hidden', !inItemsMode);
+    if (this.dom.btnSidebarClearHistory) {
+      const showSidebarClear = inItemsMode
+        && (this.selectedGroup === '__history__' || this.currentView === 'history')
+        && storage.getRecents().length > 0;
+      this.dom.btnSidebarClearHistory.classList.toggle('hidden', !showSidebarClear);
+    }
     if (!inItemsMode) this.dom.loadMoreWrap?.classList.add('hidden');
 
     if (this.dom.splitSidebarTitle) {
@@ -1815,6 +1841,17 @@ class FluiStreamApp {
     const cfg = storage.getSettings();
     if (this.dom.corsInput) this.dom.corsInput.value = cfg.corsProxy || '';
     if (this.dom.settingsAdvancedDetails) this.dom.settingsAdvancedDetails.open = Boolean(openAdvanced);
+    if (this.dom.settingsHistoryStatus) this.dom.settingsHistoryStatus.textContent = '';
+    if (this.dom.settingsHistoryLimitSelect) {
+      const limitStr = String(cfg.historyLimit || 30);
+      if (![...this.dom.settingsHistoryLimitSelect.options].some(o => o.value === limitStr)) {
+        const opt = document.createElement('option');
+        opt.value = limitStr;
+        opt.textContent = limitStr;
+        this.dom.settingsHistoryLimitSelect.appendChild(opt);
+      }
+      this.dom.settingsHistoryLimitSelect.value = limitStr;
+    }
     if (this.dom.settingsPlayerEngineSelect) {
       const isDesktop = Boolean(window.chrome?.webview);
       const vlcOpt = this.dom.settingsPlayerEngineSelect.querySelector('option[value="vlc"]');
@@ -1826,6 +1863,17 @@ class FluiStreamApp {
     }
     this.openModal(this.dom.modalSettings);
     if (!this.isNativeApp()) this.detectLocalProxy();
+  }
+
+  clearWatchHistory(askConfirm = true) {
+    if (askConfirm && !confirm(i18n.get('clearHistoryConfirm'))) return false;
+    storage.clearRecents(true);
+    if (this.activeScreen === 'home') this.renderHomeHub();
+    if (this.activeScreen === 'browse') {
+      this.syncBrowseViewLayout();
+      this.renderSidebarPanel();
+    }
+    return true;
   }
 
   handleSettingsTileClick(tileId) {
@@ -2047,41 +2095,172 @@ class FluiStreamApp {
     this.dom.modalSettingsSubTitle.textContent = i18n.get('settingsSpeedTest');
     this.dom.modalSettingsSubFooter.classList.add('hidden');
     this.dom.modalSettingsSubBody.innerHTML = `
-      <div style="display: flex; flex-direction: column; gap: 1rem; align-items: center; text-align: center; padding: 1rem 0;">
+      <div class="speedtest-panel">
+        <div class="speedtest-gauge-value"><span id="speedtest-mbps-val">--</span><span class="speedtest-gauge-unit">Mbps</span></div>
+        <div class="speedtest-progress-track"><div class="speedtest-progress-fill" id="speedtest-progress-fill"></div></div>
+        <div class="speedtest-stats-grid">
+          <div class="speedtest-stat-card">
+            <span class="speedtest-stat-label">${this.escapeHtml(i18n.get('speedTestPingLabel'))}</span>
+            <span class="speedtest-stat-val" id="speedtest-ping-val">--</span>
+          </div>
+          <div class="speedtest-stat-card">
+            <span class="speedtest-stat-label">${this.escapeHtml(i18n.get('speedTestJitterLabel'))}</span>
+            <span class="speedtest-stat-val" id="speedtest-jitter-val">--</span>
+          </div>
+          <div class="speedtest-stat-card">
+            <span class="speedtest-stat-label">${this.escapeHtml(i18n.get('speedTestQualityLabel'))}</span>
+            <span class="speedtest-stat-val" id="speedtest-quality-val">--</span>
+          </div>
+        </div>
         <button class="btn-amber" id="btn-run-speedtest">${this.escapeHtml(i18n.get('speedTestRun'))}</button>
-        <div id="speedtest-output" style="font-size: 0.95rem; color: var(--text-secondary);">--</div>
+        <div id="speedtest-output" style="font-size: 0.85rem; color: var(--text-secondary);">${this.escapeHtml(i18n.get('speedTestIdle'))}</div>
       </div>
     `;
     const runBtn = document.getElementById('btn-run-speedtest');
+    const mbpsEl = document.getElementById('speedtest-mbps-val');
+    const pingEl = document.getElementById('speedtest-ping-val');
+    const jitterEl = document.getElementById('speedtest-jitter-val');
+    const qualityEl = document.getElementById('speedtest-quality-val');
+    const fillEl = document.getElementById('speedtest-progress-fill');
     const out = document.getElementById('speedtest-output');
+
     if (runBtn && out) {
       runBtn.onclick = async () => {
         runBtn.disabled = true;
         out.textContent = i18n.get('speedTestRunning');
-        try {
-          const pingStart = performance.now();
-          await fetch(`assets/icon-512.png?t=${Date.now()}`, { cache: 'no-store' });
-          const latency = Math.max(1, Math.round(performance.now() - pingStart));
+        if (fillEl) fillEl.style.width = '8%';
+        if (mbpsEl) mbpsEl.textContent = '--';
+        if (pingEl) pingEl.textContent = '--';
+        if (jitterEl) jitterEl.textContent = '--';
+        if (qualityEl) qualityEl.textContent = '--';
 
-          const dlStart = performance.now();
-          const res = await fetch(`https://speed.cloudflare.com/__down?bytes=2000000`, { cache: 'no-store' });
-          const buf = await res.arrayBuffer();
-          const sec = Math.max(0.05, (performance.now() - dlStart) / 1000);
-          const mbps = ((buf.byteLength * 8) / sec / 1_000_000).toFixed(2);
-          out.innerHTML = `<strong style="color: var(--accent-green);">${this.escapeHtml(i18n.get('speedTestResult', { mbps, ms: latency }))}</strong>`;
+        try {
+          const result = await this.runFreeSpeedTest(({ phase, progressPct, mbps, pingMs, jitterMs }) => {
+            if (fillEl && typeof progressPct === 'number') fillEl.style.width = `${progressPct}%`;
+            if (pingEl && typeof pingMs === 'number') pingEl.textContent = `${pingMs} ms`;
+            if (jitterEl && typeof jitterMs === 'number') jitterEl.textContent = `${jitterMs} ms`;
+            if (mbpsEl && typeof mbps === 'number' && phase === 'download') mbpsEl.textContent = mbps.toFixed(1);
+          });
+
+          const mbpsFixed = result.mbps.toFixed(2);
+          if (mbpsEl) mbpsEl.textContent = result.mbps.toFixed(1);
+          if (pingEl) pingEl.textContent = `${result.pingMs} ms`;
+          if (jitterEl) jitterEl.textContent = `${result.jitterMs} ms`;
+          if (qualityEl) qualityEl.textContent = result.quality;
+          if (fillEl) fillEl.style.width = '100%';
+          out.innerHTML = `<strong style="color: var(--accent-green);">${this.escapeHtml(i18n.get('speedTestResult', { mbps: mbpsFixed, ms: result.pingMs }))}</strong>`;
+          if (this.dom.tileSpeedtestSub) {
+            this.dom.tileSpeedtestSub.textContent = `${result.mbps.toFixed(1)} Mbps • ${result.pingMs} ms`;
+          }
+          runBtn.textContent = i18n.get('speedTestRetry');
         } catch {
-          const t0 = performance.now();
-          const res = await fetch(`assets/icon-512.png?cb=${Date.now()}`, { cache: 'no-store' }).catch(() => null);
-          const buf = res ? await res.arrayBuffer() : new ArrayBuffer(0);
-          const ms = Math.max(1, Math.round(performance.now() - t0));
-          const mbps = buf.byteLength > 0 ? ((buf.byteLength * 8) / (ms / 1000) / 1_000_000).toFixed(2) : '0.00';
-          out.textContent = i18n.get('speedTestResult', { mbps, ms });
+          if (fillEl) fillEl.style.width = '0%';
+          out.innerHTML = `<span style="color: var(--error-red);">${this.escapeHtml(i18n.get('speedTestError'))}</span>`;
+          runBtn.textContent = i18n.get('speedTestRetry');
         } finally {
           runBtn.disabled = false;
         }
       };
     }
     this.openModal(this.dom.modalSettingsSub);
+  }
+
+  async runFreeSpeedTest(onProgress = null) {
+    const timedFetch = async (url, timeoutMs = 9000) => {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
+      try {
+        return await fetch(url, { cache: 'no-store', signal: controller.signal });
+      } finally {
+        clearTimeout(timer);
+      }
+    };
+
+    const pingEndpoints = [
+      () => `https://speed.cloudflare.com/__down?bytes=0&cb=${Date.now()}_${Math.random()}`,
+      () => `https://cdn.jsdelivr.net/npm/hls.js@1.5.17/package.json?cb=${Date.now()}_${Math.random()}`
+    ];
+
+    const pings = [];
+    for (const makeUrl of pingEndpoints) {
+      try {
+        await timedFetch(makeUrl(), 5000); // Warm-up TLS/DNS
+        for (let i = 0; i < 3; i++) {
+          const t0 = performance.now();
+          const r = await timedFetch(makeUrl(), 5000);
+          if (!r.ok) throw new Error(`HTTP ${r.status}`);
+          pings.push(Math.max(1, Math.round(performance.now() - t0)));
+        }
+        break;
+      } catch {
+        pings.length = 0;
+      }
+    }
+
+    if (pings.length === 0) throw new Error('Ping unreachable');
+    const sortedPings = [...pings].sort((a, b) => a - b);
+    const pingMs = sortedPings[Math.floor(sortedPings.length / 2)];
+    let jitterSum = 0;
+    for (let i = 1; i < pings.length; i++) jitterSum += Math.abs(pings[i] - pings[i - 1]);
+    const jitterMs = pings.length > 1 ? Math.round(jitterSum / (pings.length - 1)) : 0;
+    onProgress?.({ phase: 'ping', progressPct: 28, pingMs, jitterMs });
+
+    const downloadEndpoints = [
+      () => `https://speed.cloudflare.com/__down?bytes=5000000&cb=${Date.now()}`,
+      () => `https://speed.cloudflare.com/__down?bytes=2000000&cb=${Date.now()}`,
+      () => `https://cdn.jsdelivr.net/npm/hls.js@1.5.17/dist/hls.min.js?cb=${Date.now()}`,
+      () => `https://cdnjs.cloudflare.com/ajax/libs/hls.js/1.5.17/hls.min.js?cb=${Date.now()}`
+    ];
+
+    let totalBytes = 0;
+    let elapsedSec = 0;
+    for (const makeUrl of downloadEndpoints) {
+      const controller = new AbortController();
+      const maxTimeTimer = setTimeout(() => controller.abort(), 8000);
+      const dlStart = performance.now();
+      let received = 0;
+      try {
+        const res = await fetch(makeUrl(), { cache: 'no-store', signal: controller.signal });
+        if (!res.ok) {
+          clearTimeout(maxTimeTimer);
+          continue;
+        }
+        const totalExpected = parseInt(res.headers.get('content-length') || '0', 10) || 5000000;
+        if (res.body && typeof res.body.getReader === 'function') {
+          const reader = res.body.getReader();
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            received += value ? value.byteLength : 0;
+            const dt = Math.max(0.05, (performance.now() - dlStart) / 1000);
+            const liveMbps = (received * 8) / dt / 1_000_000;
+            const pct = Math.min(95, 28 + Math.round((received / totalExpected) * 67));
+            onProgress?.({ phase: 'download', progressPct: pct, mbps: liveMbps, pingMs, jitterMs });
+          }
+        } else {
+          const buf = await res.arrayBuffer();
+          received = buf.byteLength;
+        }
+        clearTimeout(maxTimeTimer);
+        elapsedSec = Math.max(0.05, (performance.now() - dlStart) / 1000);
+        if (received > 0) {
+          totalBytes = received;
+          break;
+        }
+      } catch {
+        clearTimeout(maxTimeTimer);
+        elapsedSec = Math.max(0.05, (performance.now() - dlStart) / 1000);
+        if (received > 65536) {
+          totalBytes = received;
+          break;
+        }
+      }
+    }
+
+    if (totalBytes <= 0) throw new Error('Download unreachable');
+    const mbps = (totalBytes * 8) / elapsedSec / 1_000_000;
+    const quality = mbps >= 35 ? '4K UHD' : (mbps >= 15 ? 'Full HD' : (mbps >= 6 ? 'HD' : 'SD'));
+    return { mbps, pingMs, jitterMs, quality };
   }
 
   // =====================================================
@@ -2472,9 +2651,79 @@ class FluiStreamApp {
   // =====================================================
   // SCREEN 7: NOTIFICATIONS
   // =====================================================
-  addAppNotification(type, title, message) {
-    storage.addNotification({ type, title, message, read: false });
+  addAppNotification(type, title, message, meta = null) {
+    storage.addNotification({ type, title, message, meta, read: false });
     this.updateNotificationBadge();
+    if (this.activeScreen === 'notifications') this.renderNotifications();
+  }
+
+  addUpdateNotification(info) {
+    if (!info || !info.latestVersion) return;
+    const ver = String(info.latestVersion).replace(/^[vV]/, '');
+    const list = storage.getNotifications();
+    const existingIdx = list.findIndex(n => n.meta?.kind === 'app_update' && n.meta?.updateVersion === ver);
+    const body = i18n.get('updateNotificationBody', {
+      latest: ver,
+      current: info.currentVersion || APP_VERSION
+    });
+
+    const meta = {
+      kind: 'app_update',
+      updateVersion: ver,
+      downloadUrl: info.downloadUrl || null,
+      apkDownloadUrl: info.apkDownloadUrl || null,
+      apkAssetName: info.apkAssetName || '',
+      sha256SumsUrl: info.sha256SumsUrl || '',
+      releaseUrl: info.releaseUrl || 'https://github.com/CesarOvies/FluiStream/releases/latest',
+      releaseNotes: info.releaseNotes || ''
+    };
+
+    if (existingIdx >= 0) {
+      // Atualiza URLs/metadados sem duplicar o alerta no sino superior
+      list[existingIdx].meta = { ...list[existingIdx].meta, ...meta };
+      list[existingIdx].message = body;
+      try { localStorage.setItem('fluistream_notifications', JSON.stringify(list)); } catch {}
+      this.updateNotificationBadge();
+      if (this.activeScreen === 'notifications') this.renderNotifications();
+      return;
+    }
+
+    this.addAppNotification('info', i18n.get('notifUpdateTitle'), body, meta);
+  }
+
+  notifyHostUpdateAvailable(latestVersion, downloadUrl, releaseNotes = '') {
+    this.addUpdateNotification({
+      latestVersion,
+      currentVersion: i18n.get('settingsVersion')?.match(/\d+\.\d+\.\d+/)?.[0] || '',
+      downloadUrl,
+      releaseNotes
+    });
+  }
+
+  triggerAppUpdate(info) {
+    if (!info) return;
+    if (window.androidBridge?.requestAppUpdate && info.apkDownloadUrl) {
+      window.androidBridge.requestAppUpdate(
+        info.updateVersion || info.latestVersion || '',
+        info.releaseNotes || '',
+        info.apkDownloadUrl,
+        info.apkAssetName || '',
+        info.sha256SumsUrl || '',
+        info.releaseUrl || ''
+      );
+      return;
+    }
+    if (window.chrome?.webview && info.downloadUrl) {
+      window.chrome.webview.postMessage({
+        type: 'START_UPDATE',
+        version: info.updateVersion || info.latestVersion || '',
+        downloadUrl: info.downloadUrl
+      });
+      return;
+    }
+    if (info.releaseUrl) {
+      window.open(info.releaseUrl, '_blank', 'noopener,noreferrer');
+    }
   }
 
   updateNotificationBadge() {
@@ -2491,18 +2740,40 @@ class FluiStreamApp {
       this.dom.notificationsList.innerHTML = `<div class="notifications-empty">${this.escapeHtml(i18n.get('notificationsEmpty'))}</div>`;
       return;
     }
-    this.dom.notificationsList.innerHTML = list.map(n => {
+
+    let markedAny = false;
+    list.forEach(n => {
+      if (!n.read) { n.read = true; markedAny = true; }
+    });
+    if (markedAny) {
+      try { localStorage.setItem('fluistream_notifications', JSON.stringify(list)); } catch {}
+      this.updateNotificationBadge();
+    }
+
+    this.dom.notificationsList.innerHTML = list.map((n, idx) => {
       const dateStr = new Date(n.createdAt || Date.now()).toLocaleString(i18n.currentLanguage || 'pt-BR');
+      const isUpdate = n.meta?.kind === 'app_update';
       return `
         <div class="notification-card notif-${this.escapeHtml(n.type || 'info')}">
           <div>
             <strong style="display:block; font-size:0.9rem; color:var(--text-primary);">${this.escapeHtml(n.title)}</strong>
             <span style="font-size:0.82rem; color:var(--text-secondary);">${this.escapeHtml(n.message || '')}</span>
           </div>
-          <span class="help-text">${dateStr}</span>
+          <div class="notification-card-actions">
+            <span class="help-text">${dateStr}</span>
+            ${isUpdate ? `<button type="button" class="btn-amber btn-notif-update" data-notif-idx="${idx}" style="font-size:0.74rem; padding:0.28rem 0.65rem;">${this.escapeHtml(i18n.get('btnUpdateNow'))}</button>` : ''}
+          </div>
         </div>
       `;
     }).join('');
+
+    this.dom.notificationsList.querySelectorAll('.btn-notif-update').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const idx = parseInt(btn.getAttribute('data-notif-idx'), 10);
+        const target = list[idx];
+        if (target?.meta) this.triggerAppUpdate(target.meta);
+      });
+    });
   }
 
   // =====================================================
@@ -3661,7 +3932,7 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
     if (hasUpdate) {
       const notifTitle = i18n.get('updateNotificationTitle');
       const notifBody = i18n.get('updateNotificationBody', { latest: info.latestVersion, current: info.currentVersion });
-      this.addAppNotification('info', i18n.get('notifUpdateTitle'), notifBody);
+      this.addUpdateNotification(info);
 
       if (window.androidBridge?.notifyUpdateAvailable && info.apkDownloadUrl) {
         try {
@@ -3672,28 +3943,13 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
         } catch {}
       }
 
-      if (this.dom.updateToast) {
-        this.dom.updateToast.classList.remove('hidden');
-        if (this.dom.updateToastDesc) this.dom.updateToastDesc.textContent = notifBody;
-        if (this.dom.updateToastNotes && info.releaseNotes) this.dom.updateToastNotes.textContent = info.releaseNotes;
-        if (this.dom.btnToastDismiss) this.dom.btnToastDismiss.onclick = () => this.dom.updateToast.classList.add('hidden');
-        if (this.dom.btnToastUpdate) {
-          this.dom.btnToastUpdate.onclick = () => {
-            if (window.androidBridge?.requestAppUpdate && info.apkDownloadUrl) {
-              this.dom.updateToast.classList.add('hidden');
-              window.androidBridge.requestAppUpdate(info.latestVersion, info.releaseNotes || '', info.apkDownloadUrl, info.apkAssetName || '', info.sha256SumsUrl || '', info.releaseUrl || '');
-              return;
-            }
-            if (window.chrome?.webview && info.downloadUrl) {
-              this.dom.updateToast.classList.add('hidden');
-              window.chrome.webview.postMessage({ type: 'START_UPDATE', version: info.latestVersion, downloadUrl: info.downloadUrl });
-              return;
-            }
-            if (info.releaseUrl) window.open(info.releaseUrl, '_blank', 'noopener,noreferrer');
-          };
-        }
+      if (isManual && this.dom.settingsUpdateStatus) {
+        this.dom.settingsUpdateStatus.innerHTML = `
+          <span>${this.escapeHtml(notifBody)}</span>
+          <button type="button" class="btn-amber" id="btn-inline-settings-update" style="margin-left:0.5rem; font-size:0.74rem; padding:0.25rem 0.6rem;">${this.escapeHtml(i18n.get('btnUpdateNow'))}</button>
+        `;
+        document.getElementById('btn-inline-settings-update')?.addEventListener('click', () => this.triggerAppUpdate(info));
       }
-      if (isManual && this.dom.settingsUpdateStatus) this.dom.settingsUpdateStatus.textContent = notifBody;
     } else if (isManual && this.dom.settingsUpdateStatus) {
       this.dom.settingsUpdateStatus.textContent = i18n.get('updateUpToDate');
     }

@@ -33,6 +33,8 @@ public partial class MainForm : Form
     private Button? _btnCenterPlayOverlay;
     private System.Windows.Forms.Timer? _fullscreenTimer;
     private System.Windows.Forms.Timer? _vlcSingleClickTimer;
+    private bool _webNavigationCompleted = false;
+    private (string? Version, string DownloadUrl, string? ReleaseNotes)? _pendingHostUpdate;
 
     [DllImport("dwmapi.dll")]
     private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int attrValue, int attrSize);
@@ -268,6 +270,14 @@ public partial class MainForm : Form
 
             // Registrar Host Object nativo de alta performance para requisições IPTV sem restrições de CORS
             _webView.CoreWebView2.AddHostObjectToScript("nativeBridge", new NativeBridge());
+            _webView.CoreWebView2.NavigationCompleted += (_, navArgs) =>
+            {
+                if (navArgs.IsSuccess)
+                {
+                    _webNavigationCompleted = true;
+                    BeginInvoke(DispatchPendingUpdateNotification);
+                }
+            };
 
             // Mapeamento virtual para a pasta web local
             string baseDir = AppDomain.CurrentDomain.BaseDirectory;
@@ -469,11 +479,19 @@ public partial class MainForm : Form
         var (available, newVersion, downloadUrl, releaseNotes) = await UpdateService.CheckForUpdatesAsync();
         if (available && !string.IsNullOrEmpty(downloadUrl))
         {
-            BeginInvoke(() =>
-            {
-                ShowUpdatePrompt(newVersion, downloadUrl, releaseNotes);
-            });
+            _pendingHostUpdate = (newVersion, downloadUrl, releaseNotes);
+            BeginInvoke(DispatchPendingUpdateNotification);
         }
+    }
+
+    private void DispatchPendingUpdateNotification()
+    {
+        if (!_webNavigationCompleted || _webView?.CoreWebView2 == null || !_pendingHostUpdate.HasValue) return;
+        var (ver, url, notes) = _pendingHostUpdate.Value;
+        string verJson = System.Text.Json.JsonSerializer.Serialize(ver ?? "");
+        string urlJson = System.Text.Json.JsonSerializer.Serialize(url ?? "");
+        string notesJson = System.Text.Json.JsonSerializer.Serialize(notes ?? "");
+        _ = _webView.CoreWebView2.ExecuteScriptAsync($"window.fluiStreamApp?.notifyHostUpdateAvailable({verJson}, {urlJson}, {notesJson});");
     }
 
     private void ShowUpdatePrompt(string? newVersion, string downloadUrl, string? releaseNotes)
