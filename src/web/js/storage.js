@@ -361,17 +361,22 @@ export class StorageService {
     try {
       const activeId = this.getActiveProfileId() || 'default';
       localStorage.removeItem(`fluistream_recents_${activeId}`);
+      localStorage.removeItem('fluistream_recents_default');
       localStorage.removeItem('fluistream_recents');
-      if (includeProgress && typeof localStorage !== 'undefined') {
+      if (typeof localStorage !== 'undefined') {
         const keys = [];
         if (typeof localStorage.length === 'number' && typeof localStorage.key === 'function') {
           for (let i = 0; i < localStorage.length; i++) {
             const k = localStorage.key(i);
-            if (k && k.startsWith('fluistream_watch_progress_')) keys.push(k);
+            if (k && (k.startsWith('fluistream_recents') || (includeProgress && k.startsWith('fluistream_watch_progress_')))) {
+              keys.push(k);
+            }
           }
         } else {
           for (const k of Object.keys(localStorage)) {
-            if (k.startsWith('fluistream_watch_progress_')) keys.push(k);
+            if (k.startsWith('fluistream_recents') || (includeProgress && k.startsWith('fluistream_watch_progress_'))) {
+              keys.push(k);
+            }
           }
         }
         for (const k of keys) localStorage.removeItem(k);

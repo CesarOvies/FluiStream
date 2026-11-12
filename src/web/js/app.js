@@ -806,10 +806,10 @@ class FluiStreamApp {
       this.dom.btnHomeHistory.addEventListener('click', () => this.openBrowseView('history'));
     }
     if (this.dom.btnHomeClearHistory) {
-      this.dom.btnHomeClearHistory.addEventListener('click', () => this.clearWatchHistory(true));
+      this.dom.btnHomeClearHistory.addEventListener('click', () => this.clearWatchHistory());
     }
     if (this.dom.btnSidebarClearHistory) {
-      this.dom.btnSidebarClearHistory.addEventListener('click', () => this.clearWatchHistory(true));
+      this.dom.btnSidebarClearHistory.addEventListener('click', () => this.clearWatchHistory());
     }
     if (this.dom.btnHomeAccountInfo) {
       this.dom.btnHomeAccountInfo.addEventListener('click', () => this.openAccountModal());
@@ -1077,7 +1077,7 @@ class FluiStreamApp {
     }
     if (this.dom.btnClearHistory) {
       this.dom.btnClearHistory.addEventListener('click', () => {
-        if (this.clearWatchHistory(true) && this.dom.settingsHistoryStatus) {
+        if (this.clearWatchHistory() && this.dom.settingsHistoryStatus) {
           this.dom.settingsHistoryStatus.textContent = i18n.get('historyCleared');
         }
       });
@@ -1458,7 +1458,7 @@ class FluiStreamApp {
       if (this.dom.btnHomeClearHistory) {
         this.dom.btnHomeClearHistory.classList.toggle('hidden', recents.length === 0);
       }
-      const list = recents.length > 0 ? recents.slice(0, storage.getHistoryLimit()) : this.playlist.items.slice(0, 8);
+      const list = recents.slice(0, storage.getHistoryLimit());
       if (list.length === 0) {
         this.dom.homeFeaturedList.innerHTML = `<p style="color: var(--text-secondary); font-size: 0.84rem; text-align: center; padding: 2rem 0;">${i18n.get('emptyHistory')}</p>`;
       } else {
@@ -1929,10 +1929,9 @@ class FluiStreamApp {
     if (!this.isNativeApp()) this.detectLocalProxy();
   }
 
-  clearWatchHistory(askConfirm = true) {
-    if (askConfirm && !confirm(i18n.get('clearHistoryConfirm'))) return false;
+  clearWatchHistory() {
     storage.clearRecents(true);
-    if (this.activeScreen === 'home') this.renderHomeHub();
+    this.renderHomeHub();
     if (this.activeScreen === 'browse') {
       this.syncBrowseViewLayout();
       this.renderSidebarPanel();

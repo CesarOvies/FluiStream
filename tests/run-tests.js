@@ -933,8 +933,10 @@ await test('Histórico limitado e limpeza, Teste de Velocidade real e Update ape
     }
     assert.equal(svc.getRecents().length, 5, 'Deve respeitar limite de histórico configurado');
     svc.saveWatchProgress('ch_1', 60, 120);
+    globalThis.localStorage.setItem('fluistream_recents_other', '[{"url":"http://ex.com/old.m3u8"}]');
     svc.clearRecents(true);
     assert.equal(svc.getRecents().length, 0, 'clearRecents() deve limpar todo o histórico');
+    assert.equal(globalThis.localStorage.getItem('fluistream_recents_other'), null, 'clearRecents() deve remover todas as chaves fluistream_recents*');
     assert.equal(svc.getWatchProgress('ch_1'), null, 'clearRecents(true) deve limpar progresso salvo');
   });
 
