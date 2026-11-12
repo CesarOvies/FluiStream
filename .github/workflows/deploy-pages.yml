@@ -1,8 +1,12 @@
-name: Deploy GitHub Pages
+# DEPRECATED (v1.1.0): Public Web distribution on GitHub Pages was discontinued in v1.1.0
+# due to browser security/streaming constraints (Mixed Content, CORS 302 redirects, PNA ports,
+# and lack of native MPEG-TS/AC3/EAC3 decoding). FluiStream now ships natively via Desktop
+# Portable (.NET 10 + WebView2 + LibVLC) and Android APK (WebView + NativeBridge + Media3).
+# Automatic deployment on push to `main` is disabled; only manual `workflow_dispatch` remains.
+
+name: Deploy GitHub Pages (Deprecated)
 
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -41,4 +45,3 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
-

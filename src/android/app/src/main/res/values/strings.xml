@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">FluiStream</string>
+    <string name="player_loading">Loading stream…</string>
+    <string name="player_error_playback">Unable to play this stream.</string>
+    <string name="player_error_network">Network error while connecting to stream.</string>
+    <string name="player_btn_close">Close Player</string>
+    <string name="player_btn_aspect">Aspect</string>
+    <string name="player_aspect_auto">Auto</string>
+    <string name="player_aspect_16_9">16:9</string>
+    <string name="player_aspect_4_3">4:3</string>
+    <string name="player_aspect_fill">Fill</string>
+    <string name="tv_back_exit_hint">Press Back again to exit FluiStream</string>
+    <string name="webview_unavailable">Android System WebView is required to run FluiStream.</string>
+</resources>

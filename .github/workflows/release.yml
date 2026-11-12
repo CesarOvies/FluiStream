@@ -7,17 +7,55 @@ on:
   workflow_dispatch:
     inputs:
       tag_name:
-        description: 'Tag de versão (ex: v1.0.0)'
+        description: 'Tag de versão (ex: v1.1.0)'
         required: false
-        default: 'v1.0.0'
+        default: 'v1.1.0'
 
 permissions:
   contents: write
   id-token: write
 
 jobs:
+  build-android:
+    name: Build Android APK
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Sync Web Assets to Android
+        run: |
+          rm -rf src/android/app/src/main/assets/web
+          mkdir -p src/android/app/src/main/assets/web
+          cp -r src/web/* src/android/app/src/main/assets/web/
+
+      - name: Build Release APK
+        working-directory: src/android
+        run: |
+          if [ -f gradlew ] && [ -f gradle/wrapper/gradle-wrapper.jar ]; then
+            chmod +x gradlew
+            ./gradlew assembleRelease --no-daemon
+          else
+            gradle assembleRelease --no-daemon
+          fi
+
+      - name: Upload Android APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: FluiStream-Android-APK
+          path: src/android/app/build/outputs/apk/release/*.apk
+
   build-release:
-    name: Build Multi-OS Portables & Defender Scan
+    name: Build Multi-OS Portables, Package APK & Defender Scan
+    needs: build-android
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -41,7 +79,34 @@ jobs:
       - name: Compile Multi-OS Portables via build-all.ps1
         shell: pwsh
         run: |
-          ./build-all.ps1
+          $tag = "${{ github.ref_type == 'tag' && github.ref_name || inputs.tag_name || 'v1.1.0' }}"
+          $ver = $tag.TrimStart('v')
+          ./build-all.ps1 -Version $ver
+
+      - name: Download Android APK Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: FluiStream-Android-APK
+          path: dist/android-apk
+
+      - name: Stage Android APK & Update SHA-256 / SHA-512 Checksums
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_type == 'tag' && github.ref_name || inputs.tag_name || 'v1.1.0' }}"
+          $apkSource = Get-ChildItem -Path "dist/android-apk" -Filter "*.apk" | Select-Object -First 1
+          if (-not $apkSource) {
+            Write-Error "Android APK artifact not found in dist/android-apk"
+            exit 1
+          }
+          $apkName = "FluiStream-$tag-android.apk"
+          $apkDest = Join-Path "dist" $apkName
+          Move-Item -Path $apkSource.FullName -Destination $apkDest -Force
+          Remove-Item -Path "dist/android-apk" -Recurse -Force
+
+          $h256 = (Get-FileHash -Path $apkDest -Algorithm SHA256).Hash
+          $h512 = (Get-FileHash -Path $apkDest -Algorithm SHA512).Hash
+          Add-Content -Path "dist/SHA256SUMS.txt" -Value "$h256  $apkName" -Encoding utf8
+          Add-Content -Path "dist/SHA512SUMS.txt" -Value "$h512  $apkName" -Encoding utf8
 
       - name: Microsoft Defender Deep Scan
         shell: pwsh
@@ -62,7 +127,7 @@ jobs:
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref_type == 'tag' && github.ref_name || inputs.tag_name || 'v1.0.0' }}
+          tag_name: ${{ github.ref_type == 'tag' && github.ref_name || inputs.tag_name || 'v1.1.0' }}
           files: |
             dist/*
           generate_release_notes: true

@@ -41,3 +41,41 @@ jobs:
       - name: Build Desktop Core
         run: |
           dotnet build src/desktop/FluiStream.Desktop.csproj -c Release --nologo
+
+  build-android:
+    name: Build Android APK
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Sync Web Assets to Android
+        run: |
+          rm -rf src/android/app/src/main/assets/web
+          mkdir -p src/android/app/src/main/assets/web
+          cp -r src/web/* src/android/app/src/main/assets/web/
+
+      - name: Build APK with Gradle
+        working-directory: src/android
+        run: |
+          if [ -f gradlew ] && [ -f gradle/wrapper/gradle-wrapper.jar ]; then
+            chmod +x gradlew
+            ./gradlew assembleRelease --no-daemon
+          else
+            gradle assembleRelease --no-daemon
+          fi
+
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: FluiStream-Android-APK
+          path: src/android/app/build/outputs/apk/release/*.apk

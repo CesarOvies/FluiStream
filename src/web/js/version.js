@@ -3,7 +3,7 @@
  * Padrão Cesar Ovies Engineering Standards
  */
 
-export const APP_VERSION = '1.0.0';
+export const APP_VERSION = '1.1.0';
 export const GITHUB_REPO = 'CesarOvies/FluiStream';
 export const VERSION_INFO = { version: APP_VERSION, repo: GITHUB_REPO };
 export const UpdateChecker = {

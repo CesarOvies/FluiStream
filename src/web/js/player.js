@@ -3,6 +3,8 @@
  * Gerencia reprodução HLS / MP4 / MKV, aspect ratio, PiP, fullscreen e atalhos
  */
 
+import { applyCorsProxy } from './network.js';
+
 export class VideoPlayerController {
   constructor(videoElement, containerElement) {
     this.video = videoElement;
@@ -219,6 +221,25 @@ export class VideoPlayerController {
 
     const streamUrl = this.resolveStreamUrl(item.url, item.type, streamMode);
 
+    // Ponte Nativa Android (ExoPlayer / Media3 via @JavascriptInterface window.androidBridge)
+    const isAndroidApp = typeof window !== 'undefined' && Boolean(window.androidBridge);
+    if (isAndroidApp) {
+      if (this.hls) {
+        this.hls.destroy();
+        this.hls = null;
+      }
+      if (this.video) {
+        this.video.pause();
+        this.video.removeAttribute('src');
+        this.video.load();
+        this.video.style.display = 'none';
+      }
+      window.androidBridge.playStream(streamUrl, item.name || '', item.type || 'live', streamMode || 'auto');
+      this.updateMediaSession(item);
+      this.notifyState('playing');
+      return;
+    }
+
     // Se motor for VLC e estiver rodando no app Desktop
     const isDesktopApp = typeof window !== 'undefined' && Boolean(window.chrome?.webview);
     if (playerEngine === 'vlc' && isDesktopApp) {
@@ -227,10 +248,12 @@ export class VideoPlayerController {
         this.hls.destroy();
         this.hls = null;
       }
-      this.video.pause();
-      this.video.removeAttribute('src');
-      this.video.load();
-      this.video.style.display = 'none';
+      if (this.video) {
+        this.video.pause();
+        this.video.removeAttribute('src');
+        this.video.load();
+        this.video.style.display = 'none';
+      }
 
       // Delegar ao LibVLC em C#
       this.notifyNativeVlc('PLAY', {
@@ -245,17 +268,17 @@ export class VideoPlayerController {
       setTimeout(() => this.reportLayout(), 150);
       setTimeout(() => this.notifyNativeVlc('GET_TRACKS'), 1200);
       return;
-    } else if (isDesktopApp) {
-      // Se estiver no Desktop mas escolheu HLS, desativa overlay do VLC e exibe vídeo HTML5
+    }
+
+    if (this.video) {
       this.video.style.display = 'block';
+    }
+    if (isDesktopApp) {
+      // Se estiver no Desktop mas escolheu HLS, desativa overlay do VLC e exibe vídeo HTML5
       this.notifyNativeVlc('STOP');
     }
 
-    let finalUrl = streamUrl;
-    if (corsProxy && !finalUrl.startsWith('blob:') && !finalUrl.startsWith('data:')) {
-      const proxy = corsProxy.endsWith('/') ? corsProxy : `${corsProxy}/`;
-      finalUrl = `${proxy}${encodeURIComponent(finalUrl)}`;
-    }
+    const finalUrl = corsProxy ? applyCorsProxy(corsProxy, streamUrl) : streamUrl;
 
     // Limpar instância HLS anterior
     if (this.hls) {
@@ -263,7 +286,8 @@ export class VideoPlayerController {
       this.hls = null;
     }
 
-    const isHlsStream = streamMode === 'hls' || finalUrl.includes('.m3u8') || (streamMode === 'auto' && (item.type === 'live' || finalUrl.includes('/live/')));
+    const isVideoFile = finalUrl.includes('.mp4') || finalUrl.includes('.mkv') || finalUrl.includes('.avi') || finalUrl.includes('.webm') || item.type === 'movie' || item.type === 'series';
+    const isHlsStream = !isVideoFile && (streamMode === 'hls' || finalUrl.includes('.m3u8') || (streamMode === 'auto' && (item.type === 'live' || finalUrl.includes('/live/'))));
 
     // 1. Suporte a HLS via Hls.js
     if (isHlsStream && typeof window !== 'undefined' && window.Hls && window.Hls.isSupported()) {
@@ -321,7 +345,12 @@ export class VideoPlayerController {
             case window.Hls.ErrorTypes.NETWORK_ERROR:
               console.warn('HLS Network error, attempting recovery...');
               if (data.details === 'manifestLoadError' || data.details === 'manifestLoadTimeOut') {
-                this.notifyState('error', { type: 'NETWORK_ERROR', details: data.details });
+                const isWeb = typeof window !== 'undefined' && !window.chrome?.webview && !window.androidBridge;
+                this.notifyState('error', {
+                  type: 'NETWORK_ERROR',
+                  details: data.details,
+                  isCorsOrMixedContent: isWeb
+                });
                 this.hls.destroy();
               } else {
                 this.hls.startLoad();
@@ -357,7 +386,7 @@ export class VideoPlayerController {
   }
 
   updateMediaSession(item) {
-    if (typeof navigator !== 'undefined' && 'mediaSession' in navigator && item) {
+    if (typeof navigator !== 'undefined' && 'mediaSession' in navigator && typeof MediaMetadata !== 'undefined' && item) {
       navigator.mediaSession.metadata = new MediaMetadata({
         title: item.name || 'FluiStream',
         artist: item.group || (item.type === 'live' ? 'Canal Ao Vivo' : 'FluiStream VOD'),
@@ -409,6 +438,11 @@ export class VideoPlayerController {
           this.video.style.objectFit = 'contain';
           break;
       }
+    }
+
+    const isAndroidApp = typeof window !== 'undefined' && Boolean(window.androidBridge);
+    if (isAndroidApp) {
+      window.androidBridge?.setAspectRatio?.(ratio);
     }
 
     if (this.currentEngine === 'vlc') {
@@ -580,6 +614,7 @@ export class VideoPlayerController {
   }
 
   stop() {
+    const isAndroidApp = typeof window !== 'undefined' && Boolean(window.androidBridge);
     this.isStopped = true;
     this.currentItem = null;
     this.audioTracks = [];
@@ -595,7 +630,10 @@ export class VideoPlayerController {
       this.video.pause();
       this.video.removeAttribute('src');
       this.video.load();
-      this.video.style.display = 'block';
+      this.video.style.display = isAndroidApp ? 'none' : 'block';
+    }
+    if (isAndroidApp) {
+      window.androidBridge?.stopStream?.();
     }
     this.notifyNativeVlc('STOP');
     this.notifyState('idle');

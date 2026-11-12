@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Net;
 using System.Net.Http;
+using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
@@ -70,9 +71,10 @@ public static class CrossPlatformHost
 
     private static void PrintBanner(string url)
     {
+        string version = Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "1.1.0";
         Console.ForegroundColor = ConsoleColor.Cyan;
         Console.WriteLine("====================================================");
-        Console.WriteLine("   FluiStream v1.0.0 — Desktop Portable Runner      ");
+        Console.WriteLine($"   FluiStream v{version} — Desktop Portable Runner      ");
         Console.WriteLine("   Padrão Cesar Ovies Engineering Standards         ");
         Console.WriteLine("====================================================");
         Console.ResetColor();
@@ -139,7 +141,7 @@ public static class CrossPlatformHost
                 try
                 {
                     using var proxyReq = new HttpRequestMessage(HttpMethod.Get, targetUrl);
-                    proxyReq.Headers.UserAgent.ParseAdd("Mozilla/5.0 (Windows NT 10.0; Win64; x64) FluiStream/1.0");
+                    proxyReq.Headers.UserAgent.ParseAdd("Mozilla/5.0 (Windows NT 10.0; Win64; x64) FluiStream/1.1");
                     using var proxyRes = await HttpClient.SendAsync(proxyReq, HttpCompletionOption.ResponseHeadersRead);
 
                     res.StatusCode = (int)proxyRes.StatusCode;
