@@ -1,8 +1,8 @@
 /**
- * FluiStream — Service Worker (Offline UI Cache)
+ * FluiStream — Service Worker (Offline UI Cache & Auto-Update)
  */
 
-const CACHE_NAME = 'fluistream-ui-v3';
+const CACHE_NAME = 'fluistream-ui-v4';
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
@@ -42,17 +42,30 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
-  // Apenas cachear requisições GET para os arquivos locais da interface
+  // Apenas interceptar requisições GET locais
   if (event.request.method !== 'GET') return;
   const url = new URL(event.request.url);
 
-  // Não interferir com fluxos HLS de streaming
-  if (url.pathname.endsWith('.m3u8') || url.pathname.endsWith('.ts') || url.pathname.endsWith('.mp4') || url.search.includes('username=')) {
+  // Não interferir com fluxos HLS/VOD de streaming ou chamadas de API externa
+  if (url.pathname.endsWith('.m3u8') || url.pathname.endsWith('.ts') || url.pathname.endsWith('.mp4') || url.search.includes('username=') || url.origin !== self.location.origin) {
     return;
   }
 
+  // Estratégia Network-First com fallback para Cache Storage:
+  // Garante que o usuário receba imediatamente as atualizações e correções de bugs mais recentes,
+  // mantendo a operação offline transparente caso a rede esteja indisponível.
   event.respondWith(
-    caches.match(event.request).then((cached) => cached || fetch(event.request))
+    fetch(event.request)
+      .then((networkResponse) => {
+        if (networkResponse && networkResponse.status === 200 && networkResponse.type === 'basic') {
+          const responseToCache = networkResponse.clone();
+          caches.open(CACHE_NAME).then((cache) => {
+            cache.put(event.request, responseToCache);
+          });
+        }
+        return networkResponse;
+      })
+      .catch(() => caches.match(event.request))
   );
 });
 

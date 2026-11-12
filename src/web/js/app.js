@@ -470,22 +470,26 @@ class FluiStreamApp {
     }
 
     // Modais e Ações
-    this.dom.btnOpenImport.addEventListener('click', () => this.openModal(this.dom.modalImport));
-    this.dom.btnOpenSettings.addEventListener('click', () => {
-      const cfg = storage.getSettings();
-      if (this.dom.corsInput) this.dom.corsInput.value = cfg.corsProxy || '';
-      if (this.dom.settingsStreamModeSelect) this.dom.settingsStreamModeSelect.value = cfg.streamMode || 'auto';
-      if (this.dom.settingsPlayerEngineSelect) {
-        const isDesktop = Boolean(window.chrome?.webview);
-        const vlcOpt = this.dom.settingsPlayerEngineSelect.querySelector('option[value="vlc"]');
-        if (vlcOpt) {
-          vlcOpt.disabled = !isDesktop;
-          if (!isDesktop) vlcOpt.textContent = `Player VLC (${i18n.get('playerEngineWebOnlyHint')})`;
+    if (this.dom.btnOpenImport) {
+      this.dom.btnOpenImport.addEventListener('click', () => this.openModal(this.dom.modalImport));
+    }
+    if (this.dom.btnOpenSettings) {
+      this.dom.btnOpenSettings.addEventListener('click', () => {
+        const cfg = storage.getSettings();
+        if (this.dom.corsInput) this.dom.corsInput.value = cfg.corsProxy || '';
+        if (this.dom.settingsStreamModeSelect) this.dom.settingsStreamModeSelect.value = cfg.streamMode || 'auto';
+        if (this.dom.settingsPlayerEngineSelect) {
+          const isDesktop = Boolean(window.chrome?.webview);
+          const vlcOpt = this.dom.settingsPlayerEngineSelect.querySelector('option[value="vlc"]');
+          if (vlcOpt) {
+            vlcOpt.disabled = !isDesktop;
+            if (!isDesktop) vlcOpt.textContent = `Player VLC (${i18n.get('playerEngineWebOnlyHint')})`;
+          }
+          this.dom.settingsPlayerEngineSelect.value = (!isDesktop && cfg.playerEngine === 'vlc') ? 'hls' : (cfg.playerEngine || 'hls');
         }
-        this.dom.settingsPlayerEngineSelect.value = (!isDesktop && cfg.playerEngine === 'vlc') ? 'hls' : (cfg.playerEngine || 'hls');
-      }
-      this.openModal(this.dom.modalSettings);
-    });
+        this.openModal(this.dom.modalSettings);
+      });
+    }
 
     // Modais de Perfis e Conta
     if (this.dom.btnOpenProfiles) {
@@ -561,8 +565,12 @@ class FluiStreamApp {
       });
     }
 
-    this.dom.btnCloseImport.addEventListener('click', () => this.closeModal(this.dom.modalImport));
-    this.dom.btnCloseSettings.addEventListener('click', () => this.closeModal(this.dom.modalSettings));
+    if (this.dom.btnCloseImport) {
+      this.dom.btnCloseImport.addEventListener('click', () => this.closeModal(this.dom.modalImport));
+    }
+    if (this.dom.btnCloseSettings) {
+      this.dom.btnCloseSettings.addEventListener('click', () => this.closeModal(this.dom.modalSettings));
+    }
     if (this.dom.btnOpenAbout) {
       this.dom.btnOpenAbout.addEventListener('click', () => this.openModal(this.dom.modalAbout));
     }
@@ -589,18 +597,22 @@ class FluiStreamApp {
     });
 
     // Abas de importação
-    this.dom.importTabs.forEach(btn => {
-      btn.addEventListener('click', () => {
-        this.dom.importTabs.forEach(b => b.classList.remove('active'));
-        this.dom.importPanels.forEach(p => p.classList.add('hidden'));
-        btn.classList.add('active');
-        const panel = document.getElementById(btn.getAttribute('data-panel'));
-        if (panel) panel.classList.remove('hidden');
+    if (this.dom.importTabs && this.dom.importPanels) {
+      this.dom.importTabs.forEach(btn => {
+        btn.addEventListener('click', () => {
+          this.dom.importTabs.forEach(b => b.classList.remove('active'));
+          this.dom.importPanels.forEach(p => p.classList.add('hidden'));
+          btn.classList.add('active');
+          const panel = document.getElementById(btn.getAttribute('data-panel'));
+          if (panel) panel.classList.remove('hidden');
+        });
       });
-    });
+    }
 
     // Envio do formulário de importação
-    this.dom.btnSubmitImport.addEventListener('click', () => this.handleImportSubmit());
+    if (this.dom.btnSubmitImport) {
+      this.dom.btnSubmitImport.addEventListener('click', () => this.handleImportSubmit());
+    }
 
     // Carregar lista de demonstração
     if (this.dom.btnLoadDemo) {
@@ -2074,9 +2086,18 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
   }
 }
 
-// Inicialização da aplicação ao carregar o DOM
+// Inicialização robusta da aplicação suportando DOMContentLoaded e readyState interativo/completo
+function startFluiStream() {
+  if (!window.fluiStreamApp) {
+    window.fluiStreamApp = new FluiStreamApp();
+  }
+}
+
 if (typeof document !== 'undefined') {
-  document.addEventListener('DOMContentLoaded', () => {
-    new FluiStreamApp();
-  });
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', startFluiStream);
+  } else {
+    // DOM já carregado ou execução via ES module deferred / cache
+    startFluiStream();
+  }
 }

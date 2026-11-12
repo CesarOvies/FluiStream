@@ -8,7 +8,7 @@ on:
 
 jobs:
   validate-governance:
-    name: Gitflow Branch Governance
+    name: Validate PR Branch Policy
     runs-on: ubuntu-latest
     steps:
       - name: Verify PR Target from develop
@@ -19,7 +19,7 @@ jobs:
             core.setFailed('PRs para a branch main só são aceitos a partir de develop!');
 
   build-and-test:
-    name: Build & Test Validation
+    name: Build & Security Self-Test (.NET 10 Multiplatform)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
