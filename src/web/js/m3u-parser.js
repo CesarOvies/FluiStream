@@ -71,6 +71,8 @@ export class M3UParser {
       }
     }
 
+    this.ensureUniqueItemIds(items);
+
     const summary = {
       total: items.length,
       live: items.filter(x => x.type === ItemType.LIVE).length,
@@ -79,6 +81,23 @@ export class M3UParser {
     };
 
     return { epgUrl, items, summary };
+  }
+
+  /**
+   * Garante ID único por item mesmo quando múltiplos canais (FHD/HD/SD) compartilham o mesmo tvg-id.
+   */
+  static ensureUniqueItemIds(items) {
+    if (!Array.isArray(items)) return items;
+    const seen = new Map();
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      if (!item) continue;
+      const base = `${item.group || 'Geral'}_${item.name || item.id || 'item'}`.replace(/\s+/g, '_');
+      const count = seen.get(base) || 0;
+      seen.set(base, count + 1);
+      item.id = count > 0 ? `${base}__${count}` : base;
+    }
+    return items;
   }
 
   /**
@@ -147,7 +166,7 @@ export class M3UParser {
     item.name = titlePart || item.tvgName || 'Sem Nome';
     item.logo = item.tvgLogo || '';
     item.rawTitle = titlePart;
-    item.id = item.tvgId || `${item.group}_${item.name}`.replace(/\s+/g, '_');
+    item.id = `${item.group || 'Geral'}_${item.name}`.replace(/\s+/g, '_');
 
     return item;
   }

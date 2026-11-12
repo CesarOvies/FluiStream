@@ -866,6 +866,34 @@ await test('HTML, CSS e JS devem implementar drill-down na sidebar, player com o
   assert.match(appJs, /currentPlayingItem\.type\s*===\s*ItemType\.LIVE/);
   assert.match(appJs, /_epgItemByChannelKey/);
   assert.match(appJs, /itemMatches\.length >= 40\) break/);
+  assert.match(appJs, /M3UParser\.ensureUniqueItemIds/);
+});
+
+await test('Canais FHD/HD/SD com mesmo tvg-id devem ter IDs únicos para destacar apenas o canal clicado', () => {
+  const m3u = `#EXTM3U
+#EXTINF:-1 tvg-id="CartoonNetwork.br" group-title="INFANTIS",CARTOON NETWORK FHD
+http://stream.com/cn_fhd.m3u8
+#EXTINF:-1 tvg-id="CartoonNetwork.br" group-title="INFANTIS",CARTOON NETWORK HD
+http://stream.com/cn_hd.m3u8
+#EXTINF:-1 tvg-id="CartoonNetwork.br" group-title="INFANTIS",CARTOON NETWORK SD
+http://stream.com/cn_sd.m3u8
+#EXTINF:-1 tvg-id="CartoonNetwork.br" group-title="INFANTIS",CARTOON NETWORK SD
+http://stream.com/cn_sd_backup.m3u8`;
+
+  const parsed = M3UParser.parse(m3u);
+  assert.equal(parsed.items.length, 4);
+  const ids = new Set(parsed.items.map(i => i.id));
+  assert.equal(ids.size, 4, 'Cada variação FHD/HD/SD deve ter ID distinto');
+  assert.ok(parsed.items.every(i => i.tvgId === 'CartoonNetwork.br'), 'tvgId para EPG deve permanecer intacto');
+
+  // Playlists legadas em cache (com id duplicado igual ao tvgId) também devem ser normalizadas
+  const legacyItems = [
+    { id: 'CartoonNetwork.br', name: 'CARTOON NETWORK FHD', group: 'INFANTIS', tvgId: 'CartoonNetwork.br' },
+    { id: 'CartoonNetwork.br', name: 'CARTOON NETWORK HD', group: 'INFANTIS', tvgId: 'CartoonNetwork.br' },
+    { id: 'CartoonNetwork.br', name: 'CARTOON NETWORK SD', group: 'INFANTIS', tvgId: 'CartoonNetwork.br' }
+  ];
+  M3UParser.ensureUniqueItemIds(legacyItems);
+  assert.equal(new Set(legacyItems.map(i => i.id)).size, 3);
 });
 
 console.log(`\n========================================`);

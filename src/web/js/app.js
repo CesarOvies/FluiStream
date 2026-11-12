@@ -1368,6 +1368,7 @@ class FluiStreamApp {
     this._seriesCache = new Map();
     this._epgItemByChannelKey = new Map();
     const items = this.playlist.items || [];
+    M3UParser.ensureUniqueItemIds(items);
     for (let i = 0; i < items.length; i++) {
       const it = items[i];
       if (it.type !== ItemType.LIVE) continue;
@@ -1711,7 +1712,7 @@ class FluiStreamApp {
       }
 
       const isFav = storage.isFavorite(entry.id);
-      const isPlaying = this.currentPlayingItem && this.currentPlayingItem.id === entry.id;
+      const isPlaying = Boolean(this.currentPlayingItem && String(this.currentPlayingItem.id) === String(entry.id));
       const logoUrl = entry.logo || 'assets/logo.svg';
       let subText = entry.group || '';
       if (entry.type === ItemType.LIVE) {
@@ -2592,6 +2593,7 @@ class FluiStreamApp {
     let activeProfile = storage.getActiveProfile();
     const saved = await storage.loadPlaylist(activeProfile?.id);
     if (saved && saved.items && saved.items.length > 0) {
+      M3UParser.ensureUniqueItemIds(saved.items);
       this.playlist = saved;
       if (!activeProfile) {
         activeProfile = {
@@ -3032,6 +3034,7 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
 
     const saved = await storage.loadPlaylist(profileId);
     if (saved && saved.items) {
+      M3UParser.ensureUniqueItemIds(saved.items);
       this.playlist = saved;
       const rawEpg = await storage.loadEpg(profileId);
       if (rawEpg) this.epg.parse(rawEpg);
@@ -3272,7 +3275,7 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
     }
 
     document.querySelectorAll('.sidebar-item-row').forEach(row => {
-      row.classList.toggle('playing', row.getAttribute('data-id') === item.id);
+      row.classList.toggle('playing', String(row.getAttribute('data-id')) === String(item.id));
     });
 
     if (this.activeScreen === 'browse') {
