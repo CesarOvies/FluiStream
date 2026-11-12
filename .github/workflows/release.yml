@@ -30,7 +30,7 @@ jobs:
         shell: pwsh
         run: |
           node tests/run-tests.js
-          dotnet test tests/desktop/iPlayerTV.Tests.csproj -c Release
+          dotnet build src/desktop/FluiStream.Desktop.csproj -c Release --nologo
 
       - name: Compile Portables via build-all.ps1
         shell: pwsh

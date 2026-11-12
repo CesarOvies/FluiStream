@@ -27,6 +27,9 @@ class SiteFooter extends HTMLElement {
             <span>&copy; ${new Date().getFullYear()} Cesar Ovies. Licença MIT.</span>
           </div>
         </div>
+        <div style="max-width: 1440px; margin: 0.75rem auto 0 auto; padding-top: 0.75rem; border-top: 1px solid #161B22; color: #6E7681; font-size: 0.75rem; line-height: 1.4;">
+          FluiStream é um reprodutor de software livre neutro. Não hospeda, não fornece e não comercializa listas ou transmissões de mídia. Os usuários são os únicos responsáveis pela procedência do conteúdo reproduzido.
+        </div>
       </footer>
     `;
   }

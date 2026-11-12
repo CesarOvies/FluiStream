@@ -7,6 +7,7 @@
     <UseWindowsForms>true</UseWindowsForms>
     <ImplicitUsings>enable</ImplicitUsings>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>app.ico</ApplicationIcon>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
     <NoWarn>$(NoWarn);MSB3277</NoWarn>
     <AssemblyName>FluiStream</AssemblyName>
@@ -18,7 +19,9 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="LibVLCSharp.WinForms" Version="3.10.2" />
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.3124.44" />
+    <PackageReference Include="VideoLAN.LibVLC.Windows" Version="3.0.24" />
   </ItemGroup>
 
   <ItemGroup>

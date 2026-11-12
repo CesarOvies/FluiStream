@@ -6,11 +6,13 @@
 - Live Web App: https://cesarovies.github.io/FluiStream/
 - Autor: Cesar Ovies (https://github.com/CesarOvies)
 - Licença: MIT
-- Tecnologias: JavaScript (ES Modules), HTML5 Video, HLS.js, C# .NET 10, WebView2
+- Tecnologias: JavaScript (ES Modules), HTML5 Video, HLS.js, LibVLCSharp (libvlc nativo), C# .NET 10, WebView2
 - Idiomas: Português (pt-BR), Inglês (en-US), Espanhol (es)
 - Execução: 100% User-Space (asInvoker), sem necessidade de instalação ou privilégios de Administrador.
 
 ## Recursos
+- Motor Duplo de Reprodução: Player HLS Nativo (Web/Desktop) e Player VLC (Desktop com LibVLC para MPEG-TS contínuo, codecs AC3/DTS e servidores XUI).
+- Seletor de Estilo de Transmissão: Auto (HLS adaptativo), HLS (.m3u8), MPEG-TS (.ts) e Original (direto).
 - Categorização automática em: Ao Vivo (Live TV), Filmes (VOD) e Séries (com temporadas/episódios).
 - Importação por Arquivo Local (.m3u, .m3u8), URL direta ou Autenticação Xtream Codes API (player_api.php).
 - Guia Eletrônico de Programação (EPG XMLTV) embutido (x-tvg-url) ou anexo externo.

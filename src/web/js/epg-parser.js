@@ -1,12 +1,13 @@
 /**
- * FluiStream — XMLTV EPG Parser & Program Schedule Manager
- * Faz o parsing de guias XMLTV (canais e programas)
- * Suporta EPG embutido (x-tvg-url) ou EPG externo (anexo via URL ou arquivo).
+ * FluiStream — XMLTV EPG Parser & High-Performance Program Schedule Manager
+ * Parsing ultra-rápido de guias XMLTV com indexação reversa multi-apelidos (display-name).
+ * Suporta canais com dezenas de variantes (FHD, HD, 4K, SD, etc.) e correspondência O(1).
  */
 
 export class EPGParser {
   constructor() {
     this.channels = new Map(); // id -> { id, name, icon }
+    this.nameIndex = new Map(); // normalized_alias -> channelId
     this.programmes = new Map(); // channelId -> [{ title, desc, start, stop, category }]
   }
 
@@ -48,119 +49,114 @@ export class EPGParser {
   }
 
   /**
-   * Faz o parse do XML em string
+   * Normaliza chave de nome para busca agnóstica a símbolos, acentos e maiúsculas
+   */
+  static normalizeKey(str) {
+    if (!str || typeof str !== 'string') return '';
+    return str
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9]/g, '');
+  }
+
+  /**
+   * Remove sufixos comuns de qualidade / codec de nomes de canais
+   */
+  static stripQuality(str) {
+    if (!str || typeof str !== 'string') return '';
+    return str
+      .replace(/\[\s*(?:fhd|uhd|4k|hd|sd|hevc|h265|h264|1080p|720p)\s*\]/gi, ' ')
+      .replace(/\(\s*(?:fhd|uhd|4k|hd|sd|hevc|h265|h264|1080p|720p)\s*\)/gi, ' ')
+      .replace(/\b(?:fhd|uhd|4k|hd|sd|hevc|h265|h264|1080p|720p)\b/gi, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  /**
+   * Faz o parsing ultra-rápido do XMLTV em string
    * @param {string} xmlString Conteúdo XMLTV
    * @returns {EPGParser} Instância com canais e programas populados
    */
   parse(xmlString) {
     this.channels.clear();
+    this.nameIndex.clear();
     this.programmes.clear();
 
     if (!xmlString || typeof xmlString !== 'string') return this;
 
-    // Se DOMParser estiver disponível (ambiente do navegador)
-    if (typeof DOMParser !== 'undefined') {
-      const parser = new DOMParser();
-      const doc = parser.parseFromString(xmlString, 'text/xml');
+    // 1. Parsing de Canais e indexação de todos os <display-name>
+    const chRegex = /<channel\s+id=["']([^"']+)["'][^>]*>([\s\S]*?)<\/channel>/gi;
+    let chMatch;
+    while ((chMatch = chRegex.exec(xmlString)) !== null) {
+      const id = chMatch[1];
+      const body = chMatch[2];
+      const iconMatch = body.match(/<icon\s+src=["']([^"']+)["']/i);
+      const icon = iconMatch ? iconMatch[1] : '';
 
-      // 1. Canais (<channel id="...">)
-      const channelNodes = doc.querySelectorAll('channel');
-      channelNodes.forEach(ch => {
-        const id = ch.getAttribute('id') || '';
-        if (!id) return;
+      const names = [];
+      const nameRegex = /<display-name[^>]*>([^<]+)<\/display-name>/gi;
+      let nm;
+      while ((nm = nameRegex.exec(body)) !== null) {
+        names.push(nm[1].trim());
+      }
+      const primaryName = names[0] || id;
+      this.channels.set(id, { id, name: primaryName, names, icon });
 
-        const nameNode = ch.querySelector('display-name');
-        const iconNode = ch.querySelector('icon');
-        const name = nameNode ? nameNode.textContent.trim() : id;
-        const icon = iconNode ? iconNode.getAttribute('src') || '' : '';
+      // Indexa o ID original e normalizado
+      this.nameIndex.set(id.toLowerCase(), id);
+      const cleanId = EPGParser.normalizeKey(id);
+      if (cleanId) this.nameIndex.set(cleanId, id);
 
-        this.channels.set(id, { id, name, icon });
-      });
-
-      // 2. Programas (<programme start="..." stop="..." channel="...">)
-      const progNodes = doc.querySelectorAll('programme');
-      progNodes.forEach(pr => {
-        const channelId = pr.getAttribute('channel') || '';
-        const startStr = pr.getAttribute('start') || '';
-        const stopStr = pr.getAttribute('stop') || '';
-
-        if (!channelId || !startStr || !stopStr) return;
-
-        const titleNode = pr.querySelector('title');
-        const descNode = pr.querySelector('desc');
-        const catNode = pr.querySelector('category');
-
-        const title = titleNode ? titleNode.textContent.trim() : 'Sem Título';
-        const desc = descNode ? descNode.textContent.trim() : '';
-        const category = catNode ? catNode.textContent.trim() : '';
-        const start = EPGParser.parseXmltvDate(startStr);
-        const stop = EPGParser.parseXmltvDate(stopStr);
-
-        if (!start || !stop) return;
-
-        if (!this.programmes.has(channelId)) {
-          this.programmes.set(channelId, []);
+      // Indexa cada um dos display-names / aliases do canal
+      for (const n of names) {
+        const cleanName = EPGParser.normalizeKey(n);
+        if (cleanName) {
+          this.nameIndex.set(cleanName, id);
         }
+        const stripped = EPGParser.normalizeKey(EPGParser.stripQuality(n));
+        if (stripped && !this.nameIndex.has(stripped)) {
+          this.nameIndex.set(stripped, id);
+        }
+      }
+    }
 
-        this.programmes.get(channelId).push({
-          title,
-          desc,
-          category,
-          start,
-          stop
-        });
-      });
-    } else {
-      // Fallback universal leve via regex (para Node.js / CLI / WebWorker)
-      const channelRegex = /<channel\s+id=["']([^"']+)["'][^>]*>([\s\S]*?)<\/channel>/gi;
-      let chMatch;
-      while ((chMatch = channelRegex.exec(xmlString)) !== null) {
-        const id = chMatch[1];
-        const body = chMatch[2];
-        const nameMatch = body.match(/<display-name[^>]*>([^<]+)<\/display-name>/i);
-        const iconMatch = body.match(/<icon\s+src=["']([^"']+)["']/i);
-        const name = nameMatch ? nameMatch[1].trim() : id;
-        const icon = iconMatch ? iconMatch[1].trim() : '';
-        this.channels.set(id, { id, name, icon });
+    // 2. Parsing de Programas (<programme start="..." stop="..." channel="...">)
+    const prRegex = /<programme\s+([^>]*?)>([\s\S]*?)<\/programme>/gi;
+    let prMatch;
+    while ((prMatch = prRegex.exec(xmlString)) !== null) {
+      const attrs = prMatch[1];
+      const body = prMatch[2];
+
+      const startM = attrs.match(/start=["']([^"']+)["']/i);
+      const stopM = attrs.match(/stop=["']([^"']+)["']/i);
+      const chM = attrs.match(/channel=["']([^"']+)["']/i);
+      if (!startM || !stopM || !chM) continue;
+
+      const channelId = chM[1];
+      const start = EPGParser.parseXmltvDate(startM[1]);
+      const stop = EPGParser.parseXmltvDate(stopM[1]);
+      if (!start || !stop) continue;
+
+      const titleMatch = body.match(/<title[^>]*>([^<]+)<\/title>/i);
+      const descMatch = body.match(/<desc[^>]*>([^<]+)<\/desc>/i);
+      const catMatch = body.match(/<category[^>]*>([^<]+)<\/category>/i);
+
+      const title = titleMatch ? titleMatch[1].trim() : 'Sem Título';
+      const desc = descMatch ? descMatch[1].trim() : '';
+      const category = catMatch ? catMatch[1].trim() : '';
+
+      if (!this.programmes.has(channelId)) {
+        this.programmes.set(channelId, []);
       }
 
-      const progRegex = /<programme\s+([^>]*?)>([\s\S]*?)<\/programme>/gi;
-      let prMatch;
-      while ((prMatch = progRegex.exec(xmlString)) !== null) {
-        const attrs = prMatch[1];
-        const body = prMatch[2];
-
-        const chMatchAttr = attrs.match(/channel=["']([^"']+)["']/i);
-        const startMatch = attrs.match(/start=["']([^"']+)["']/i);
-        const stopMatch = attrs.match(/stop=["']([^"']+)["']/i);
-
-        if (!chMatchAttr || !startMatch || !stopMatch) continue;
-
-        const channelId = chMatchAttr[1];
-        const start = EPGParser.parseXmltvDate(startMatch[1]);
-        const stop = EPGParser.parseXmltvDate(stopMatch[1]);
-        if (!start || !stop) continue;
-
-        const titleMatch = body.match(/<title[^>]*>([^<]+)<\/title>/i);
-        const descMatch = body.match(/<desc[^>]*>([^<]+)<\/desc>/i);
-        const catMatch = body.match(/<category[^>]*>([^<]+)<\/category>/i);
-
-        const title = titleMatch ? titleMatch[1].trim() : 'Sem Título';
-        const desc = descMatch ? descMatch[1].trim() : '';
-        const category = catMatch ? catMatch[1].trim() : '';
-
-        if (!this.programmes.has(channelId)) {
-          this.programmes.set(channelId, []);
-        }
-
-        this.programmes.get(channelId).push({
-          title,
-          desc,
-          category,
-          start,
-          stop
-        });
-      }
+      this.programmes.get(channelId).push({
+        title,
+        desc,
+        category,
+        start,
+        stop
+      });
     }
 
     // Ordenar programas de cada canal por horário de início
@@ -172,26 +168,57 @@ export class EPGParser {
   }
 
   /**
-   * Encontra a lista de programas para um canal buscando por tvg-id ou nome
+   * Resolve o ID canônico de canal pelo tvgId ou nome
    */
-  getChannelPrograms(tvgId, channelName = '') {
+  resolveChannelId(tvgId, channelName = '') {
+    // 1. tvgId exato em programmes
     if (tvgId && this.programmes.has(tvgId)) {
-      return this.programmes.get(tvgId);
+      return tvgId;
     }
 
-    // Busca alternativa por aproximação de nome
+    // 2. tvgId no índice de nomes
+    if (tvgId) {
+      const cleanTvg = EPGParser.normalizeKey(tvgId);
+      if (this.nameIndex.has(cleanTvg)) {
+        const id = this.nameIndex.get(cleanTvg);
+        if (this.programmes.has(id)) return id;
+      }
+    }
+
+    // 3. channelName direto no índice
     if (channelName) {
-      const cleanName = channelName.toLowerCase().replace(/[^a-z0-9]/g, '');
-      for (const [id, ch] of this.channels.entries()) {
-        const cleanChName = (ch.name || id).toLowerCase().replace(/[^a-z0-9]/g, '');
-        if (cleanChName && (cleanName.includes(cleanChName) || cleanChName.includes(cleanName))) {
-          if (this.programmes.has(id)) {
-            return this.programmes.get(id);
-          }
+      const cleanName = EPGParser.normalizeKey(channelName);
+      if (this.nameIndex.has(cleanName)) {
+        const id = this.nameIndex.get(cleanName);
+        if (this.programmes.has(id)) return id;
+      }
+
+      // 4. channelName sem tags de resolução (ex: FHD, HD, 4K)
+      const strippedClean = EPGParser.normalizeKey(EPGParser.stripQuality(channelName));
+      if (strippedClean && this.nameIndex.has(strippedClean)) {
+        const id = this.nameIndex.get(strippedClean);
+        if (this.programmes.has(id)) return id;
+      }
+
+      // 5. Varredura com prefixo/substring se necessário
+      for (const [alias, id] of this.nameIndex.entries()) {
+        if (alias.length >= 4 && (cleanName.includes(alias) || alias.includes(cleanName))) {
+          if (this.programmes.has(id)) return id;
         }
       }
     }
 
+    return null;
+  }
+
+  /**
+   * Encontra a lista de programas para um canal buscando por tvg-id ou nome
+   */
+  getChannelPrograms(tvgId, channelName = '') {
+    const matchedId = this.resolveChannelId(tvgId, channelName);
+    if (matchedId && this.programmes.has(matchedId)) {
+      return this.programmes.get(matchedId);
+    }
     return [];
   }
 

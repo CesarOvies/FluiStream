@@ -3,6 +3,8 @@
  * Autenticação e consumo da API do player (player_api.php, get.php, xmltv.php)
  */
 
+import { fetchRemoteText } from './network.js';
+
 export class XtreamApi {
   constructor(serverUrl, username, password, corsProxy = '') {
     this.serverUrl = this.normalizeUrl(serverUrl);
@@ -50,17 +52,14 @@ export class XtreamApi {
     const finalUrl = this.corsProxy ? this.applyProxy(directUrl) : directUrl;
 
     try {
-      const response = await fetch(finalUrl, {
-        headers: {
-          'Accept': 'application/json'
-        }
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status} ao conectar à API Xtream Codes`);
+      const text = await fetchRemoteText(finalUrl);
+      let data;
+      try {
+        data = JSON.parse(text);
+      } catch (jsonErr) {
+        throw new Error('Servidor não retornou JSON válido ao autenticar');
       }
 
-      const data = await response.json();
       const userInfo = data?.user_info;
 
       if (!userInfo || userInfo.auth === 0 || userInfo.status !== 'Active') {
@@ -71,18 +70,21 @@ export class XtreamApi {
       return {
         success: true,
         user: {
-          username: userInfo.username,
-          status: userInfo.status,
+          username: userInfo.username || this.username,
+          status: userInfo.status || 'Active',
           expDate: userInfo.exp_date ? new Date(parseInt(userInfo.exp_date, 10) * 1000) : null,
-          maxConnections: userInfo.max_connections,
-          activeCons: userInfo.active_cons
+          expDateRaw: userInfo.exp_date,
+          isTrial: (userInfo.is_trial === '1' || userInfo.is_trial === 1) ? 'Yes' : 'No',
+          activeCons: userInfo.active_cons || '0',
+          createdAt: userInfo.created_at ? new Date(parseInt(userInfo.created_at, 10) * 1000) : null,
+          createdAtRaw: userInfo.created_at,
+          maxConnections: userInfo.max_connections || '1'
         },
         server: data?.server_info || {},
         m3uUrl: this.getM3uUrl(),
         epgUrl: this.getEpgUrl()
       };
     } catch (err) {
-      // Se falhar e não estiver usando proxy, ou se der erro de CORS na web
       return {
         success: false,
         error: err.message || 'Falha de comunicação com o servidor Xtream Codes'
@@ -96,12 +98,7 @@ export class XtreamApi {
   async fetchM3uContent() {
     const directUrl = this.getM3uUrl();
     const finalUrl = this.corsProxy ? this.applyProxy(directUrl) : directUrl;
-
-    const response = await fetch(finalUrl);
-    if (!response.ok) {
-      throw new Error(`Falha ao baixar M3U: HTTP ${response.status}`);
-    }
-    return await response.text();
+    return await fetchRemoteText(finalUrl);
   }
 }
 

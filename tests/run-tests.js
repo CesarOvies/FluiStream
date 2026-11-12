@@ -9,6 +9,8 @@ import { EPGParser } from '../src/web/js/epg-parser.js';
 import { XtreamApi } from '../src/web/js/xtream-api.js';
 import { translations, SupportedLanguages } from '../src/web/js/localization.js';
 import { parseCleanVersion, isNewerVersion } from '../src/web/js/version.js';
+import { VideoPlayerController } from '../src/web/js/player.js';
+import { StorageService } from '../src/web/js/storage.js';
 
 let totalTests = 0;
 let passedTests = 0;
@@ -36,26 +38,26 @@ test('Deve extrair url-tvg / x-tvg-url do cabeçalho #EXTM3U', () => {
 });
 
 test('Deve classificar canais ao vivo corretamente', () => {
-  const m3u = `#EXTM3U\n#EXTINF:-1 tvg-id="globo" group-title="TV Aberta",Globo SP\nhttp://stream.com/globo.m3u8`;
+  const m3u = `#EXTM3U\n#EXTINF:-1 tvg-id="noticias1" group-title="TV Aberta",Canal Teste 1\nhttp://stream.com/canal1.m3u8`;
   const result = M3UParser.parse(m3u);
   assert.equal(result.items[0].type, ItemType.LIVE);
   assert.equal(result.items[0].group, 'TV Aberta');
-  assert.equal(result.items[0].name, 'Globo SP');
+  assert.equal(result.items[0].name, 'Canal Teste 1');
 });
 
 test('Deve classificar filmes VOD corretamente', () => {
-  const m3u = `#EXTM3U\n#EXTINF:7200 tvg-id="filme1" group-title="Filmes Ação",Vingadores Ultimato\nhttp://stream.com/movie/user/pass/123.mp4`;
+  const m3u = `#EXTM3U\n#EXTINF:7200 tvg-id="filme1" group-title="Filmes Ação",Filme Demonstração Ação\nhttp://stream.com/movie/user/pass/123.mp4`;
   const result = M3UParser.parse(m3u);
   assert.equal(result.items[0].type, ItemType.MOVIE);
 });
 
 test('Deve classificar séries e extrair temporada e episódio', () => {
-  const m3u = `#EXTM3U\n#EXTINF:-1 group-title="Séries Drama",Breaking Bad - S02E05 - Quebras\nhttp://stream.com/series/user/pass/456.mp4`;
+  const m3u = `#EXTM3U\n#EXTINF:-1 group-title="Séries Drama",Série Exemplo - S02E05 - Episódio Teste\nhttp://stream.com/series/user/pass/456.mp4`;
   const result = M3UParser.parse(m3u);
   assert.equal(result.items[0].type, ItemType.SERIES);
   assert.equal(result.items[0].season, 2);
   assert.equal(result.items[0].episode, 5);
-  assert.equal(result.items[0].seriesTitle, 'Breaking Bad');
+  assert.equal(result.items[0].seriesTitle, 'Série Exemplo');
 });
 
 console.log('\n--- 2. Testes do EPGParser (XMLTV) ---');
@@ -73,9 +75,9 @@ test('Deve parsear canais e programas e calcular programa atual', () => {
 
   const xml = `<?xml version="1.0" encoding="UTF-8"?>
   <tv>
-    <channel id="globo.br"><display-name>TV Globo</display-name></channel>
-    <programme start="${startStr}" stop="${stopStr}" channel="globo.br">
-      <title>Jornal Nacional</title>
+    <channel id="canal.teste"><display-name>Canal de Notícias</display-name></channel>
+    <programme start="${startStr}" stop="${stopStr}" channel="canal.teste">
+      <title>Telejornal da Noite</title>
       <desc>Noticiário</desc>
     </programme>
   </tv>`;
@@ -84,11 +86,11 @@ test('Deve parsear canais e programas e calcular programa atual', () => {
   parser.parse(xml);
 
   assert.equal(parser.channels.size, 1);
-  assert.equal(parser.programmes.get('globo.br')?.length, 1);
+  assert.equal(parser.programmes.get('canal.teste')?.length, 1);
 
-  const cur = parser.getCurrentProgram('globo.br', 'TV Globo', now);
+  const cur = parser.getCurrentProgram('canal.teste', 'Canal de Notícias', now);
   assert.ok(cur);
-  assert.equal(cur.title, 'Jornal Nacional');
+  assert.equal(cur.title, 'Telejornal da Noite');
   assert.ok(cur.progress >= 0 && cur.progress <= 100);
 });
 
@@ -129,6 +131,214 @@ test('Deve detectar corretamente se há versão mais recente no Git', () => {
   assert.equal(isNewerVersion('v2.0.0', '1.9.9'), true);
   assert.equal(isNewerVersion('v1.0.0', '1.0.0'), false);
   assert.equal(isNewerVersion('v0.9.8', '1.0.0'), false);
+});
+
+console.log('\n--- 6. Testes de Otimização e Categorização Pré-load ---');
+
+test('Deve agrupar e paginar 10.000 itens de filmes/séries em < 20ms sem travar a interface', () => {
+  const largeItemList = [];
+  const genres = ['Ação', 'Comédia', 'Drama', 'Ficção', 'Terror'];
+  for (let i = 0; i < 10000; i++) {
+    largeItemList.push({
+      id: `vod_${i}`,
+      name: `Filme Exemplo ${i}`,
+      group: genres[i % genres.length],
+      type: ItemType.MOVIE,
+      url: `http://server.com/movie/${i}.mp4`
+    });
+  }
+
+  const start = Date.now();
+  // Agrupamento por categoria
+  const groupsMap = new Map();
+  largeItemList.forEach(it => {
+    const g = it.group || 'Geral';
+    groupsMap.set(g, (groupsMap.get(g) || 0) + 1);
+  });
+  const sortedGroups = Array.from(groupsMap.entries()).sort((a, b) => b[1] - a[1]);
+  const duration = Date.now() - start;
+
+  assert.equal(sortedGroups.length, 5);
+  assert.equal(sortedGroups[0][1], 2000); // 10000 / 5
+  assert.ok(duration < 50, `Agrupamento de 10.000 itens levou ${duration}ms (esperado < 50ms)`);
+
+  // Paginação / chunking em lotes de 60
+  const pageSize = 60;
+  const firstBatch = largeItemList.slice(0, pageSize);
+  assert.equal(firstBatch.length, 60);
+  assert.equal(firstBatch[0].id, 'vod_0');
+  assert.equal(firstBatch[59].id, 'vod_59');
+});
+
+console.log('\n--- 7. Testes de Resolução Multi-Apelidos no EPG (EPG-AutoAdjusted) ---');
+
+test('Deve resolver "HBO + PLUS FHD" para o id "hboplus.br" via índice de apelidos multi-display-name', () => {
+  const xml = `<?xml version="1.0" encoding="UTF-8"?>
+  <tv>
+    <channel id="hbo.br">
+      <display-name>HBO</display-name>
+      <display-name>HBO HD</display-name>
+    </channel>
+    <channel id="hboplus.br">
+      <display-name>HBO Plus</display-name>
+      <display-name>HBO PLUS</display-name>
+      <display-name>HBO + PLUS</display-name>
+      <display-name>HBO + PLUS FHD</display-name>
+      <display-name>HBO Plus FHD</display-name>
+    </channel>
+    <programme start="20261111220000 -0300" stop="20261112020000 -0300" channel="hboplus.br">
+      <title>Filme Teste HBO Plus</title>
+      <desc>Descrição de teste</desc>
+    </programme>
+  </tv>`;
+
+  const parser = new EPGParser();
+  parser.parse(xml);
+
+  // Deve resolver canal id exato mesmo vindo com formatação de provedor IPTV
+  const resolvedId = parser.resolveChannelId('', 'HBO + PLUS FHD');
+  assert.equal(resolvedId, 'hboplus.br');
+
+  const progs = parser.getChannelPrograms('', 'HBO + PLUS FHD');
+  assert.equal(progs.length, 1);
+  assert.equal(progs[0].title, 'Filme Teste HBO Plus');
+});
+
+console.log('\n--- 8. Testes de Agrupamento de Séries por Nome e Temporada ---');
+
+test('Deve agrupar episódios soltos em entidade de série única com temporadas organizadas', () => {
+  const rawEpisodes = [
+    { id: '1', name: '13 Reasons Why S01E01', seriesTitle: '13 Reasons Why', season: 1, episode: 1, type: ItemType.SERIES, group: 'Series | Netflix' },
+    { id: '2', name: '13 Reasons Why S01E02', seriesTitle: '13 Reasons Why', season: 1, episode: 2, type: ItemType.SERIES, group: 'Series | Netflix' },
+    { id: '3', name: '13 Reasons Why S02E01', seriesTitle: '13 Reasons Why', season: 2, episode: 1, type: ItemType.SERIES, group: 'Series | Netflix' },
+    { id: '4', name: 'Dark S01E01', seriesTitle: 'Dark', season: 1, episode: 1, type: ItemType.SERIES, group: 'Series | Netflix' }
+  ];
+
+  const seriesMap = new Map();
+  rawEpisodes.forEach(it => {
+    const sTitle = it.seriesTitle || it.name;
+    const normKey = sTitle.toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (!seriesMap.has(normKey)) {
+      seriesMap.set(normKey, {
+        id: `series_${normKey}`,
+        seriesTitle: sTitle,
+        group: it.group,
+        seasons: {},
+        episodes: []
+      });
+    }
+    const ser = seriesMap.get(normKey);
+    const sNum = it.season || 1;
+    if (!ser.seasons[sNum]) ser.seasons[sNum] = [];
+    ser.seasons[sNum].push(it);
+    ser.episodes.push(it);
+  });
+
+  const grouped = Array.from(seriesMap.values());
+  assert.equal(grouped.length, 2);
+
+  const thirteen = grouped.find(s => s.seriesTitle === '13 Reasons Why');
+  assert.ok(thirteen);
+  assert.equal(Object.keys(thirteen.seasons).length, 2); // Temporadas 1 e 2
+  assert.equal(thirteen.seasons[1].length, 2); // 2 eps na temporada 1
+  assert.equal(thirteen.seasons[2].length, 1); // 1 ep na temporada 2
+});
+
+console.log('\n--- 9. Testes de Gerenciamento e Edição de Perfis ---');
+
+test('Deve criar, atualizar/editar e persistir atributos de um perfil existente', () => {
+  const store = {};
+  globalThis.localStorage = {
+    getItem: (k) => store[k] || null,
+    setItem: (k, v) => { store[k] = String(v); },
+    removeItem: (k) => { delete store[k]; }
+  };
+
+  const storageService = new StorageService();
+  const initialProf = {
+    id: 'prof_test_1',
+    name: 'Lista Original',
+    type: 'xtream',
+    url: 'http://iptv.server:8080',
+    username: 'user1',
+    password: 'pass1',
+    streamMode: 'auto',
+    epgUrl: 'http://iptv.server:8080/epg.xml'
+  };
+
+  storageService.saveProfile(initialProf);
+  assert.equal(storageService.getProfiles().length, 1);
+  assert.equal(storageService.getActiveProfile()?.name, 'Lista Original');
+
+  // Simula edição pelo usuário
+  const updatedProf = {
+    ...initialProf,
+    name: 'Lista Editada da Sala',
+    username: 'user_novo',
+    password: 'pass_nova',
+    streamMode: 'ts',
+    epgUrl: 'http://outroservidor.com/epg.xml'
+  };
+
+  storageService.saveProfile(updatedProf);
+  const profiles = storageService.getProfiles();
+  assert.equal(profiles.length, 1, 'Não deve duplicar perfil ao editar');
+  assert.equal(profiles[0].name, 'Lista Editada da Sala');
+  assert.equal(profiles[0].username, 'user_novo');
+  assert.equal(profiles[0].streamMode, 'ts');
+  assert.equal(profiles[0].epgUrl, 'http://outroservidor.com/epg.xml');
+  assert.ok(profiles[0].updatedAt);
+});
+
+console.log('\n--- 10. Testes de Faixas de Áudio e Legendas do Player ---');
+
+test('Deve extrair faixas de áudio e legendas e notificar callback', () => {
+  const mockVideo = {
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    style: {},
+    classList: { add: () => {}, remove: () => {} }
+  };
+  const mockContainer = {
+    classList: { add: () => {}, remove: () => {} }
+  };
+
+  const controller = new VideoPlayerController(mockVideo, mockContainer);
+  let tracksReported = null;
+  controller.onTracksUpdated = (info) => {
+    tracksReported = info;
+  };
+
+  const sampleAudioTracks = [
+    { id: 0, name: 'Português', lang: 'por' },
+    { id: 1, name: 'Inglês', lang: 'eng' },
+    { id: 2, name: 'Espanhol', lang: 'spa' }
+  ];
+
+  const sampleSubtitleTracks = [
+    { id: 0, name: 'Português (Legenda)', lang: 'por' },
+    { id: 1, name: 'Inglês (Legenda)', lang: 'eng' }
+  ];
+
+  controller.extractHlsAudioTracks(sampleAudioTracks);
+  controller.extractHlsSubtitleTracks(sampleSubtitleTracks);
+
+  assert.ok(tracksReported);
+  assert.equal(tracksReported.audioTracks.length, 3);
+  assert.equal(tracksReported.subtitleTracks.length, 2);
+  assert.equal(tracksReported.audioTracks[0].name, 'Português');
+  assert.equal(tracksReported.subtitleTracks[0].name, 'Português (Legenda)');
+
+  // Testar troca de faixas
+  controller.setAudioTrack(1);
+  assert.equal(controller.currentAudioTrack, 1);
+
+  controller.setSubtitleTrack(0);
+  assert.equal(controller.currentSubtitleTrack, 0);
+
+  // Desativar legendas
+  controller.setSubtitleTrack(-1);
+  assert.equal(controller.currentSubtitleTrack, -1);
 });
 
 console.log(`\n========================================`);

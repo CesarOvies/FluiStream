@@ -33,6 +33,7 @@
 4. [Como Usar](#como-usar)
 5. [Compilação e Testes](#compilação-e-testes)
 6. [Governança e Segurança](#governança-e-segurança)
+7. [Isenção de Responsabilidade Legal](#isenção-de-responsabilidade-legal--legal-disclaimer)
 
 ---
 
@@ -64,8 +65,10 @@ Ele resolve as principais limitações dos players convencionais combinando uma 
 2. **URL Remota**: Download direto da lista com suporte a proxy CORS configurável.
 3. **API Xtream Codes**: Autenticação nativa utilizando Nome da Lista, Usuário, Senha e URL do Servidor (consumindo `player_api.php`, `get.php` e `xmltv.php`).
 
-### 4. Player de Vídeo Moderno & Fluido
-- Motor HLS.js integrado para reprodução contínua de streams `.m3u8` e contêineres MP4 / MKV.
+### 4. Player de Vídeo Duplo (HLS Web + VLC Nativo)
+- **Player HLS Nativo (HTML5)**: Motor `Hls.js` integrado para reprodução leve, acelerada por hardware e ideal para a versão Web e contêineres MP4/MKV.
+- **Player VLC (Nativo Desktop)**: Integração profunda com `LibVLCSharp` (`libvlc.dll`), idêntica à arquitetura utilizada no *IPTVSmartersPro*. Reproduz diretamente fluxos MPEG-TS brutos contínuos, protocolos RTSP/RTMP, codecs de áudio proprietários (AC3/EAC3/DTS) e contorna proteções de token expirado de servidores XUI/Xtream Codes.
+- **Seletor de Estilo de Transmissão**: Escolha instantânea no player entre `Auto (HLS Adaptativo)`, `HLS (.m3u8)`, `MPEG-TS (.ts)` ou `Original (Direto)`.
 - Ajuste de **Proporção de Tela (Aspect Ratio)**: Automático, 16:9 (Widescreen), 4:3 (Clássico) e Preencher (Fill).
 - Suporte nativo a **Picture-in-Picture (PiP)** e **Tela Cheia (Fullscreen)**.
 - Integração com **Media Session API** (controles no teclado e na central de mídia do Windows/macOS/Android).
@@ -154,6 +157,17 @@ dotnet build src/desktop/FluiStream.Desktop.csproj -c Release
 - **Regra de Ouro 1**: Nenhum commit é realizado sem testes locais validados com sucesso.
 - **Regra de Ouro 2**: Nenhum `git push` é realizado sem o consentimento explícito do usuário.
 - **Zero Secrets**: Nenhuma credencial ou token reside no código cliente.
+
+---
+
+## Isenção de Responsabilidade Legal / Legal Disclaimer
+
+> [!IMPORTANT]
+> **Português**: O **FluiStream** é um reprodutor de software livre neutro desenvolvido para fins educacionais e interoperabilidade de mídias abertas. O software **NÃO** hospeda, não fornece, não distribui, não indexa e não comercializa nenhum tipo de lista de reprodução, canal de TV, filme, série ou fluxo de transmissão. O usuário é o único responsável pela legalidade, procedência e direitos autorais das listas M3U ou servidores Xtream que optar por reproduzir.
+>
+> **English**: **FluiStream** is a neutral, open-source media player developed for educational purposes and open-media interoperability. The software **DOES NOT** host, provide, distribute, index, or sell any playlist, TV channel, movie, series, or media stream. Users are solely responsible for the legality, licensing, and copyright compliance of the M3U playlists or Xtream servers they choose to play.
+>
+> **Español**: **FluiStream** es un reproductor de software libre neutral desarrollado con fines educativos y de interoperabilidad de medios abiertos. El software **NO** hospeda, proporciona, distribuye, indexa ni comercializa ningún tipo de lista de reproducción, canal de TV, película, serie o transmisión multimedia. El usuario es el único responsable de la legalidad, procedencia y derechos de autor de las listas M3U o servidores Xtream que decida reproducir.
 
 ---
 

@@ -31,3 +31,6 @@ ehthumbs.db
 # WebView2 user data
 *.WebView2/
 EBWebView/
+
+# Tool & session cache
+.github/context-mode/

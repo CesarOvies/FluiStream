@@ -2,19 +2,25 @@
  * FluiStream — Service Worker (Offline UI Cache)
  */
 
-const CACHE_NAME = 'fluistream-ui-v1';
+const CACHE_NAME = 'fluistream-ui-v3';
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
   './css/style.css',
+  './favicon.ico',
   './js/localization.js',
   './js/m3u-parser.js',
   './js/epg-parser.js',
   './js/xtream-api.js',
   './js/storage.js',
   './js/player.js',
+  './js/network.js',
+  './js/version.js',
   './js/app.js',
   './assets/logo.svg',
+  './assets/icon-192.png',
+  './assets/icon-512.png',
+  './assets/apple-touch-icon.png',
   './assets/site-footer.js',
   './manifest.webmanifest'
 ];
