@@ -20,7 +20,7 @@ class FluiStreamApp {
   constructor() {
     this.activeScreen = 'empty'; // 'empty' | 'home' | 'browse' | 'settings' | 'epg' | 'notifications' | 'multiscreen'
     this.previousScreen = 'home';
-    this.currentView = ItemType.LIVE; // 'live' | 'movie' | 'series' | 'favorites' | 'catchup' | 'history'
+    this.currentView = ItemType.LIVE; // 'live' | 'movie' | 'series' | 'favorites' | 'history'
     this.playlist = {
       items: [],
       epgUrl: null,
@@ -39,6 +39,12 @@ class FluiStreamApp {
     this.searchQuery = '';
     this.sortOrder = 'default';
     this.currentPlayingItem = null;
+    this.isBrowsePlayerOpen = false;
+    this.epgTimelineLimit = 60;
+    this._indexedPlaylistRef = null;
+    this._indexedPlaylistLen = -1;
+    this._seriesCache = new Map();
+    this._epgItemByChannelKey = new Map();
     this.PAGE_SIZE = 60;
     this.renderedCount = 0;
     this.currentFilteredItems = [];
@@ -107,7 +113,6 @@ class FluiStreamApp {
       btnQuickMultiscreen: document.getElementById('btn-quick-multiscreen'),
       btnQuickNotifications: document.getElementById('btn-quick-notifications'),
       notifBadge: document.getElementById('notif-badge'),
-      btnQuickCatchup: document.getElementById('btn-quick-catchup'),
       btnOpenProfiles: document.getElementById('btn-open-profiles'),
       headerProfileName: document.getElementById('header-profile-name'),
       btnOpenAccount: document.getElementById('btn-open-account'),
@@ -142,10 +147,8 @@ class FluiStreamApp {
       btnRefreshSeries: document.getElementById('btn-refresh-series'),
       btnHomeLiveEpg: document.getElementById('btn-home-live-epg'),
       btnHomeFavourite: document.getElementById('btn-home-favourite'),
-      btnHomeCatchup: document.getElementById('btn-home-catchup'),
       homeEpgSub: document.getElementById('home-epg-sub'),
       homeCountFav: document.getElementById('home-count-fav'),
-      homeCountCatchup: document.getElementById('home-count-catchup'),
       homeFeaturedList: document.getElementById('home-featured-list'),
       btnHomeHistory: document.getElementById('btn-home-history'),
       homeExpProfile: document.getElementById('home-exp-profile'),
@@ -163,7 +166,9 @@ class FluiStreamApp {
       sidebarCategoryList: document.getElementById('sidebar-category-list'),
       categoryNavBar: document.getElementById('category-nav-bar'),
       btnBackCategories: document.getElementById('btn-back-categories'),
+      btnPlayerBackList: document.getElementById('btn-player-back-list'),
       categoryCurrentTitle: document.getElementById('category-current-title'),
+      searchFilterBar: document.getElementById('search-filter-bar'),
       searchInput: document.getElementById('global-search'),
       selectSortItems: document.getElementById('select-sort-items'),
       itemCountBadge: document.getElementById('items-count-badge'),
@@ -174,6 +179,10 @@ class FluiStreamApp {
 
       // Player
       playerSection: document.getElementById('player-section'),
+      playerTimelineRow: document.getElementById('player-timeline-row'),
+      playerEpgCard: document.getElementById('player-epg-card'),
+      playerEpgExtendedCount: document.getElementById('player-epg-extended-count'),
+      playerEpgExtendedList: document.getElementById('player-epg-extended-list'),
       video: document.getElementById('main-video'),
       playerContainer: document.getElementById('player-wrapper'),
       playerLoadingOverlay: document.getElementById('player-loading-spinner'),
@@ -260,7 +269,10 @@ class FluiStreamApp {
       btnEpgAddSource: document.getElementById('btn-epg-add-source'),
       epgSourcesList: document.getElementById('epg-sources-list'),
       inputEpgTimelineSearch: document.getElementById('input-epg-timeline-search'),
+      epgTimelineStats: document.getElementById('epg-timeline-stats'),
       epgTimelineContainer: document.getElementById('epg-timeline-container'),
+      epgTimelineLoadMoreWrap: document.getElementById('epg-timeline-load-more-wrap'),
+      btnEpgTimelineLoadMore: document.getElementById('btn-epg-timeline-load-more'),
       inputEpgTimeshift: document.getElementById('input-epg-timeshift'),
       epgTimeshiftValue: document.getElementById('epg-timeshift-value'),
       btnTimeshiftMinus: document.getElementById('btn-timeshift-minus'),
@@ -494,6 +506,10 @@ class FluiStreamApp {
       return 'handled';
     }
     if (this.activeScreen === 'browse') {
+      if (this.isBrowsePlayerOpen) {
+        this.exitBrowsePlayer();
+        return 'handled';
+      }
       this.navigateToScreen('home');
       return 'handled';
     }
@@ -613,7 +629,7 @@ class FluiStreamApp {
     if (screenName === 'notifications') this.renderNotifications();
 
     if (this.player) {
-      this.player.setOverlayVisible(screenName === 'browse' && Boolean(this.currentPlayingItem));
+      this.player.setOverlayVisible(screenName === 'browse' && this.isBrowsePlayerOpen && Boolean(this.currentPlayingItem));
       this.player.reportLayout();
     }
   }
@@ -685,9 +701,6 @@ class FluiStreamApp {
     if (this.dom.btnQuickNotifications) {
       this.dom.btnQuickNotifications.addEventListener('click', () => this.navigateToScreen('notifications'));
     }
-    if (this.dom.btnQuickCatchup) {
-      this.dom.btnQuickCatchup.addEventListener('click', () => this.openBrowseView('catchup'));
-    }
 
     // Home Hub Events
     this.dom.bentoCards.forEach(card => {
@@ -731,9 +744,6 @@ class FluiStreamApp {
     if (this.dom.btnHomeFavourite) {
       this.dom.btnHomeFavourite.addEventListener('click', () => this.openBrowseView('favorites'));
     }
-    if (this.dom.btnHomeCatchup) {
-      this.dom.btnHomeCatchup.addEventListener('click', () => this.openBrowseView('catchup'));
-    }
     if (this.dom.btnHomeHistory) {
       this.dom.btnHomeHistory.addEventListener('click', () => this.openBrowseView('history'));
     }
@@ -743,10 +753,19 @@ class FluiStreamApp {
 
     // Split-Pane Sidebar & Browser
     if (this.dom.btnSidebarHome) {
-      this.dom.btnSidebarHome.addEventListener('click', () => this.navigateToScreen('home'));
+      this.dom.btnSidebarHome.addEventListener('click', () => {
+        if (this.isBrowsePlayerOpen) this.exitBrowsePlayer();
+        this.navigateToScreen('home');
+      });
     }
     if (this.dom.btnBackCategories) {
-      this.dom.btnBackCategories.addEventListener('click', () => this.navigateToScreen('home'));
+      this.dom.btnBackCategories.addEventListener('click', () => {
+        if (this.isBrowsePlayerOpen) this.exitBrowsePlayer();
+        this.navigateToScreen('home');
+      });
+    }
+    if (this.dom.btnPlayerBackList) {
+      this.dom.btnPlayerBackList.addEventListener('click', () => this.exitBrowsePlayer());
     }
     if (this.dom.btnToggleSidebarMobile) {
       this.dom.btnToggleSidebarMobile.addEventListener('click', () => {
@@ -755,7 +774,15 @@ class FluiStreamApp {
     }
     if (this.dom.btnSidebarClose) {
       this.dom.btnSidebarClose.addEventListener('click', () => {
-        this.dom.splitSidebar?.classList.remove('open-mobile');
+        if (this.dom.splitSidebar?.classList.contains('open-mobile')) {
+          this.dom.splitSidebar.classList.remove('open-mobile');
+          return;
+        }
+        if (this.isBrowsePlayerOpen) {
+          this.exitBrowsePlayer();
+        } else {
+          this.navigateToScreen('home');
+        }
       });
     }
     if (this.dom.sidebarCategorySearch) {
@@ -772,7 +799,7 @@ class FluiStreamApp {
         searchTimeout = setTimeout(() => {
           this.searchQuery = e.target.value.trim().toLowerCase();
           this.renderChannelGrid();
-        }, 150);
+        }, 220);
       });
     }
     if (this.dom.selectSortItems) {
@@ -939,8 +966,21 @@ class FluiStreamApp {
     if (this.dom.btnEpgRefreshAll) {
       this.dom.btnEpgRefreshAll.addEventListener('click', () => this.refreshAllEpgSources());
     }
+    let epgSearchTimeout;
     if (this.dom.inputEpgTimelineSearch) {
-      this.dom.inputEpgTimelineSearch.addEventListener('input', () => this.renderEpgTimeline());
+      this.dom.inputEpgTimelineSearch.addEventListener('input', () => {
+        clearTimeout(epgSearchTimeout);
+        epgSearchTimeout = setTimeout(() => {
+          this.epgTimelineLimit = 60;
+          this.renderEpgTimeline();
+        }, 180);
+      });
+    }
+    if (this.dom.btnEpgTimelineLoadMore) {
+      this.dom.btnEpgTimelineLoadMore.addEventListener('click', () => {
+        this.epgTimelineLimit += 60;
+        this.renderEpgTimeline();
+      });
     }
     if (this.dom.inputEpgTimeshift) {
       this.dom.inputEpgTimeshift.addEventListener('input', (e) => this.applyEpgTimeshift(parseInt(e.target.value, 10) || 0));
@@ -996,8 +1036,12 @@ class FluiStreamApp {
 
     // Master Search
     if (this.dom.btnCloseMasterSearch) this.dom.btnCloseMasterSearch.addEventListener('click', () => this.closeModal(this.dom.modalMasterSearch));
+    let masterSearchTimer;
     if (this.dom.inputMasterSearch) {
-      this.dom.inputMasterSearch.addEventListener('input', () => this.renderMasterSearchResults());
+      this.dom.inputMasterSearch.addEventListener('input', () => {
+        clearTimeout(masterSearchTimer);
+        masterSearchTimer = setTimeout(() => this.renderMasterSearchResults(), 200);
+      });
     }
 
     // Import / Profiles / Account / Edit / Series / About Modals
@@ -1184,7 +1228,6 @@ class FluiStreamApp {
   renderHomeHub() {
     const summary = this.playlist.summary || { total: 0, live: 0, movies: 0, series: 0 };
     const favCount = storage.getFavorites().length;
-    const catchupCount = this.playlist.items.filter(x => x.hasCatchup).length;
     const prof = storage.getActiveProfile();
     const updatedDate = prof?.updatedAt ? new Date(prof.updatedAt).toLocaleDateString(i18n.currentLanguage || 'pt-BR') : '--';
 
@@ -1195,7 +1238,6 @@ class FluiStreamApp {
     if (this.dom.homeUpdatedMovies) this.dom.homeUpdatedMovies.textContent = updatedDate;
     if (this.dom.homeUpdatedSeries) this.dom.homeUpdatedSeries.textContent = updatedDate;
     if (this.dom.homeCountFav) this.dom.homeCountFav.textContent = String(favCount);
-    if (this.dom.homeCountCatchup) this.dom.homeCountCatchup.textContent = String(catchupCount);
 
     const epgProgs = Array.from(this.epg.programmes.values()).reduce((a, b) => a + b.length, 0);
     if (this.dom.homeEpgSub) this.dom.homeEpgSub.textContent = epgProgs > 0 ? `${this.epg.channels.size} ch • ${epgProgs} prog` : 'XMLTV';
@@ -1242,7 +1284,7 @@ class FluiStreamApp {
             const url = row.getAttribute('data-featured-url');
             const found = this.playlist.items.find(x => x.id === id || x.url === url) || recents.find(x => x.id === id || x.url === url);
             if (found) {
-              this.openBrowseView(found.type || ItemType.LIVE);
+              this.openBrowseView(found.type || ItemType.LIVE, found.group || 'all', true);
               this.playChannel(found);
             }
           };
@@ -1258,12 +1300,74 @@ class FluiStreamApp {
   // =====================================================
   // SPLIT-PANE BROWSER (SCREEN 2)
   // =====================================================
-  openBrowseView(viewType = ItemType.LIVE, initialGroup = 'all') {
+  _ensurePlaylistIndexes() {
+    const len = this.playlist?.items?.length || 0;
+    if (this._indexedPlaylistRef === this.playlist && this._indexedPlaylistLen === len) return;
+    this._indexedPlaylistRef = this.playlist;
+    this._indexedPlaylistLen = len;
+    this._seriesCache = new Map();
+    this._epgItemByChannelKey = new Map();
+    const items = this.playlist.items || [];
+    for (let i = 0; i < items.length; i++) {
+      const it = items[i];
+      if (it.type !== ItemType.LIVE) continue;
+      if (it.tvgId) {
+        const k = it.tvgId.toLowerCase();
+        if (!this._epgItemByChannelKey.has(k)) this._epgItemByChannelKey.set(k, it);
+      }
+      if (it.name) {
+        const n = it.name.toLowerCase();
+        if (!this._epgItemByChannelKey.has(n)) this._epgItemByChannelKey.set(n, it);
+      }
+    }
+  }
+
+  openBrowseView(viewType = ItemType.LIVE, initialGroup = 'all', skipGridRender = false) {
     this.currentView = viewType;
-    this.selectedGroup = initialGroup;
+    this.selectedGroup = initialGroup || 'all';
     this.searchQuery = '';
+    this._skipNextGridRender = Boolean(skipGridRender);
+    if (!skipGridRender && this.isBrowsePlayerOpen) {
+      this.stopPlayback();
+      this.isBrowsePlayerOpen = false;
+    }
     if (this.dom.searchInput) this.dom.searchInput.value = '';
     this.navigateToScreen('browse');
+  }
+
+  syncBrowseViewLayout() {
+    const playing = Boolean(this.isBrowsePlayerOpen && this.currentPlayingItem);
+    this.dom.playerSection?.classList.toggle('hidden', !playing);
+    this.dom.searchFilterBar?.classList.toggle('hidden', playing);
+    this.dom.channelGridSection?.classList.toggle('hidden', playing);
+    this.dom.btnBackCategories?.classList.toggle('hidden', playing);
+    this.dom.btnPlayerBackList?.classList.toggle('hidden', !playing);
+
+    if (this.dom.categoryCurrentTitle) {
+      if (playing && this.currentPlayingItem) {
+        this.dom.categoryCurrentTitle.textContent = this.currentPlayingItem.group || this.currentPlayingItem.name || '';
+      } else {
+        let label = this.selectedGroup || i18n.get('sidebarAll');
+        if (this.selectedGroup === 'all') label = i18n.get('sidebarAll');
+        else if (this.selectedGroup === '__favorites__') label = i18n.get('sidebarFavourites');
+        else if (this.selectedGroup === '__history__') label = i18n.get('sidebarHistory');
+        this.dom.categoryCurrentTitle.textContent = label;
+      }
+    }
+
+    if (this.player) {
+      this.player.setOverlayVisible(this.activeScreen === 'browse' && playing);
+      this.player.reportLayout();
+    }
+  }
+
+  exitBrowsePlayer() {
+    this.stopPlayback();
+    this.isBrowsePlayerOpen = false;
+    this.syncBrowseViewLayout();
+    if (this.dom.channelList && this.dom.channelList.children.length === 0) {
+      this.renderChannelGrid();
+    }
   }
 
   renderBrowseView() {
@@ -1271,8 +1375,13 @@ class FluiStreamApp {
       this.navigateToScreen('empty');
       return;
     }
+    const skipGrid = Boolean(this._skipNextGridRender);
+    this._skipNextGridRender = false;
+    this.syncBrowseViewLayout();
     this.renderSidebarCategories();
-    this.renderChannelGrid();
+    if (!skipGrid && !this.isBrowsePlayerOpen) {
+      this.renderChannelGrid();
+    }
   }
 
   getBaseItemsForCurrentView() {
@@ -1284,9 +1393,6 @@ class FluiStreamApp {
       const recents = storage.getRecents();
       return recents.map(r => this.playlist.items.find(p => p.url === r.url || p.id === r.id) || r);
     }
-    if (this.currentView === 'catchup') {
-      return this.playlist.items.filter(x => x.hasCatchup);
-    }
     return this.playlist.items.filter(x => x.type === this.currentView);
   }
 
@@ -1294,7 +1400,6 @@ class FluiStreamApp {
     if (!this.dom.sidebarCategoryList) return;
     const baseItems = this.playlist.items.filter(x => {
       if (this.currentView === 'favorites') return storage.getFavorites().includes(x.id);
-      if (this.currentView === 'catchup') return x.hasCatchup;
       if (this.currentView === 'history') return true;
       return x.type === this.currentView;
     });
@@ -1357,8 +1462,13 @@ class FluiStreamApp {
       const ok = await this.promptParentalPin();
       if (!ok) return;
     }
-    this.selectedGroup = groupName;
+    if (this.isBrowsePlayerOpen) {
+      this.stopPlayback();
+      this.isBrowsePlayerOpen = false;
+    }
+    this.selectedGroup = groupName || 'all';
     this.dom.splitSidebar?.classList.remove('open-mobile');
+    this.syncBrowseViewLayout();
     this.renderSidebarCategories();
     this.renderChannelGrid();
   }
@@ -1399,12 +1509,21 @@ class FluiStreamApp {
   }
 
   groupSeriesItems(rawItems) {
+    this._ensurePlaylistIndexes();
+    const canUseCache = !this.searchQuery && this.sortOrder === 'default';
+    const cacheKey = `${this.selectedGroup || 'all'}|${this.parentalUnlocked ? '1' : '0'}`;
+    if (canUseCache && this._seriesCache.has(cacheKey)) {
+      return this._seriesCache.get(cacheKey);
+    }
+
     const seriesMap = new Map();
-    rawItems.forEach(it => {
-      let sTitle = it.seriesTitle || it.name.replace(/\s*[-–]\s*(?:T|S)?\d+.*$/i, '').trim();
+    for (let i = 0; i < rawItems.length; i++) {
+      const it = rawItems[i];
+      const sTitle = it.seriesTitle || it.name.replace(/\s*[-–]\s*(?:T|S)?\d+.*$/i, '').trim();
       const normKey = sTitle.toLowerCase().replace(/[^a-z0-9]/g, '');
-      if (!seriesMap.has(normKey)) {
-        seriesMap.set(normKey, {
+      let ser = seriesMap.get(normKey);
+      if (!ser) {
+        ser = {
           id: `series_${normKey}`,
           seriesTitle: sTitle,
           group: it.group || 'Séries',
@@ -1413,35 +1532,40 @@ class FluiStreamApp {
           seasons: {},
           episodes: [],
           sampleItem: it
-        });
+        };
+        seriesMap.set(normKey, ser);
       }
-      const ser = seriesMap.get(normKey);
       if (!ser.logo && it.logo) ser.logo = it.logo;
       const sNum = it.season || 1;
       if (!ser.seasons[sNum]) ser.seasons[sNum] = [];
       ser.seasons[sNum].push(it);
       ser.episodes.push(it);
-    });
+    }
     const result = Array.from(seriesMap.values());
-    result.forEach(s => {
+    for (let i = 0; i < result.length; i++) {
+      const s = result[i];
       s.totalSeasons = Object.keys(s.seasons).length;
       s.totalEpisodes = s.episodes.length;
       for (const k of Object.keys(s.seasons)) {
-        s.seasons[k].sort((a, b) => (a.episode || 0) - (b.episode || 0));
+        if (s.seasons[k].length > 1) {
+          s.seasons[k].sort((a, b) => (a.episode || 0) - (b.episode || 0));
+        }
       }
-    });
+    }
+    if (canUseCache) {
+      this._seriesCache.set(cacheKey, result);
+    }
     return result;
   }
 
   renderChannelGrid() {
     this.renderedCount = 0;
 
-    if (this.dom.categoryCurrentTitle) {
+    if (this.dom.categoryCurrentTitle && !this.isBrowsePlayerOpen) {
       let label = this.selectedGroup || i18n.get('sidebarAll');
       if (this.selectedGroup === 'all') label = i18n.get('sidebarAll');
       else if (this.selectedGroup === '__favorites__') label = i18n.get('sidebarFavourites');
       else if (this.selectedGroup === '__history__') label = i18n.get('sidebarHistory');
-      if (this.currentView === 'catchup' && this.selectedGroup === 'all') label = i18n.get('homeCatchUp');
       this.dom.categoryCurrentTitle.textContent = label;
     }
 
@@ -1473,8 +1597,7 @@ class FluiStreamApp {
 
     if (this.currentFilteredItems.length === 0) {
       let emptyKey = 'noEpgAvailable';
-      if (this.currentView === 'catchup') emptyKey = 'emptyCatchUp';
-      else if (this.selectedGroup === '__history__' || this.currentView === 'history') emptyKey = 'emptyHistory';
+      if (this.selectedGroup === '__history__' || this.currentView === 'history') emptyKey = 'emptyHistory';
       else if (this.selectedGroup === '__favorites__' || this.currentView === 'favorites') emptyKey = 'favoritesEmpty';
 
       this.dom.channelList.innerHTML = `<div style="grid-column: 1 / -1; text-align: center; padding: 3rem 1rem; color: var(--text-secondary);">${this.escapeHtml(i18n.get(emptyKey))}</div>`;
@@ -1554,7 +1677,6 @@ class FluiStreamApp {
           <div class="channel-card-inner">
             <div class="channel-logo-wrap">
               <img src="${logoUrl}" alt="${this.escapeHtml(item.name)}" loading="lazy" onerror="this.src='assets/logo.svg'" />
-              ${item.hasCatchup ? `<span class="badge-catchup-pill">CATCH-UP</span>` : ''}
               <button class="btn-fav ${isFav ? 'is-fav' : ''}" data-fav-id="${this.escapeHtml(item.id)}" title="${this.escapeHtml(i18n.get('navFavorites'))}">★</button>
             </div>
             <div class="channel-info">
@@ -1842,7 +1964,9 @@ class FluiStreamApp {
     if (this.dom.inputEpgTimeshift) this.dom.inputEpgTimeshift.value = String(shift);
     if (this.dom.epgTimeshiftValue) this.dom.epgTimeshiftValue.textContent = `${shift >= 0 ? '+' : ''}${shift}h`;
     this.renderEpgSources();
-    this.renderEpgTimeline();
+    if (!this.dom.epgPanelTimeline?.classList.contains('hidden')) {
+      this.renderEpgTimeline();
+    }
   }
 
   switchEpgTab(tabName) {
@@ -1865,6 +1989,43 @@ class FluiStreamApp {
     return sources;
   }
 
+  async removeEpgSourceAt(index) {
+    const prof = storage.getActiveProfile();
+    const profId = prof?.id || 'default';
+    const list = this.getResolvedEpgSources();
+    const removed = list[index];
+    if (!removed) return;
+
+    list.splice(index, 1);
+    storage.saveEpgSources(list, profId);
+
+    // Clear embedded/profile primary URL if it matches the removed EPG source so getResolvedEpgSources() doesn't re-add it
+    if (prof && (prof.epgUrl === removed.url || prof.externalEpgUrl === removed.url)) {
+      prof.epgUrl = '';
+      prof.externalEpgUrl = '';
+      storage.saveProfile(prof);
+    }
+    if (this.playlist && this.playlist.epgUrl === removed.url) {
+      this.playlist.epgUrl = '';
+      if (this.playlist.items?.length > 0) {
+        await storage.savePlaylist(this.playlist, profId);
+      }
+    }
+
+    if (list.length === 0 || list.every(s => s.enabled === false)) {
+      this.epg.parse('');
+      await storage.saveEpg('', profId);
+      this.updateCurrentEpgDisplay();
+      this.renderHomeHub();
+      this.renderEpgTimeline();
+    } else {
+      await this.refreshAllEpgSources();
+      return;
+    }
+
+    this.renderEpgSources();
+  }
+
   renderEpgSources() {
     if (!this.dom.epgSourcesList) return;
     const sources = this.getResolvedEpgSources();
@@ -1882,7 +2043,7 @@ class FluiStreamApp {
             <span style="word-break: break-all; font-size: 0.84rem;">${this.escapeHtml(s.url)}</span>
           </label>
           <span style="font-size: 0.76rem; color: ${statusColor}; font-weight: 700;">${statusText} (${i18n.get('epgChannelsFound', { count: s.channels || 0 })})</span>
-          <button class="btn-secondary" data-epg-remove="${idx}" style="color: var(--error-red); padding: 0.3rem 0.6rem;">✕</button>
+          <button type="button" class="btn-secondary" data-epg-remove="${idx}" style="color: var(--error-red); padding: 0.3rem 0.6rem;" aria-label="Remove EPG">✕</button>
         </div>
       `;
     }).join('');
@@ -1897,12 +2058,9 @@ class FluiStreamApp {
       });
     });
     this.dom.epgSourcesList.querySelectorAll('[data-epg-remove]').forEach(btn => {
-      btn.addEventListener('click', () => {
+      btn.addEventListener('click', async () => {
         const i = parseInt(btn.getAttribute('data-epg-remove'), 10);
-        const list = this.getResolvedEpgSources();
-        list.splice(i, 1);
-        storage.saveEpgSources(list, profId);
-        this.renderEpgSources();
+        await this.removeEpgSourceAt(i);
       });
     });
   }
@@ -1956,20 +2114,48 @@ class FluiStreamApp {
 
   renderEpgTimeline() {
     if (!this.dom.epgTimelineContainer) return;
-    const q = (this.dom.inputEpgTimelineSearch?.value || '').trim().toLowerCase();
-    const liveChannels = this.playlist.items
-      .filter(x => x.type === ItemType.LIVE)
-      .filter(x => !q || (x.name || '').toLowerCase().includes(q))
-      .slice(0, 40);
+    if (this.dom.epgPanelTimeline?.classList.contains('hidden')) return;
 
-    if (liveChannels.length === 0) {
+    const q = (this.dom.inputEpgTimelineSearch?.value || '').trim().toLowerCase();
+    const withEpg = [];
+    const withoutEpg = [];
+
+    for (let i = 0; i < this.playlist.items.length; i++) {
+      const ch = this.playlist.items[i];
+      if (ch.type !== ItemType.LIVE) continue;
+
+      const cur = this.epg.getCurrentProgram(ch.tvgId, ch.name);
+      const upcoming = this.epg.getUpcomingPrograms(ch.tvgId, ch.name, 24);
+      const hasEpg = Boolean(cur || upcoming.length > 0);
+
+      if (q) {
+        const nameMatch = (ch.name || '').toLowerCase().includes(q) || (ch.group || '').toLowerCase().includes(q);
+        const progMatch = (cur && (cur.title || '').toLowerCase().includes(q)) ||
+          upcoming.some(p => (p.title || '').toLowerCase().includes(q));
+        if (!nameMatch && !progMatch) continue;
+      }
+
+      const entry = { ch, cur, upcoming };
+      if (hasEpg) withEpg.push(entry);
+      else withoutEpg.push(entry);
+    }
+
+    const ordered = [...withEpg, ...withoutEpg];
+    const total = ordered.length;
+    const limit = Math.max(60, this.epgTimelineLimit || 60);
+    const visible = ordered.slice(0, limit);
+
+    if (this.dom.epgTimelineStats) {
+      this.dom.epgTimelineStats.textContent = i18n.get('epgChannelsFound', { count: `${visible.length}/${total}` });
+    }
+
+    if (visible.length === 0) {
       this.dom.epgTimelineContainer.innerHTML = `<p class="help-text">${this.escapeHtml(i18n.get('epgNoData'))}</p>`;
+      this.dom.epgTimelineLoadMoreWrap?.classList.add('hidden');
       return;
     }
 
-    this.dom.epgTimelineContainer.innerHTML = liveChannels.map(ch => {
-      const cur = this.epg.getCurrentProgram(ch.tvgId, ch.name);
-      const upcoming = this.epg.getUpcomingPrograms(ch.tvgId, ch.name, 6);
+    this.dom.epgTimelineContainer.innerHTML = visible.map(({ ch, cur, upcoming }) => {
       const chips = [];
       if (cur) {
         chips.push(`
@@ -1991,7 +2177,7 @@ class FluiStreamApp {
       return `
         <div class="epg-timeline-channel-row">
           <div class="epg-timeline-ch-info" data-play-id="${this.escapeHtml(ch.id)}" tabindex="0" role="button">
-            <img src="${ch.logo || 'assets/logo.svg'}" alt="" onerror="this.src='assets/logo.svg'" />
+            <img src="${ch.logo || 'assets/logo.svg'}" alt="" loading="lazy" onerror="this.src='assets/logo.svg'" />
             <span class="epg-timeline-ch-name">${this.escapeHtml(ch.name)}</span>
           </div>
           <div class="epg-timeline-progs">
@@ -2001,11 +2187,19 @@ class FluiStreamApp {
       `;
     }).join('');
 
+    if (this.dom.epgTimelineLoadMoreWrap && this.dom.btnEpgTimelineLoadMore) {
+      const hasMore = visible.length < total;
+      this.dom.epgTimelineLoadMoreWrap.classList.toggle('hidden', !hasMore);
+      if (hasMore) {
+        this.dom.btnEpgTimelineLoadMore.textContent = i18n.get('btnLoadMore', { shown: visible.length, total });
+      }
+    }
+
     this.dom.epgTimelineContainer.querySelectorAll('[data-play-id]').forEach(el => {
       el.addEventListener('click', () => {
         const item = this.playlist.items.find(x => x.id === el.getAttribute('data-play-id'));
         if (item) {
-          this.openBrowseView(ItemType.LIVE);
+          this.openBrowseView(ItemType.LIVE, item.group || 'all', true);
           this.playChannel(item);
         }
       });
@@ -2185,21 +2379,35 @@ class FluiStreamApp {
   renderMasterSearchResults() {
     if (!this.dom.masterSearchResults) return;
     const q = (this.dom.inputMasterSearch?.value || '').trim().toLowerCase();
-    if (!q) {
+    if (!q || q.length < 2) {
       this.dom.masterSearchResults.innerHTML = `<p class="help-text" style="text-align:center; padding:1.5rem;">${this.escapeHtml(i18n.get('masterSearchPlaceholder'))}</p>`;
       return;
     }
 
-    const itemMatches = this.playlist.items
-      .filter(x => (x.name || '').toLowerCase().includes(q) || (x.group || '').toLowerCase().includes(q))
-      .slice(0, 40);
+    this._ensurePlaylistIndexes();
+    const items = this.playlist.items || [];
+    const cfg = storage.getSettings();
+    const hideAdult = Boolean(cfg.parentalPinHash) && !this.parentalUnlocked;
+
+    const itemMatches = [];
+    for (let i = 0; i < items.length; i++) {
+      const x = items[i];
+      if (hideAdult && PARENTAL_CATEGORY_RE.test(x.group || '')) continue;
+      if ((x.name && x.name.toLowerCase().includes(q)) || (x.group && x.group.toLowerCase().includes(q))) {
+        itemMatches.push(x);
+        if (itemMatches.length >= 40) break;
+      }
+    }
 
     const epgMatches = [];
     for (const [chId, progs] of this.epg.programmes.entries()) {
-      for (const p of progs) {
+      const ch = this._epgItemByChannelKey?.get(chId.toLowerCase()) || null;
+      if (!ch) continue;
+      if (hideAdult && PARENTAL_CATEGORY_RE.test(ch.group || '')) continue;
+      for (let j = 0; j < progs.length; j++) {
+        const p = progs[j];
         if ((p.title || '').toLowerCase().includes(q)) {
-          const ch = this.playlist.items.find(x => x.tvgId === chId || x.name.toLowerCase() === chId.toLowerCase());
-          if (ch) epgMatches.push({ item: ch, program: p });
+          epgMatches.push({ item: ch, program: p });
           if (epgMatches.length >= 15) break;
         }
       }
@@ -2211,11 +2419,15 @@ class FluiStreamApp {
       return;
     }
 
+    const matchedMap = new Map();
+    itemMatches.forEach(it => matchedMap.set(String(it.id), it));
+    epgMatches.forEach(({ item }) => matchedMap.set(String(item.id), item));
+
     const rows = [
       ...itemMatches.map(it => `
         <div class="master-search-row" data-ms-item-id="${this.escapeHtml(it.id)}" tabindex="0" role="button">
           <div style="min-width:0;">
-            <strong style="display:block; font-size:0.88rem;">${this.escapeHtml(it.name)}</strong>
+            <strong style="display:block; font-size:0.88rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${this.escapeHtml(it.name)}</strong>
             <span class="help-text">${this.escapeHtml(it.group || '')}</span>
           </div>
           <span class="channel-badge ${it.type || 'live'}">${(it.type || 'live').toUpperCase()}</span>
@@ -2224,7 +2436,7 @@ class FluiStreamApp {
       ...epgMatches.map(({ item, program }) => `
         <div class="master-search-row" data-ms-item-id="${this.escapeHtml(item.id)}" tabindex="0" role="button">
           <div style="min-width:0;">
-            <strong style="display:block; font-size:0.88rem;">EPG: ${this.escapeHtml(program.title)}</strong>
+            <strong style="display:block; font-size:0.88rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">EPG: ${this.escapeHtml(program.title)}</strong>
             <span class="help-text">${this.escapeHtml(item.name)} (${this.epg.formatTime(program.start)})</span>
           </div>
           <span class="channel-badge live">EPG</span>
@@ -2234,12 +2446,20 @@ class FluiStreamApp {
 
     this.dom.masterSearchResults.innerHTML = rows.join('');
     this.dom.masterSearchResults.querySelectorAll('[data-ms-item-id]').forEach(row => {
-      row.addEventListener('click', () => {
-        const item = this.playlist.items.find(x => x.id === row.getAttribute('data-ms-item-id'));
+      const activate = () => {
+        const id = row.getAttribute('data-ms-item-id');
+        const item = matchedMap.get(String(id)) || this.playlist.items.find(x => String(x.id) === String(id));
         if (item) {
           this.closeModal(this.dom.modalMasterSearch);
-          this.openBrowseView(item.type || ItemType.LIVE);
+          this.openBrowseView(item.type || ItemType.LIVE, item.group || 'all', true);
           this.playChannel(item);
+        }
+      };
+      row.addEventListener('click', activate);
+      row.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          activate();
         }
       });
     });
@@ -2697,7 +2917,7 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
             <div class="profile-card-icon">👤</div>
             <div class="profile-card-details">
               <div class="profile-card-title">
-                ${this.escapeHtml(p.name)}
+                <span class="profile-card-name" title="${this.escapeHtml(p.name)}">${this.escapeHtml(p.name)}</span>
                 ${isActive ? `<span class="profile-tag-active">${this.escapeHtml(i18n.get('profileActiveBadge'))}</span>` : ''}
               </div>
               <div class="profile-card-sub">${this.escapeHtml(p.sourceInfo || '')}</div>
@@ -2973,11 +3193,17 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
 
   playChannel(item) {
     this.currentPlayingItem = item;
+    this.isBrowsePlayerOpen = true;
     storage.addRecent(item);
 
     const cfg = storage.getSettings();
     const activeStreamMode = this.dom.streamModeSelect?.value || cfg.streamMode || 'auto';
     const activeEngine = this.dom.playerEngineSelect?.value || cfg.playerEngine || (window.chrome?.webview ? 'vlc' : 'hls');
+
+    if (this.activeScreen === 'browse') {
+      this.syncBrowseViewLayout();
+    }
+
     this.player.playStream(item, cfg.corsProxy, activeStreamMode, activeEngine);
 
     if (this.dom.currentChannelName) this.dom.currentChannelName.textContent = item.name;
@@ -3013,11 +3239,13 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
     if (this.dom.currentProgramRemaining) this.dom.currentProgramRemaining.textContent = '';
     if (this.dom.currentProgramProgress) this.dom.currentProgramProgress.style.width = '0%';
     if (this.dom.progressThumb) this.dom.progressThumb.style.left = '0%';
+    this.dom.playerEpgCard?.classList.add('hidden');
+    if (this.dom.playerEpgExtendedList) this.dom.playerEpgExtendedList.innerHTML = '';
+    if (this.dom.playerEpgExtendedCount) this.dom.playerEpgExtendedCount.textContent = '';
   }
 
   closePlayerAndReset() {
-    this.stopPlayback();
-    this.navigateToScreen('home');
+    this.exitBrowsePlayer();
   }
 
   navigateChannel(delta) {
@@ -3102,6 +3330,7 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
     const isVod = Boolean(this.currentPlayingItem && this.currentPlayingItem.type !== ItemType.LIVE);
     const showDuration = isVod || (isSeekable && duration > 0);
     if (showDuration) {
+      this.dom.playerTimelineRow?.classList.remove('hidden');
       if (this.dom.timeCurrent) { this.dom.timeCurrent.textContent = this.formatDuration(currentTime); this.dom.timeCurrent.classList.remove('hidden'); }
       if (this.dom.timeTotal) { this.dom.timeTotal.textContent = this.formatDuration(duration); this.dom.timeTotal.classList.remove('hidden'); }
       if (this.dom.currentProgramProgress) this.dom.currentProgramProgress.style.width = `${Math.min(100, Math.max(0, position * 100))}%`;
@@ -3115,19 +3344,20 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
   }
 
   updateCurrentEpgDisplay() {
-    if (!this.currentPlayingItem) return;
-    if (this.currentPlayingItem.type !== ItemType.LIVE) {
-      this.dom.currentProgramTitle.textContent = this.currentPlayingItem.name;
-      if (this.dom.currentProgramTime) {
-        this.dom.currentProgramTime.textContent = this.currentPlayingItem.type.toUpperCase();
-        this.dom.currentProgramTime.classList.remove('hidden');
-      }
-      if (this.dom.currentProgramRemaining) this.dom.currentProgramRemaining.textContent = '';
+    if (!this.currentPlayingItem || this.currentPlayingItem.type !== ItemType.LIVE) {
+      // Filmes e Séries: não exibir nada de EPG abaixo do player
+      this._lastExtendedEpgSig = '';
+      this.dom.playerEpgCard?.classList.add('hidden');
+      if (this.dom.playerEpgExtendedList) this.dom.playerEpgExtendedList.innerHTML = '';
+      if (this.dom.playerEpgExtendedCount) this.dom.playerEpgExtendedCount.textContent = '';
       return;
     }
 
+    this.dom.playerEpgCard?.classList.remove('hidden');
+
     const prog = this.epg.getCurrentProgram(this.currentPlayingItem.tvgId, this.currentPlayingItem.name);
     if (prog) {
+      this.dom.playerTimelineRow?.classList.remove('hidden');
       this.dom.currentProgramTitle.textContent = prog.title;
       if (this.dom.currentProgramTime) {
         this.dom.currentProgramTime.textContent = `${prog.formattedStart} - ${prog.formattedStop}`;
@@ -3137,11 +3367,45 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
       if (this.dom.currentProgramProgress) this.dom.currentProgramProgress.style.width = `${prog.progress}%`;
       if (this.dom.progressThumb) this.dom.progressThumb.style.left = `${prog.progress}%`;
     } else {
+      this.dom.playerTimelineRow?.classList.add('hidden');
       this.dom.currentProgramTitle.textContent = i18n.get('noEpgAvailable');
       this.dom.currentProgramTime?.classList.add('hidden');
       if (this.dom.currentProgramRemaining) this.dom.currentProgramRemaining.textContent = '';
       if (this.dom.currentProgramProgress) this.dom.currentProgramProgress.style.width = '0%';
       if (this.dom.progressThumb) this.dom.progressThumb.style.left = '0%';
+    }
+
+    if (this.dom.playerEpgExtendedList) {
+      const allProgs = this.epg.getChannelPrograms(this.currentPlayingItem.tvgId, this.currentPlayingItem.name);
+      const nowMs = Date.now();
+      const schedule = allProgs.filter(p => p.stop.getTime() >= nowMs - 300000);
+      const list = schedule.length > 0 ? schedule : allProgs;
+      const sig = `${this.currentPlayingItem.id}|${this.epg.timeshiftHours}|${prog?.title || ''}|${list.length}|${this.epg.channels.size}`;
+      if (sig === this._lastExtendedEpgSig) return;
+      this._lastExtendedEpgSig = sig;
+
+      if (this.dom.playerEpgExtendedCount) {
+        this.dom.playerEpgExtendedCount.textContent = list.length > 0 ? `${list.length}` : '';
+      }
+
+      if (list.length === 0) {
+        this.dom.playerEpgExtendedList.innerHTML = `<p class="help-text">${this.escapeHtml(i18n.get('noEpgAvailable'))}</p>`;
+      } else {
+        this.dom.playerEpgExtendedList.innerHTML = list.map(p => {
+          const isNow = nowMs >= p.start.getTime() && nowMs < p.stop.getTime();
+          const startStr = this.epg.formatTime(p.start);
+          const stopStr = this.epg.formatTime(p.stop);
+          return `
+            <div class="player-epg-extended-item ${isNow ? 'is-now' : ''}">
+              <span class="epg-ext-time">${isNow ? `${this.escapeHtml(i18n.get('epgTimelineNow'))} • ` : ''}${startStr} - ${stopStr}</span>
+              <div class="epg-ext-body">
+                <div class="epg-ext-title">${this.escapeHtml(p.title)}</div>
+                ${p.desc ? `<div class="epg-ext-desc">${this.escapeHtml(p.desc)}</div>` : ''}
+              </div>
+            </div>
+          `;
+        }).join('');
+      }
     }
   }
 

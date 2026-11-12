@@ -1,50 +1,54 @@
 <?xml version="1.0" encoding="utf-8"?>
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:aapt="http://schemas.android.com/aapt"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
 
-    <!-- Subtle steel-navy backing ring inside adaptive safe zone -->
+    <!-- TV Antennas -->
     <path
-        android:fillColor="#0F172A"
-        android:fillAlpha="0.85"
-        android:pathData="M54,24 A30,30 0,1 1,53.99 24 Z"
-        android:strokeColor="#1E293B"
-        android:strokeWidth="1.8" />
-
-    <!-- Steel-cyan speed swoosh -->
+        android:pathData="M43,31 L36,21"
+        android:strokeColor="#8B949E"
+        android:strokeLineCap="round"
+        android:strokeWidth="2.4" />
     <path
-        android:fillColor="#38BDF8"
-        android:fillAlpha="0.9"
-        android:pathData="M34,67 C42,72 55,72 68,61 C61,69 47,75 34,70 Z" />
-
-    <!-- Dynamic curved Midnight Amber chevron-play ribbon -->
+        android:fillColor="#10B981"
+        android:pathData="M36,21m-2,0a2,2 0,1 1,4 0a2,2 0,1 1,-4 0" />
     <path
-        android:pathData="M37,35 C41,32 46,32 51,35 L73,49 C78,52 78,56 73,59 L51,73 C46,76 41,76 37,73 C43,66 47,60 47,54 C47,48 43,42 37,35 Z">
-        <aapt:attr name="android:fillColor">
-            <gradient
-                android:endX="76"
-                android:endY="72"
-                android:startX="37"
-                android:startY="34"
-                android:type="linear">
-                <item
-                    android:color="#FBBF24"
-                    android:offset="0.0" />
-                <item
-                    android:color="#F97316"
-                    android:offset="0.55" />
-                <item
-                    android:color="#EF4444"
-                    android:offset="1.0" />
-            </gradient>
-        </aapt:attr>
-    </path>
+        android:pathData="M65,31 L72,21"
+        android:strokeColor="#8B949E"
+        android:strokeLineCap="round"
+        android:strokeWidth="2.4" />
+    <path
+        android:fillColor="#388BFD"
+        android:pathData="M72,21m-2,0a2,2 0,1 1,4 0a2,2 0,1 1,-4 0" />
 
-    <!-- Crisp inner play core -->
+    <!-- TV Screen Frame -->
+    <path
+        android:fillColor="#090D13"
+        android:pathData="M28,31 L80,31 A6,6 0,0 1,86 37 L86,71 A6,6 0,0 1,80 77 L28,77 A6,6 0,0 1,22 71 L22,37 A6,6 0,0 1,28 31 Z"
+        android:strokeColor="#30363D"
+        android:strokeWidth="2.2" />
+
+    <!-- Top Fluid Wave (Emerald) -->
+    <path
+        android:fillColor="#10B981"
+        android:pathData="M33,43 C46,38 56,51 70,44 C73,43 75,45 74,48 C72,53 63,58 51,51 C42,46 37,49 33,49 Z" />
+
+    <!-- Bottom Fluid Wave (Blue) -->
+    <path
+        android:fillColor="#388BFD"
+        android:pathData="M33,54 C45,54 52,65 66,59 C69,58 71,60 70,63 C67,68 57,72 45,65 C38,61 35,62 33,61 Z" />
+
+    <!-- Central Play Triangle -->
     <path
         android:fillColor="#F0F6FC"
-        android:pathData="M50,45 L67,54 L50,63 C52,58 52,50 50,45 Z" />
+        android:pathData="M48,47 L63,55 L48,63 Z" />
+
+    <!-- TV Stand -->
+    <path
+        android:pathData="M54,77 L54,82 M46,82 L62,82"
+        android:strokeColor="#30363D"
+        android:strokeLineCap="round"
+        android:strokeWidth="2.6" />
 </vector>

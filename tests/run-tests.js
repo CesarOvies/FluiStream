@@ -828,6 +828,31 @@ await test('XtreamApi.authenticate() deve retornar serverInfo e accountInfo comp
   }
 });
 
+console.log('\n--- 17. Testes de Regressão UX / Responsividade / EPG / Busca ---');
+
+await test('HTML e CSS devem omitir Catch-Up, manter player oculto por padrão e truncar cards de perfil corretamente', () => {
+  const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+  const html = readFileSync(resolve(rootDir, 'src/web/index.html'), 'utf-8');
+  const css = readFileSync(resolve(rootDir, 'src/web/css/style.css'), 'utf-8');
+  const appJs = readFileSync(resolve(rootDir, 'src/web/js/app.js'), 'utf-8');
+
+  assert.equal(html.includes('btn-home-catchup'), false);
+  assert.equal(html.includes('btn-quick-catchup'), false);
+  assert.match(html, /class="player-section hidden"\s+id="player-section"/);
+  assert.match(html, /id="player-epg-extended-list"/);
+  assert.match(html, /id="btn-player-back-list"/);
+  assert.match(html, /id="btn-epg-timeline-load-more"/);
+
+  assert.match(css, /\.nav-tabs-wrapper\s*\{[^}]*flex-shrink:\s*0/);
+  assert.match(css, /\.profile-card-name\s*\{[^}]*text-overflow:\s*ellipsis/);
+  assert.match(css, /\.epg-content-panel\s*\{[^}]*min-width:\s*0/);
+
+  assert.match(appJs, /removeEpgSourceAt/);
+  assert.match(appJs, /exitBrowsePlayer/);
+  assert.match(appJs, /_epgItemByChannelKey/);
+  assert.match(appJs, /itemMatches\.length >= 40\) break/);
+});
+
 console.log(`\n========================================`);
 console.log(`Resultados dos Testes: ${passedTests}/${totalTests} passaram.`);
 console.log(`========================================\n`);
