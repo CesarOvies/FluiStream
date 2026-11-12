@@ -270,14 +270,14 @@
         <!-- Sidebar Esquerda (#05070B) -->
         <aside class="split-sidebar" id="split-sidebar" aria-label="Categorias">
           <div class="split-sidebar-header">
-            <button class="btn-icon" id="btn-sidebar-home" title="Home" data-i18n-title="navHome">
+            <button class="btn-icon" id="btn-sidebar-home" title="Voltar" data-i18n-title="btnBack">
               <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
             </button>
             <div class="split-sidebar-brand">
               <img src="assets/logo.svg" alt="" width="22" height="22" />
-              <span>FluiStream</span>
+              <span id="split-sidebar-title">FluiStream</span>
             </div>
-            <button class="btn-icon" id="btn-sidebar-close" title="Fechar">×</button>
+            <button class="btn-icon" id="btn-sidebar-close" title="Fechar categoria" data-i18n-title="playerClose">×</button>
           </div>
 
           <div class="split-sidebar-search">
@@ -285,14 +285,25 @@
               <svg class="search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
               <input type="text" id="sidebar-category-search" class="search-input" data-i18n-placeholder="sidebarSearchCategories" placeholder="Buscar categorias..." />
             </div>
+            <div class="sidebar-items-toolbar hidden" id="sidebar-items-toolbar">
+              <span id="items-count-badge" class="help-text"></span>
+              <select class="select-custom" id="select-sort-items" aria-label="Sort">
+                <option value="default">Default</option>
+                <option value="alpha" data-i18n="sortAlpha">A-Z</option>
+                <option value="recent" data-i18n="sortRecent">Recentes</option>
+              </select>
+            </div>
           </div>
 
           <div class="split-sidebar-list" id="sidebar-category-list"></div>
+          <div class="sidebar-load-more-wrap hidden" id="load-more-wrap">
+            <button class="btn-secondary" id="btn-load-more" style="width: 100%; font-size: 0.78rem;" data-i18n="btnLoadMore">Carregar Mais</button>
+          </div>
         </aside>
 
-        <!-- Painel Direito: Player + Grade Glassmorphic -->
+        <!-- Painel Direito: Player + EPG Extendido Maximizado (apenas Ao Vivo) -->
         <div class="split-main-pane">
-          <!-- Barra de Navegação / Voltar da Categoria Ativa (compatível com Android Back) -->
+          <!-- Barra de Navegação / Voltar -->
           <section class="category-nav-bar" id="category-nav-bar">
             <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
               <button class="btn-icon" id="btn-toggle-sidebar-mobile" title="Categorias">☰</button>
@@ -300,17 +311,17 @@
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
                 <span data-i18n="navHome">Início</span>
               </button>
-              <button class="btn-secondary btn-back-categories hidden" id="btn-player-back-list">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
-                <span data-i18n="btnBackCategories">Voltar para Categorias</span>
-              </button>
             </div>
             <span class="category-current-badge" id="category-current-title">ALL</span>
           </section>
 
-          <!-- Seção do Player de Vídeo (Oculta até clicar em um item para reproduzir) -->
-          <section class="player-section hidden" id="player-section">
+          <!-- Seção do Player de Vídeo (#player-wrapper preservado!) -->
+          <section class="player-section" id="player-section">
             <div class="player-wrapper" id="player-wrapper">
+              <div id="player-idle-overlay" class="player-idle-overlay">
+                <img src="assets/logo.svg" alt="FluiStream" width="48" height="48" style="opacity: 0.85;" />
+                <span class="help-text" data-i18n="selectItemHint">Selecione um item na lista ao lado para reproduzir</span>
+              </div>
               <div id="player-loading-spinner" class="player-loading-overlay hidden">
                 <div class="spinner"></div>
                 <span id="player-loading-text">Carregando stream...</span>
@@ -327,7 +338,7 @@
               <video id="main-video" playsinline controls></video>
             </div>
 
-            <!-- Barra de Metadados e EPG do Canal Atual -->
+            <!-- Barra de Metadados e Controles do Player -->
             <div class="player-meta-bar">
               <div class="player-meta-top">
                 <div class="player-now-playing">
@@ -390,7 +401,7 @@
               </div>
 
               <!-- Seek / Progresso do vídeo VOD ou programa ao vivo -->
-              <div class="epg-progress-row player-timeline-row" id="player-timeline-row">
+              <div class="epg-progress-row player-timeline-row hidden" id="player-timeline-row">
                 <span id="player-time-current" class="player-time-badge hidden">00:00:00</span>
                 <div class="player-progress-bar-wrap" id="player-progress-bar-wrap" role="slider" tabindex="0" title="Arraste para avançar ou voltar no vídeo" data-i18n-title="playerSeek">
                   <div class="player-progress-bar-fill" id="player-prog-progress-bar"></div>
@@ -399,44 +410,32 @@
                 <span id="player-time-total" class="player-time-badge hidden">00:00:00</span>
                 <span id="player-current-prog-remaining" class="epg-remaining-text"></span>
               </div>
+            </div>
+          </section>
 
-              <!-- EPG Extendido (Visível apenas para TV ao Vivo; oculto para Filmes/Séries) -->
-              <div class="player-epg-card hidden" id="player-epg-card">
-                <div class="epg-card-header">
-                  <span class="epg-badge-live" id="epg-status-badge" data-i18n="playerLiveBadge">AO VIVO</span>
-                  <h4 id="player-current-prog-title" class="epg-prog-title">Nenhum canal em reprodução</h4>
-                  <span id="player-current-prog-time" class="epg-time-badge hidden"></span>
-                </div>
-                <div class="player-epg-extended-header">
-                  <span class="player-epg-extended-label" data-i18n="epgScheduleTitle">Grade de Programação</span>
-                  <span class="help-text" id="player-epg-extended-count"></span>
-                </div>
-                <div class="player-epg-extended-list" id="player-epg-extended-list"></div>
+          <!-- EPG Maximizado para Baixo (Visível APENAS para TV ao Vivo; completamente oculto para Filmes e Séries) -->
+          <section class="player-epg-card player-epg-maximized hidden" id="player-epg-card">
+            <div class="epg-card-header">
+              <div style="display: flex; align-items: center; gap: 0.65rem; min-width: 0; flex: 1;">
+                <span class="epg-badge-live" id="epg-status-badge" data-i18n="playerLiveBadge">AO VIVO</span>
+                <h4 id="player-current-prog-title" class="epg-prog-title" style="min-width: 0;">Guia de Programação</h4>
+                <span id="player-current-prog-time" class="epg-time-badge hidden"></span>
+              </div>
+              <div class="player-epg-mode-tabs">
+                <button type="button" class="btn-secondary player-epg-tab-btn" id="btn-epg-mode-channel" data-epg-browse-mode="channel" data-i18n="epgChannelSchedule">Programação do Canal</button>
+                <button type="button" class="btn-secondary player-epg-tab-btn active" id="btn-epg-mode-all" data-epg-browse-mode="all" data-i18n="epgAllChannels">Todos os Canais</button>
               </div>
             </div>
-          </section>
-
-          <!-- Barra de Pesquisa & Ordenação -->
-          <section class="search-filter-bar" id="search-filter-bar">
-            <div class="search-input-wrap">
-              <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-              <input type="text" id="global-search" class="search-input" data-i18n-placeholder="searchPlaceholder" placeholder="Buscar canais, filmes ou séries..." />
+            <div class="player-epg-extended-header">
+              <span class="player-epg-extended-label" data-i18n="epgScheduleTitle">Grade de Programação</span>
+              <div style="display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;">
+                <input type="text" id="input-browse-epg-search" class="form-control player-epg-search-input" data-i18n-placeholder="searchPlaceholder" placeholder="Buscar canal ou programa..." />
+                <span class="help-text" id="player-epg-extended-count"></span>
+              </div>
             </div>
-            <div class="split-toolbar-right">
-              <select class="select-custom" id="select-sort-items" aria-label="Sort">
-                <option value="default">Default</option>
-                <option value="alpha" data-i18n="sortAlpha">A-Z</option>
-                <option value="recent" data-i18n="sortRecent">Recentes</option>
-              </select>
-              <div id="items-count-badge" style="font-size: 0.8125rem; color: var(--text-secondary);"></div>
-            </div>
-          </section>
-
-          <!-- Grade de Canais / Itens -->
-          <section class="channel-grid-section" id="channel-grid-section">
-            <div class="channel-grid" id="channel-grid"></div>
-            <div class="load-more-wrap hidden" id="load-more-wrap">
-              <button class="btn-secondary" id="btn-load-more" data-i18n="btnLoadMore">Carregar Mais</button>
+            <div class="player-epg-extended-list" id="player-epg-extended-list"></div>
+            <div class="load-more-wrap hidden" id="browse-epg-load-more-wrap">
+              <button type="button" class="btn-secondary" id="btn-browse-epg-load-more" data-i18n="btnLoadMore">Carregar Mais</button>
             </div>
           </section>
         </div>

@@ -117,7 +117,7 @@ await test('Todos os 3 idiomas (pt-BR, en-US, es) devem possuir o mesmo conjunto
   const enKeys = Object.keys(translations['en-US']).sort();
   const esKeys = Object.keys(translations['es']).sort();
 
-  assert.equal(ptKeys.length, 224, `Esperado exatamente 224 chaves i18n em pt-BR, obtido ${ptKeys.length}`);
+  assert.equal(ptKeys.length, 228, `Esperado exatamente 228 chaves i18n em pt-BR, obtido ${ptKeys.length}`);
   assert.deepEqual(ptKeys, enKeys, 'Chaves pt-BR e en-US devem ser idênticas');
   assert.deepEqual(ptKeys, esKeys, 'Chaves pt-BR e es devem ser idênticas');
 
@@ -830,7 +830,7 @@ await test('XtreamApi.authenticate() deve retornar serverInfo e accountInfo comp
 
 console.log('\n--- 17. Testes de Regressão UX / Responsividade / EPG / Busca ---');
 
-await test('HTML e CSS devem omitir Catch-Up, manter player oculto por padrão e truncar cards de perfil corretamente', () => {
+await test('HTML, CSS e JS devem implementar drill-down na sidebar, player com overlay ocioso, EPG maximizado abaixo e omitir Catch-Up', () => {
   const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
   const html = readFileSync(resolve(rootDir, 'src/web/index.html'), 'utf-8');
   const css = readFileSync(resolve(rootDir, 'src/web/css/style.css'), 'utf-8');
@@ -838,17 +838,32 @@ await test('HTML e CSS devem omitir Catch-Up, manter player oculto por padrão e
 
   assert.equal(html.includes('btn-home-catchup'), false);
   assert.equal(html.includes('btn-quick-catchup'), false);
-  assert.match(html, /class="player-section hidden"\s+id="player-section"/);
+  assert.equal(html.includes('id="channel-grid-section"'), false);
+  assert.equal(html.includes('id="search-filter-bar"'), false);
+
+  assert.match(html, /id="split-sidebar-title"/);
+  assert.match(html, /id="sidebar-items-toolbar"/);
+  assert.match(html, /id="player-idle-overlay"/);
+  assert.match(html, /class="player-epg-card player-epg-maximized hidden"\s+id="player-epg-card"/);
+  assert.match(html, /id="btn-epg-mode-channel"/);
+  assert.match(html, /id="btn-epg-mode-all"/);
+  assert.match(html, /id="input-browse-epg-search"/);
   assert.match(html, /id="player-epg-extended-list"/);
-  assert.match(html, /id="btn-player-back-list"/);
+  assert.match(html, /id="btn-browse-epg-load-more"/);
   assert.match(html, /id="btn-epg-timeline-load-more"/);
 
   assert.match(css, /\.nav-tabs-wrapper\s*\{[^}]*flex-shrink:\s*0/);
   assert.match(css, /\.profile-card-name\s*\{[^}]*text-overflow:\s*ellipsis/);
   assert.match(css, /\.epg-content-panel\s*\{[^}]*min-width:\s*0/);
+  assert.match(css, /\.player-epg-card\.player-epg-maximized\s*\{/);
+  assert.match(css, /\.sidebar-item-row\s*\{/);
 
   assert.match(appJs, /removeEpgSourceAt/);
-  assert.match(appJs, /exitBrowsePlayer/);
+  assert.match(appJs, /sidebarDrillMode/);
+  assert.match(appJs, /closeEnteredCategory\(/);
+  assert.match(appJs, /renderSidebarItems\(/);
+  assert.match(appJs, /_collectLiveEpgRows\(/);
+  assert.match(appJs, /currentPlayingItem\.type\s*===\s*ItemType\.LIVE/);
   assert.match(appJs, /_epgItemByChannelKey/);
   assert.match(appJs, /itemMatches\.length >= 40\) break/);
 });

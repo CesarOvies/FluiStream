@@ -34,12 +34,15 @@ class FluiStreamApp {
     this.activeMultiSlot = 0;
     this.pendingSlotIndex = 0;
 
-    this.selectedGroup = 'all';
+    this.selectedGroup = null;
+    this.sidebarDrillMode = 'categories';
     this.sidebarSearchQuery = '';
     this.searchQuery = '';
     this.sortOrder = 'default';
     this.currentPlayingItem = null;
-    this.isBrowsePlayerOpen = false;
+    this.browseEpgMode = 'all';
+    this.browseEpgAllLimit = 60;
+    this._lastExtendedEpgSig = '';
     this.epgTimelineLimit = 60;
     this._indexedPlaylistRef = null;
     this._indexedPlaylistLen = -1;
@@ -159,30 +162,30 @@ class FluiStreamApp {
 
       // Split-Pane Browser
       splitSidebar: document.getElementById('split-sidebar'),
+      splitSidebarTitle: document.getElementById('split-sidebar-title'),
       btnSidebarHome: document.getElementById('btn-sidebar-home'),
       btnSidebarClose: document.getElementById('btn-sidebar-close'),
       btnToggleSidebarMobile: document.getElementById('btn-toggle-sidebar-mobile'),
       sidebarCategorySearch: document.getElementById('sidebar-category-search'),
+      sidebarItemsToolbar: document.getElementById('sidebar-items-toolbar'),
       sidebarCategoryList: document.getElementById('sidebar-category-list'),
-      categoryNavBar: document.getElementById('category-nav-bar'),
-      btnBackCategories: document.getElementById('btn-back-categories'),
-      btnPlayerBackList: document.getElementById('btn-player-back-list'),
-      categoryCurrentTitle: document.getElementById('category-current-title'),
-      searchFilterBar: document.getElementById('search-filter-bar'),
-      searchInput: document.getElementById('global-search'),
       selectSortItems: document.getElementById('select-sort-items'),
       itemCountBadge: document.getElementById('items-count-badge'),
-      channelGridSection: document.getElementById('channel-grid-section'),
-      channelList: document.getElementById('channel-grid'),
       loadMoreWrap: document.getElementById('load-more-wrap'),
       btnLoadMore: document.getElementById('btn-load-more'),
 
       // Player
       playerSection: document.getElementById('player-section'),
+      playerIdleOverlay: document.getElementById('player-idle-overlay'),
       playerTimelineRow: document.getElementById('player-timeline-row'),
       playerEpgCard: document.getElementById('player-epg-card'),
+      btnEpgModeChannel: document.getElementById('btn-epg-mode-channel'),
+      btnEpgModeAll: document.getElementById('btn-epg-mode-all'),
+      inputBrowseEpgSearch: document.getElementById('input-browse-epg-search'),
       playerEpgExtendedCount: document.getElementById('player-epg-extended-count'),
       playerEpgExtendedList: document.getElementById('player-epg-extended-list'),
+      browseEpgLoadMoreWrap: document.getElementById('browse-epg-load-more-wrap'),
+      btnBrowseEpgLoadMore: document.getElementById('btn-browse-epg-load-more'),
       video: document.getElementById('main-video'),
       playerContainer: document.getElementById('player-wrapper'),
       playerLoadingOverlay: document.getElementById('player-loading-spinner'),
@@ -506,8 +509,12 @@ class FluiStreamApp {
       return 'handled';
     }
     if (this.activeScreen === 'browse') {
-      if (this.isBrowsePlayerOpen) {
-        this.exitBrowsePlayer();
+      if (this.dom.splitSidebar?.classList.contains('open-mobile')) {
+        this.dom.splitSidebar.classList.remove('open-mobile');
+        return 'handled';
+      }
+      if (this.sidebarDrillMode === 'items') {
+        this.closeEnteredCategory();
         return 'handled';
       }
       this.navigateToScreen('home');
@@ -629,7 +636,7 @@ class FluiStreamApp {
     if (screenName === 'notifications') this.renderNotifications();
 
     if (this.player) {
-      this.player.setOverlayVisible(screenName === 'browse' && this.isBrowsePlayerOpen && Boolean(this.currentPlayingItem));
+      this.player.setOverlayVisible(screenName === 'browse' && Boolean(this.currentPlayingItem));
       this.player.reportLayout();
     }
   }
@@ -754,18 +761,13 @@ class FluiStreamApp {
     // Split-Pane Sidebar & Browser
     if (this.dom.btnSidebarHome) {
       this.dom.btnSidebarHome.addEventListener('click', () => {
-        if (this.isBrowsePlayerOpen) this.exitBrowsePlayer();
-        this.navigateToScreen('home');
+        this.dom.splitSidebar?.classList.remove('open-mobile');
+        if (this.sidebarDrillMode === 'items') {
+          this.closeEnteredCategory();
+        } else {
+          this.navigateToScreen('home');
+        }
       });
-    }
-    if (this.dom.btnBackCategories) {
-      this.dom.btnBackCategories.addEventListener('click', () => {
-        if (this.isBrowsePlayerOpen) this.exitBrowsePlayer();
-        this.navigateToScreen('home');
-      });
-    }
-    if (this.dom.btnPlayerBackList) {
-      this.dom.btnPlayerBackList.addEventListener('click', () => this.exitBrowsePlayer());
     }
     if (this.dom.btnToggleSidebarMobile) {
       this.dom.btnToggleSidebarMobile.addEventListener('click', () => {
@@ -778,34 +780,86 @@ class FluiStreamApp {
           this.dom.splitSidebar.classList.remove('open-mobile');
           return;
         }
-        if (this.isBrowsePlayerOpen) {
-          this.exitBrowsePlayer();
+        if (this.sidebarDrillMode === 'items') {
+          this.closeEnteredCategory();
         } else {
           this.navigateToScreen('home');
         }
       });
     }
+
+    let sidebarSearchTimer;
     if (this.dom.sidebarCategorySearch) {
       this.dom.sidebarCategorySearch.addEventListener('input', (e) => {
-        this.sidebarSearchQuery = e.target.value.trim().toLowerCase();
-        this.renderSidebarCategories();
-      });
-    }
-
-    let searchTimeout;
-    if (this.dom.searchInput) {
-      this.dom.searchInput.addEventListener('input', (e) => {
-        clearTimeout(searchTimeout);
-        searchTimeout = setTimeout(() => {
-          this.searchQuery = e.target.value.trim().toLowerCase();
-          this.renderChannelGrid();
-        }, 220);
+        const val = e.target.value.trim().toLowerCase();
+        this.sidebarSearchQuery = val;
+        if (this.sidebarDrillMode === 'items') {
+          clearTimeout(sidebarSearchTimer);
+          sidebarSearchTimer = setTimeout(() => {
+            this.renderSidebarItems();
+          }, 150);
+        } else {
+          this.renderSidebarCategories();
+        }
       });
     }
     if (this.dom.selectSortItems) {
       this.dom.selectSortItems.addEventListener('change', (e) => {
         this.sortOrder = e.target.value;
-        this.renderChannelGrid();
+        if (this.sidebarDrillMode === 'items') this.renderSidebarItems();
+      });
+    }
+
+    // Browse EPG Panel (Maximized below player for Live TV)
+    if (this.dom.btnEpgModeChannel) {
+      this.dom.btnEpgModeChannel.addEventListener('click', () => {
+        if (!this.currentPlayingItem || this.currentPlayingItem.type !== ItemType.LIVE) return;
+        this.browseEpgMode = 'channel';
+        this._lastExtendedEpgSig = '';
+        this.updateCurrentEpgDisplay();
+      });
+    }
+    if (this.dom.btnEpgModeAll) {
+      this.dom.btnEpgModeAll.addEventListener('click', () => {
+        this.browseEpgMode = 'all';
+        this._lastExtendedEpgSig = '';
+        this.updateCurrentEpgDisplay();
+      });
+    }
+    let browseEpgSearchTimer;
+    if (this.dom.inputBrowseEpgSearch) {
+      this.dom.inputBrowseEpgSearch.addEventListener('input', () => {
+        clearTimeout(browseEpgSearchTimer);
+        browseEpgSearchTimer = setTimeout(() => {
+          this.browseEpgAllLimit = 60;
+          this.browseEpgMode = 'all';
+          this._lastExtendedEpgSig = '';
+          this.updateCurrentEpgDisplay();
+        }, 180);
+      });
+    }
+    if (this.dom.btnBrowseEpgLoadMore) {
+      this.dom.btnBrowseEpgLoadMore.addEventListener('click', () => {
+        this.browseEpgAllLimit += this.PAGE_SIZE;
+        this._lastExtendedEpgSig = '';
+        this.updateCurrentEpgDisplay();
+      });
+    }
+    if (this.dom.playerEpgExtendedList) {
+      this.dom.playerEpgExtendedList.addEventListener('click', (e) => {
+        const playCard = e.target.closest('[data-browse-epg-play-id]');
+        if (!playCard) return;
+        const id = playCard.getAttribute('data-browse-epg-play-id');
+        const item = this.playlist.items.find(x => String(x.id) === String(id));
+        if (item) this.playChannel(item, { preserveEpgMode: true });
+      });
+      this.dom.playerEpgExtendedList.addEventListener('keydown', (e) => {
+        if (e.key !== 'Enter' && e.key !== ' ') return;
+        const playCard = e.target.closest('[data-browse-epg-play-id]');
+        if (playCard) {
+          e.preventDefault();
+          playCard.click();
+        }
       });
     }
 
@@ -841,32 +895,35 @@ class FluiStreamApp {
 
     if (this.dom.btnLoadMore) {
       this.dom.btnLoadMore.addEventListener('click', () => {
-        if (this.currentView === ItemType.SERIES && this.selectedGroup !== '__history__') {
-          this.appendSeriesBatch(this.PAGE_SIZE);
-        } else {
-          this.appendChannelBatch(this.PAGE_SIZE);
+        if (this.sidebarDrillMode === 'items') {
+          this.appendSidebarItemsBatch(this.PAGE_SIZE);
         }
       });
     }
 
-    // Channel Grid Delegation
-    if (this.dom.channelList) {
-      this.dom.channelList.addEventListener('click', (e) => {
-        const favBtn = e.target.closest('.btn-fav');
+    // Sidebar Delegation (Categories & Drilled Items)
+    if (this.dom.sidebarCategoryList) {
+      this.dom.sidebarCategoryList.addEventListener('click', async (e) => {
+        const catBtn = e.target.closest('.sidebar-cat-btn');
+        if (catBtn) {
+          await this.selectSidebarGroup(catBtn.getAttribute('data-group'));
+          return;
+        }
+        const favBtn = e.target.closest('.sidebar-item-fav');
         if (favBtn) {
           e.stopPropagation();
           const id = favBtn.getAttribute('data-fav-id');
           const isNowFav = storage.toggleFavorite(id);
           favBtn.classList.toggle('is-fav', isNowFav);
           if (this.currentView === 'favorites' || this.selectedGroup === '__favorites__') {
-            this.renderChannelGrid();
+            this.renderSidebarItems();
           }
           return;
         }
-        const card = e.target.closest('.channel-card');
-        if (card) {
-          const id = card.getAttribute('data-id');
-          if (this.currentView === ItemType.SERIES && this.selectedGroup !== '__history__' && this.selectedGroup !== '__favorites__') {
+        const row = e.target.closest('.sidebar-item-row');
+        if (row) {
+          const id = row.getAttribute('data-id');
+          if (this._isSeriesGroupingActive()) {
             const series = (this.currentFilteredSeries || []).find(s => s.id === id);
             if (series) {
               this.openSeriesDetailModal(series);
@@ -874,15 +931,18 @@ class FluiStreamApp {
             }
           }
           const item = (this.currentFilteredItems || []).find(x => x.id === id);
-          if (item) this.playChannel(item);
+          if (item) {
+            this.dom.splitSidebar?.classList.remove('open-mobile');
+            this.playChannel(item);
+          }
         }
       });
-      this.dom.channelList.addEventListener('keydown', (e) => {
+      this.dom.sidebarCategoryList.addEventListener('keydown', (e) => {
         if (e.key !== 'Enter' && e.key !== ' ') return;
-        const card = e.target.closest('.channel-card');
-        if (card && !e.target.closest('.btn-fav')) {
+        const row = e.target.closest('.sidebar-item-row');
+        if (row && !e.target.closest('.sidebar-item-fav')) {
           e.preventDefault();
-          card.click();
+          row.click();
         }
       });
     }
@@ -1322,38 +1382,64 @@ class FluiStreamApp {
     }
   }
 
-  openBrowseView(viewType = ItemType.LIVE, initialGroup = 'all', skipGridRender = false) {
+  _isSeriesGroupingActive() {
+    return this.currentView === ItemType.SERIES &&
+      this.selectedGroup !== '__favorites__' &&
+      this.selectedGroup !== '__history__';
+  }
+
+  _getGroupDisplayLabel(groupName) {
+    if (!groupName || groupName === 'all') return i18n.get('sidebarAll');
+    if (groupName === '__favorites__') return i18n.get('sidebarFavourites');
+    if (groupName === '__history__') return i18n.get('sidebarHistory');
+    return groupName;
+  }
+
+  openBrowseView(viewType = ItemType.LIVE, initialGroup = null, enterItems = false) {
     this.currentView = viewType;
-    this.selectedGroup = initialGroup || 'all';
-    this.searchQuery = '';
-    this._skipNextGridRender = Boolean(skipGridRender);
-    if (!skipGridRender && this.isBrowsePlayerOpen) {
-      this.stopPlayback();
-      this.isBrowsePlayerOpen = false;
+    this.sidebarSearchQuery = '';
+    if (this.dom.sidebarCategorySearch) this.dom.sidebarCategorySearch.value = '';
+    this.browseEpgAllLimit = 60;
+    this._lastExtendedEpgSig = '';
+
+    if (enterItems && initialGroup) {
+      this.selectedGroup = initialGroup;
+      this.sidebarDrillMode = 'items';
+    } else {
+      this.selectedGroup = null;
+      this.sidebarDrillMode = 'categories';
+      if (this.currentPlayingItem && this.currentPlayingItem.type !== viewType) {
+        this.stopPlayback();
+      }
+      this.browseEpgMode = (this.currentPlayingItem && this.currentPlayingItem.type === ItemType.LIVE)
+        ? this.browseEpgMode
+        : 'all';
     }
-    if (this.dom.searchInput) this.dom.searchInput.value = '';
+
     this.navigateToScreen('browse');
   }
 
   syncBrowseViewLayout() {
-    const playing = Boolean(this.isBrowsePlayerOpen && this.currentPlayingItem);
-    this.dom.playerSection?.classList.toggle('hidden', !playing);
-    this.dom.searchFilterBar?.classList.toggle('hidden', playing);
-    this.dom.channelGridSection?.classList.toggle('hidden', playing);
-    this.dom.btnBackCategories?.classList.toggle('hidden', playing);
-    this.dom.btnPlayerBackList?.classList.toggle('hidden', !playing);
+    const playing = Boolean(this.currentPlayingItem);
+    const inItemsMode = this.sidebarDrillMode === 'items';
 
-    if (this.dom.categoryCurrentTitle) {
-      if (playing && this.currentPlayingItem) {
-        this.dom.categoryCurrentTitle.textContent = this.currentPlayingItem.group || this.currentPlayingItem.name || '';
-      } else {
-        let label = this.selectedGroup || i18n.get('sidebarAll');
-        if (this.selectedGroup === 'all') label = i18n.get('sidebarAll');
-        else if (this.selectedGroup === '__favorites__') label = i18n.get('sidebarFavourites');
-        else if (this.selectedGroup === '__history__') label = i18n.get('sidebarHistory');
-        this.dom.categoryCurrentTitle.textContent = label;
-      }
+    this.dom.playerSection?.classList.remove('hidden');
+    this.dom.playerIdleOverlay?.classList.toggle('hidden', playing);
+    this.dom.sidebarItemsToolbar?.classList.toggle('hidden', !inItemsMode);
+    if (!inItemsMode) this.dom.loadMoreWrap?.classList.add('hidden');
+
+    if (this.dom.splitSidebarTitle) {
+      this.dom.splitSidebarTitle.textContent = inItemsMode
+        ? this._getGroupDisplayLabel(this.selectedGroup)
+        : i18n.get('appName');
     }
+    if (this.dom.sidebarCategorySearch) {
+      this.dom.sidebarCategorySearch.placeholder = i18n.get(
+        inItemsMode ? 'searchCategoryItemsPlaceholder' : 'sidebarSearchCategories'
+      );
+    }
+
+    this.updateCurrentEpgDisplay();
 
     if (this.player) {
       this.player.setOverlayVisible(this.activeScreen === 'browse' && playing);
@@ -1361,13 +1447,13 @@ class FluiStreamApp {
     }
   }
 
-  exitBrowsePlayer() {
-    this.stopPlayback();
-    this.isBrowsePlayerOpen = false;
+  closeEnteredCategory() {
+    this.sidebarDrillMode = 'categories';
+    this.selectedGroup = null;
+    this.sidebarSearchQuery = '';
+    if (this.dom.sidebarCategorySearch) this.dom.sidebarCategorySearch.value = '';
     this.syncBrowseViewLayout();
-    if (this.dom.channelList && this.dom.channelList.children.length === 0) {
-      this.renderChannelGrid();
-    }
+    this.renderSidebarPanel();
   }
 
   renderBrowseView() {
@@ -1375,12 +1461,15 @@ class FluiStreamApp {
       this.navigateToScreen('empty');
       return;
     }
-    const skipGrid = Boolean(this._skipNextGridRender);
-    this._skipNextGridRender = false;
     this.syncBrowseViewLayout();
-    this.renderSidebarCategories();
-    if (!skipGrid && !this.isBrowsePlayerOpen) {
-      this.renderChannelGrid();
+    this.renderSidebarPanel();
+  }
+
+  renderSidebarPanel() {
+    if (this.sidebarDrillMode === 'items') {
+      this.renderSidebarItems();
+    } else {
+      this.renderSidebarCategories();
     }
   }
 
@@ -1448,12 +1537,7 @@ class FluiStreamApp {
     });
 
     this.dom.sidebarCategoryList.innerHTML = html;
-    this.dom.sidebarCategoryList.querySelectorAll('.sidebar-cat-btn').forEach(btn => {
-      btn.addEventListener('click', async () => {
-        const group = btn.getAttribute('data-group');
-        await this.selectSidebarGroup(group);
-      });
-    });
+    this.dom.sidebarCategoryList.scrollTop = 0;
   }
 
   async selectSidebarGroup(groupName) {
@@ -1462,15 +1546,12 @@ class FluiStreamApp {
       const ok = await this.promptParentalPin();
       if (!ok) return;
     }
-    if (this.isBrowsePlayerOpen) {
-      this.stopPlayback();
-      this.isBrowsePlayerOpen = false;
-    }
     this.selectedGroup = groupName || 'all';
-    this.dom.splitSidebar?.classList.remove('open-mobile');
+    this.sidebarDrillMode = 'items';
+    this.sidebarSearchQuery = '';
+    if (this.dom.sidebarCategorySearch) this.dom.sidebarCategorySearch.value = '';
     this.syncBrowseViewLayout();
-    this.renderSidebarCategories();
-    this.renderChannelGrid();
+    this.renderSidebarItems();
   }
 
   getFilteredItems() {
@@ -1485,10 +1566,11 @@ class FluiStreamApp {
       items = items.filter(x => (x.group || 'Geral') === this.selectedGroup);
     }
 
-    if (this.searchQuery) {
+    const activeQuery = this.sidebarDrillMode === 'items' ? this.sidebarSearchQuery : '';
+    if (activeQuery) {
       items = items.filter(x =>
-        (x.name || '').toLowerCase().includes(this.searchQuery) ||
-        (x.group && x.group.toLowerCase().includes(this.searchQuery))
+        (x.name || '').toLowerCase().includes(activeQuery) ||
+        (x.group && x.group.toLowerCase().includes(activeQuery))
       );
     }
 
@@ -1510,7 +1592,8 @@ class FluiStreamApp {
 
   groupSeriesItems(rawItems) {
     this._ensurePlaylistIndexes();
-    const canUseCache = !this.searchQuery && this.sortOrder === 'default';
+    const activeQuery = this.sidebarDrillMode === 'items' ? this.sidebarSearchQuery : '';
+    const canUseCache = !activeQuery && this.sortOrder === 'default';
     const cacheKey = `${this.selectedGroup || 'all'}|${this.parentalUnlocked ? '1' : '0'}`;
     if (canUseCache && this._seriesCache.has(cacheKey)) {
       return this._seriesCache.get(cacheKey);
@@ -1558,38 +1641,29 @@ class FluiStreamApp {
     return result;
   }
 
-  renderChannelGrid() {
+  renderSidebarItems() {
+    if (!this.dom.sidebarCategoryList) return;
     this.renderedCount = 0;
 
-    if (this.dom.categoryCurrentTitle && !this.isBrowsePlayerOpen) {
-      let label = this.selectedGroup || i18n.get('sidebarAll');
-      if (this.selectedGroup === 'all') label = i18n.get('sidebarAll');
-      else if (this.selectedGroup === '__favorites__') label = i18n.get('sidebarFavourites');
-      else if (this.selectedGroup === '__history__') label = i18n.get('sidebarHistory');
-      this.dom.categoryCurrentTitle.textContent = label;
-    }
-
-    const isSeriesGrouping =
-      this.currentView === ItemType.SERIES &&
-      this.selectedGroup !== '__favorites__' &&
-      this.selectedGroup !== '__history__';
-
-    if (isSeriesGrouping) {
+    if (this._isSeriesGroupingActive()) {
       const raw = this.getFilteredItems();
       this.currentFilteredSeries = this.groupSeriesItems(raw);
+      this.currentFilteredItems = [];
       if (this.dom.itemCountBadge) {
         this.dom.itemCountBadge.textContent = i18n.get('channelCount', { count: this.currentFilteredSeries.length });
       }
       if (this.currentFilteredSeries.length === 0) {
-        this.dom.channelList.innerHTML = `<div style="grid-column: 1 / -1; text-align: center; padding: 3rem 1rem; color: var(--text-secondary);">${this.escapeHtml(i18n.get('noEpgAvailable'))}</div>`;
+        this.dom.sidebarCategoryList.innerHTML = `<div class="help-text" style="text-align: center; padding: 2rem 1rem;">${this.escapeHtml(i18n.get('noEpgAvailable'))}</div>`;
         this.dom.loadMoreWrap?.classList.add('hidden');
         return;
       }
-      this.dom.channelList.innerHTML = '';
-      this.appendSeriesBatch(this.PAGE_SIZE);
+      this.dom.sidebarCategoryList.innerHTML = '';
+      this.dom.sidebarCategoryList.scrollTop = 0;
+      this.appendSidebarItemsBatch(this.PAGE_SIZE);
       return;
     }
 
+    this.currentFilteredSeries = [];
     this.currentFilteredItems = this.getFilteredItems();
     if (this.dom.itemCountBadge) {
       this.dom.itemCountBadge.textContent = i18n.get('channelCount', { count: this.currentFilteredItems.length });
@@ -1600,99 +1674,69 @@ class FluiStreamApp {
       if (this.selectedGroup === '__history__' || this.currentView === 'history') emptyKey = 'emptyHistory';
       else if (this.selectedGroup === '__favorites__' || this.currentView === 'favorites') emptyKey = 'favoritesEmpty';
 
-      this.dom.channelList.innerHTML = `<div style="grid-column: 1 / -1; text-align: center; padding: 3rem 1rem; color: var(--text-secondary);">${this.escapeHtml(i18n.get(emptyKey))}</div>`;
+      this.dom.sidebarCategoryList.innerHTML = `<div class="help-text" style="text-align: center; padding: 2rem 1rem;">${this.escapeHtml(i18n.get(emptyKey))}</div>`;
       this.dom.loadMoreWrap?.classList.add('hidden');
       return;
     }
 
-    this.dom.channelList.innerHTML = '';
-    this.appendChannelBatch(this.PAGE_SIZE);
+    this.dom.sidebarCategoryList.innerHTML = '';
+    this.dom.sidebarCategoryList.scrollTop = 0;
+    this.appendSidebarItemsBatch(this.PAGE_SIZE);
   }
 
-  appendSeriesBatch(count = 60) {
-    const nextBatch = this.currentFilteredSeries.slice(this.renderedCount, this.renderedCount + count);
+  appendSidebarItemsBatch(count = 60) {
+    if (!this.dom.sidebarCategoryList) return;
+    const isSeries = this._isSeriesGroupingActive();
+    const list = isSeries ? this.currentFilteredSeries : this.currentFilteredItems;
+    const nextBatch = list.slice(this.renderedCount, this.renderedCount + count);
     if (nextBatch.length === 0) return;
 
-    const html = nextBatch.map(ser => {
-      const logoUrl = ser.logo || 'assets/logo.svg';
-      const seasonText = ser.totalSeasons === 1 ? i18n.get('seasonLabel', { num: 1 }) : i18n.get('seasonsCount', { count: ser.totalSeasons });
-      const epText = i18n.get('episodesCount', { count: ser.totalEpisodes });
-      return `
-        <div class="channel-card" data-id="${this.escapeHtml(ser.id)}" tabindex="0" role="button">
-          <div class="channel-card-inner">
-            <div class="channel-logo-wrap" style="aspect-ratio: 2 / 3; height: auto;">
-              <img src="${logoUrl}" alt="${this.escapeHtml(ser.seriesTitle)}" loading="lazy" onerror="this.src='assets/logo.svg'" />
-            </div>
-            <div class="channel-info">
-              <span class="channel-badge series">${this.escapeHtml(i18n.get('navSeries').toUpperCase())}</span>
-              <h4 class="channel-title">${this.escapeHtml(ser.seriesTitle)}</h4>
-              <p class="channel-group">${this.escapeHtml(ser.group || '')}</p>
-              <div class="channel-card-epg">
-                <span style="font-size: 0.75rem; color: var(--accent-green); font-weight: 600;">${seasonText} • ${epText}</span>
-              </div>
+    const html = nextBatch.map(entry => {
+      if (isSeries) {
+        const logoUrl = entry.logo || 'assets/logo.svg';
+        const seasonText = entry.totalSeasons === 1
+          ? i18n.get('seasonLabel', { num: 1 })
+          : i18n.get('seasonsCount', { count: entry.totalSeasons });
+        const epText = i18n.get('episodesCount', { count: entry.totalEpisodes });
+        const isPlayingSeries = Boolean(this.currentPlayingItem && this.activeSeries?.id === entry.id);
+        return `
+          <div class="sidebar-item-row ${isPlayingSeries ? 'playing' : ''}" data-id="${this.escapeHtml(entry.id)}" tabindex="0" role="button">
+            <img class="sidebar-item-thumb" src="${logoUrl}" alt="" loading="lazy" onerror="this.src='assets/logo.svg'" />
+            <div class="sidebar-item-meta">
+              <div class="sidebar-item-name">${this.escapeHtml(entry.seriesTitle)}</div>
+              <div class="sidebar-item-sub">${this.escapeHtml(seasonText)} • ${this.escapeHtml(epText)}</div>
             </div>
           </div>
-        </div>
-      `;
-    }).join('');
+        `;
+      }
 
-    this.dom.channelList.insertAdjacentHTML('beforeend', html);
-    this.renderedCount += nextBatch.length;
-    this.toggleLoadMore(this.renderedCount, this.currentFilteredSeries.length);
-  }
-
-  appendChannelBatch(count = 60) {
-    const nextBatch = this.currentFilteredItems.slice(this.renderedCount, this.renderedCount + count);
-    if (nextBatch.length === 0) return;
-
-    const html = nextBatch.map(item => {
-      const isFav = storage.isFavorite(item.id);
-      const isPlaying = this.currentPlayingItem && this.currentPlayingItem.id === item.id;
-      const logoUrl = item.logo || 'assets/logo.svg';
-
-      let extraHtml = '';
-      if (item.type === ItemType.LIVE) {
-        const curProg = this.epg.getCurrentProgram(item.tvgId, item.name);
-        if (curProg) {
-          extraHtml = `
-            <div class="channel-card-epg">
-              <div class="epg-title-now">${this.escapeHtml(curProg.title)}</div>
-              <div class="epg-bar"><div class="epg-bar-fill" style="width: ${curProg.progress}%"></div></div>
-            </div>
-          `;
-        }
+      const isFav = storage.isFavorite(entry.id);
+      const isPlaying = this.currentPlayingItem && this.currentPlayingItem.id === entry.id;
+      const logoUrl = entry.logo || 'assets/logo.svg';
+      let subText = entry.group || '';
+      if (entry.type === ItemType.LIVE) {
+        const curProg = this.epg.getCurrentProgram(entry.tvgId, entry.name);
+        if (curProg?.title) subText = curProg.title;
       } else {
-        const wp = storage.getWatchProgress(item.id);
-        if (wp && wp.percent > 0) {
-          extraHtml = `
-            <div class="channel-card-epg">
-              <div class="epg-bar"><div class="epg-bar-fill" style="width: ${wp.percent}%; background: var(--accent-amber);"></div></div>
-            </div>
-          `;
-        }
+        const wp = storage.getWatchProgress(entry.id);
+        if (wp && wp.percent > 0) subText = `${wp.percent}% • ${subText}`;
       }
 
       return `
-        <div class="channel-card ${isPlaying ? 'playing' : ''}" data-id="${this.escapeHtml(item.id)}" tabindex="0" role="button">
-          <div class="channel-card-inner">
-            <div class="channel-logo-wrap">
-              <img src="${logoUrl}" alt="${this.escapeHtml(item.name)}" loading="lazy" onerror="this.src='assets/logo.svg'" />
-              <button class="btn-fav ${isFav ? 'is-fav' : ''}" data-fav-id="${this.escapeHtml(item.id)}" title="${this.escapeHtml(i18n.get('navFavorites'))}">★</button>
-            </div>
-            <div class="channel-info">
-              <span class="channel-badge ${item.type || 'live'}">${(item.type || 'live').toUpperCase()}</span>
-              <h4 class="channel-title">${this.escapeHtml(item.name)}</h4>
-              <p class="channel-group">${this.escapeHtml(item.group || '')}</p>
-              ${extraHtml}
-            </div>
+        <div class="sidebar-item-row ${isPlaying ? 'playing' : ''}" data-id="${this.escapeHtml(entry.id)}" tabindex="0" role="button">
+          <img class="sidebar-item-thumb" src="${logoUrl}" alt="" loading="lazy" onerror="this.src='assets/logo.svg'" />
+          <div class="sidebar-item-meta">
+            <div class="sidebar-item-name">${this.escapeHtml(entry.name)}</div>
+            <div class="sidebar-item-sub">${this.escapeHtml(subText)}</div>
           </div>
+          <button type="button" class="sidebar-item-fav ${isFav ? 'is-fav' : ''}" data-fav-id="${this.escapeHtml(entry.id)}" title="${this.escapeHtml(i18n.get('navFavorites'))}">★</button>
         </div>
       `;
     }).join('');
 
-    this.dom.channelList.insertAdjacentHTML('beforeend', html);
+    this.dom.sidebarCategoryList.insertAdjacentHTML('beforeend', html);
     this.renderedCount += nextBatch.length;
-    this.toggleLoadMore(this.renderedCount, this.currentFilteredItems.length);
+    this.toggleLoadMore(this.renderedCount, list.length);
   }
 
   toggleLoadMore(rendered, total) {
@@ -2112,11 +2156,8 @@ class FluiStreamApp {
     this.renderEpgTimeline();
   }
 
-  renderEpgTimeline() {
-    if (!this.dom.epgTimelineContainer) return;
-    if (this.dom.epgPanelTimeline?.classList.contains('hidden')) return;
-
-    const q = (this.dom.inputEpgTimelineSearch?.value || '').trim().toLowerCase();
+  _collectLiveEpgRows(query = '', upcomingLimit = 24) {
+    const q = (query || '').trim().toLowerCase();
     const withEpg = [];
     const withoutEpg = [];
 
@@ -2125,7 +2166,7 @@ class FluiStreamApp {
       if (ch.type !== ItemType.LIVE) continue;
 
       const cur = this.epg.getCurrentProgram(ch.tvgId, ch.name);
-      const upcoming = this.epg.getUpcomingPrograms(ch.tvgId, ch.name, 24);
+      const upcoming = this.epg.getUpcomingPrograms(ch.tvgId, ch.name, upcomingLimit);
       const hasEpg = Boolean(cur || upcoming.length > 0);
 
       if (q) {
@@ -2140,22 +2181,11 @@ class FluiStreamApp {
       else withoutEpg.push(entry);
     }
 
-    const ordered = [...withEpg, ...withoutEpg];
-    const total = ordered.length;
-    const limit = Math.max(60, this.epgTimelineLimit || 60);
-    const visible = ordered.slice(0, limit);
+    return [...withEpg, ...withoutEpg];
+  }
 
-    if (this.dom.epgTimelineStats) {
-      this.dom.epgTimelineStats.textContent = i18n.get('epgChannelsFound', { count: `${visible.length}/${total}` });
-    }
-
-    if (visible.length === 0) {
-      this.dom.epgTimelineContainer.innerHTML = `<p class="help-text">${this.escapeHtml(i18n.get('epgNoData'))}</p>`;
-      this.dom.epgTimelineLoadMoreWrap?.classList.add('hidden');
-      return;
-    }
-
-    this.dom.epgTimelineContainer.innerHTML = visible.map(({ ch, cur, upcoming }) => {
+  _buildLiveEpgChannelRowsHtml(entries, playAttrName = 'data-play-id', playingId = null) {
+    return entries.map(({ ch, cur, upcoming }) => {
       const chips = [];
       if (cur) {
         chips.push(`
@@ -2174,9 +2204,10 @@ class FluiStreamApp {
         `);
       });
 
+      const isPlaying = playingId && String(ch.id) === String(playingId);
       return `
-        <div class="epg-timeline-channel-row">
-          <div class="epg-timeline-ch-info" data-play-id="${this.escapeHtml(ch.id)}" tabindex="0" role="button">
+        <div class="epg-timeline-channel-row ${isPlaying ? 'is-playing' : ''}">
+          <div class="epg-timeline-ch-info" ${playAttrName}="${this.escapeHtml(ch.id)}" tabindex="0" role="button">
             <img src="${ch.logo || 'assets/logo.svg'}" alt="" loading="lazy" onerror="this.src='assets/logo.svg'" />
             <span class="epg-timeline-ch-name">${this.escapeHtml(ch.name)}</span>
           </div>
@@ -2186,6 +2217,28 @@ class FluiStreamApp {
         </div>
       `;
     }).join('');
+  }
+
+  renderEpgTimeline() {
+    if (!this.dom.epgTimelineContainer) return;
+    if (this.dom.epgPanelTimeline?.classList.contains('hidden')) return;
+
+    const ordered = this._collectLiveEpgRows(this.dom.inputEpgTimelineSearch?.value || '', 24);
+    const total = ordered.length;
+    const limit = Math.max(60, this.epgTimelineLimit || 60);
+    const visible = ordered.slice(0, limit);
+
+    if (this.dom.epgTimelineStats) {
+      this.dom.epgTimelineStats.textContent = i18n.get('epgChannelsFound', { count: `${visible.length}/${total}` });
+    }
+
+    if (visible.length === 0) {
+      this.dom.epgTimelineContainer.innerHTML = `<p class="help-text">${this.escapeHtml(i18n.get('epgNoData'))}</p>`;
+      this.dom.epgTimelineLoadMoreWrap?.classList.add('hidden');
+      return;
+    }
+
+    this.dom.epgTimelineContainer.innerHTML = this._buildLiveEpgChannelRowsHtml(visible, 'data-play-id');
 
     if (this.dom.epgTimelineLoadMoreWrap && this.dom.btnEpgTimelineLoadMore) {
       const hasMore = visible.length < total;
@@ -3191,18 +3244,19 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
     });
   }
 
-  playChannel(item) {
+  playChannel(item, opts = {}) {
     this.currentPlayingItem = item;
-    this.isBrowsePlayerOpen = true;
+    if (item.type === ItemType.LIVE) {
+      if (!opts.preserveEpgMode) this.browseEpgMode = 'channel';
+    } else {
+      this.browseEpgMode = 'all';
+    }
+    this._lastExtendedEpgSig = '';
     storage.addRecent(item);
 
     const cfg = storage.getSettings();
     const activeStreamMode = this.dom.streamModeSelect?.value || cfg.streamMode || 'auto';
     const activeEngine = this.dom.playerEngineSelect?.value || cfg.playerEngine || (window.chrome?.webview ? 'vlc' : 'hls');
-
-    if (this.activeScreen === 'browse') {
-      this.syncBrowseViewLayout();
-    }
 
     this.player.playStream(item, cfg.corsProxy, activeStreamMode, activeEngine);
 
@@ -3217,20 +3271,27 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
       }
     }
 
-    this.updateCurrentEpgDisplay();
-    document.querySelectorAll('.channel-card').forEach(c => {
-      c.classList.toggle('playing', c.getAttribute('data-id') === item.id);
+    document.querySelectorAll('.sidebar-item-row').forEach(row => {
+      row.classList.toggle('playing', row.getAttribute('data-id') === item.id);
     });
+
     if (this.activeScreen === 'browse') {
-      this.player.setOverlayVisible(true);
-      this.player.reportLayout();
+      this.syncBrowseViewLayout();
+    } else {
+      this.updateCurrentEpgDisplay();
     }
   }
 
   stopPlayback() {
-    if (this.player) this.player.stop();
+    if (this.player) {
+      this.player.stop();
+      this.player.setOverlayVisible(false);
+    }
     this.currentPlayingItem = null;
+    this.browseEpgMode = 'all';
+    this._lastExtendedEpgSig = '';
     this.updatePlayPauseUi(false);
+    this.dom.playerIdleOverlay?.classList.remove('hidden');
     if (this.dom.currentChannelName) this.dom.currentChannelName.textContent = i18n.get('appName');
     if (this.dom.currentChannelGroup) this.dom.currentChannelGroup.textContent = '';
     if (this.dom.currentChannelLogo) this.dom.currentChannelLogo.classList.add('hidden');
@@ -3239,13 +3300,12 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
     if (this.dom.currentProgramRemaining) this.dom.currentProgramRemaining.textContent = '';
     if (this.dom.currentProgramProgress) this.dom.currentProgramProgress.style.width = '0%';
     if (this.dom.progressThumb) this.dom.progressThumb.style.left = '0%';
-    this.dom.playerEpgCard?.classList.add('hidden');
-    if (this.dom.playerEpgExtendedList) this.dom.playerEpgExtendedList.innerHTML = '';
-    if (this.dom.playerEpgExtendedCount) this.dom.playerEpgExtendedCount.textContent = '';
+    document.querySelectorAll('.sidebar-item-row.playing').forEach(r => r.classList.remove('playing'));
+    this.updateCurrentEpgDisplay();
   }
 
   closePlayerAndReset() {
-    this.exitBrowsePlayer();
+    this.stopPlayback();
   }
 
   navigateChannel(delta) {
@@ -3344,10 +3404,17 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
   }
 
   updateCurrentEpgDisplay() {
-    if (!this.currentPlayingItem || this.currentPlayingItem.type !== ItemType.LIVE) {
+    const hasPlayingLive = Boolean(this.currentPlayingItem && this.currentPlayingItem.type === ItemType.LIVE);
+    const shouldShowEpg = this.currentPlayingItem
+      ? (this.currentPlayingItem.type === ItemType.LIVE)
+      : (this.currentView === ItemType.LIVE);
+
+    if (!shouldShowEpg) {
       // Filmes e Séries: não exibir nada de EPG abaixo do player
       this._lastExtendedEpgSig = '';
+      if (!this.currentPlayingItem) this.dom.playerTimelineRow?.classList.add('hidden');
       this.dom.playerEpgCard?.classList.add('hidden');
+      this.dom.browseEpgLoadMoreWrap?.classList.add('hidden');
       if (this.dom.playerEpgExtendedList) this.dom.playerEpgExtendedList.innerHTML = '';
       if (this.dom.playerEpgExtendedCount) this.dom.playerEpgExtendedCount.textContent = '';
       return;
@@ -3355,32 +3422,50 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
 
     this.dom.playerEpgCard?.classList.remove('hidden');
 
-    const prog = this.epg.getCurrentProgram(this.currentPlayingItem.tvgId, this.currentPlayingItem.name);
-    if (prog) {
-      this.dom.playerTimelineRow?.classList.remove('hidden');
-      this.dom.currentProgramTitle.textContent = prog.title;
-      if (this.dom.currentProgramTime) {
-        this.dom.currentProgramTime.textContent = `${prog.formattedStart} - ${prog.formattedStop}`;
-        this.dom.currentProgramTime.classList.remove('hidden');
+    const mode = (hasPlayingLive && this.browseEpgMode === 'channel') ? 'channel' : 'all';
+    this.dom.btnEpgModeChannel?.classList.toggle('hidden', !hasPlayingLive);
+    this.dom.btnEpgModeChannel?.classList.toggle('active', mode === 'channel');
+    this.dom.btnEpgModeAll?.classList.toggle('active', mode === 'all');
+    this.dom.inputBrowseEpgSearch?.classList.toggle('hidden', mode !== 'all');
+
+    let prog = null;
+    if (hasPlayingLive) {
+      prog = this.epg.getCurrentProgram(this.currentPlayingItem.tvgId, this.currentPlayingItem.name);
+      if (prog) {
+        this.dom.playerTimelineRow?.classList.remove('hidden');
+        this.dom.currentProgramTitle.textContent = prog.title;
+        if (this.dom.currentProgramTime) {
+          this.dom.currentProgramTime.textContent = `${prog.formattedStart} - ${prog.formattedStop}`;
+          this.dom.currentProgramTime.classList.remove('hidden');
+        }
+        if (this.dom.currentProgramRemaining) this.dom.currentProgramRemaining.textContent = `${prog.remainingMinutes} min ${i18n.get('epgTimeRemaining')}`;
+        if (this.dom.currentProgramProgress) this.dom.currentProgramProgress.style.width = `${prog.progress}%`;
+        if (this.dom.progressThumb) this.dom.progressThumb.style.left = `${prog.progress}%`;
+      } else {
+        this.dom.playerTimelineRow?.classList.add('hidden');
+        this.dom.currentProgramTitle.textContent = i18n.get('noEpgAvailable');
+        this.dom.currentProgramTime?.classList.add('hidden');
+        if (this.dom.currentProgramRemaining) this.dom.currentProgramRemaining.textContent = '';
+        if (this.dom.currentProgramProgress) this.dom.currentProgramProgress.style.width = '0%';
+        if (this.dom.progressThumb) this.dom.progressThumb.style.left = '0%';
       }
-      if (this.dom.currentProgramRemaining) this.dom.currentProgramRemaining.textContent = `${prog.remainingMinutes} min ${i18n.get('epgTimeRemaining')}`;
-      if (this.dom.currentProgramProgress) this.dom.currentProgramProgress.style.width = `${prog.progress}%`;
-      if (this.dom.progressThumb) this.dom.progressThumb.style.left = `${prog.progress}%`;
     } else {
       this.dom.playerTimelineRow?.classList.add('hidden');
-      this.dom.currentProgramTitle.textContent = i18n.get('noEpgAvailable');
       this.dom.currentProgramTime?.classList.add('hidden');
       if (this.dom.currentProgramRemaining) this.dom.currentProgramRemaining.textContent = '';
       if (this.dom.currentProgramProgress) this.dom.currentProgramProgress.style.width = '0%';
       if (this.dom.progressThumb) this.dom.progressThumb.style.left = '0%';
     }
 
-    if (this.dom.playerEpgExtendedList) {
+    if (!this.dom.playerEpgExtendedList) return;
+
+    if (mode === 'channel') {
+      this.dom.browseEpgLoadMoreWrap?.classList.add('hidden');
       const allProgs = this.epg.getChannelPrograms(this.currentPlayingItem.tvgId, this.currentPlayingItem.name);
       const nowMs = Date.now();
       const schedule = allProgs.filter(p => p.stop.getTime() >= nowMs - 300000);
       const list = schedule.length > 0 ? schedule : allProgs;
-      const sig = `${this.currentPlayingItem.id}|${this.epg.timeshiftHours}|${prog?.title || ''}|${list.length}|${this.epg.channels.size}`;
+      const sig = `ch|${this.currentPlayingItem.id}|${this.epg.timeshiftHours}|${prog?.title || ''}|${list.length}|${this.epg.channels.size}`;
       if (sig === this._lastExtendedEpgSig) return;
       this._lastExtendedEpgSig = sig;
 
@@ -3405,6 +3490,42 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
             </div>
           `;
         }).join('');
+      }
+      return;
+    }
+
+    const q = (this.dom.inputBrowseEpgSearch?.value || '').trim();
+    const limit = Math.max(60, this.browseEpgAllLimit || 60);
+    const minBucket = Math.floor(Date.now() / 60000);
+    const ordered = this._collectLiveEpgRows(q, 12);
+    const visible = ordered.slice(0, limit);
+    const sig = `all|${hasPlayingLive ? this.currentPlayingItem.id : ''}|${this.epg.timeshiftHours}|${q}|${visible.length}|${ordered.length}|${this.epg.channels.size}|${minBucket}`;
+    if (sig === this._lastExtendedEpgSig) return;
+    this._lastExtendedEpgSig = sig;
+
+    if (this.dom.playerEpgExtendedCount) {
+      this.dom.playerEpgExtendedCount.textContent = ordered.length > 0
+        ? i18n.get('epgChannelsFound', { count: `${visible.length}/${ordered.length}` })
+        : '';
+    }
+
+    if (visible.length === 0) {
+      this.dom.playerEpgExtendedList.innerHTML = `<p class="help-text">${this.escapeHtml(i18n.get('epgNoData'))}</p>`;
+      this.dom.browseEpgLoadMoreWrap?.classList.add('hidden');
+      return;
+    }
+
+    this.dom.playerEpgExtendedList.innerHTML = this._buildLiveEpgChannelRowsHtml(
+      visible,
+      'data-browse-epg-play-id',
+      hasPlayingLive ? this.currentPlayingItem.id : null
+    );
+
+    if (this.dom.browseEpgLoadMoreWrap && this.dom.btnBrowseEpgLoadMore) {
+      const hasMore = visible.length < ordered.length;
+      this.dom.browseEpgLoadMoreWrap.classList.toggle('hidden', !hasMore);
+      if (hasMore) {
+        this.dom.btnBrowseEpgLoadMore.textContent = i18n.get('btnLoadMore', { shown: visible.length, total: ordered.length });
       }
     }
   }
