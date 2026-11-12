@@ -46,6 +46,7 @@ public static class LocalizationService
         ["UpdateApplying"] = ("Substituindo arquivos e reiniciando aplicação...", "Replacing files and restarting application...", "Reemplazando archivos y reiniciando la aplicación..."),
         ["UpdateError"] = ("Erro ao atualizar: {0}", "Update error: {0}", "Error al actualizar: {0}"),
         ["ExitFullscreenBtn"] = ("✕ Sair da Tela Cheia (Esc)", "✕ Exit Fullscreen (Esc)", "✕ Salir de Pantalla Completa (Esc)"),
+        ["ExitPipBtn"] = ("↙ Restaurar Player (Esc)", "↙ Restore Player (Esc)", "↙ Restaurar Reproductor (Esc)"),
         ["UpdatePromptHeader"] = ("🚀 Nova Versão Disponível: v{0} → {1}", "🚀 New Version Available: v{0} → {1}", "🚀 Nueva Versión Disponible: v{0} → {1}"),
         ["UpdateNotesFallback"] = ("Melhorias de desempenho, estabilidade na reprodução e atualizações visuais.", "Performance improvements, playback stability, and visual updates.", "Mejoras de rendimiento, estabilidad en la reproducción y actualizaciones visuales.")
     };

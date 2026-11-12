@@ -896,6 +896,15 @@ http://stream.com/cn_sd_backup.m3u8`;
   assert.equal(new Set(legacyItems.map(i => i.id)).size, 3);
 });
 
+await test('Desktop MainForm.cs deve desmaximizar e reduzir MinimumSize ao entrar em Picture-in-Picture', () => {
+  const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+  const mainFormCs = readFileSync(resolve(rootDir, 'src/desktop/MainForm.cs'), 'utf-8');
+  assert.match(mainFormCs, /SetMiniPlayerPip\(/);
+  assert.match(mainFormCs, /MinimumSize\s*=\s*PipMinimumWindowSize/);
+  assert.match(mainFormCs, /WindowState\s*=\s*FormWindowState\.Normal/);
+  assert.match(mainFormCs, /_isFullScreen\s*\|\|\s*_isPipMode/);
+});
+
 console.log(`\n========================================`);
 console.log(`Resultados dos Testes: ${passedTests}/${totalTests} passaram.`);
 console.log(`========================================\n`);

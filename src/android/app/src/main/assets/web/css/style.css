@@ -1155,6 +1155,36 @@ summary:focus-visible,
   object-fit: contain;
 }
 
+body.desktop-mini-pip .navbar,
+body.desktop-mini-pip .split-sidebar,
+body.desktop-mini-pip .player-controls-bar,
+body.desktop-mini-pip .player-epg-card,
+body.desktop-mini-pip .app-footer {
+  display: none !important;
+}
+
+body.desktop-mini-pip .split-pane-shell,
+body.desktop-mini-pip .split-main-pane,
+body.desktop-mini-pip .player-section,
+body.desktop-mini-pip .player-card {
+  display: block !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  border: none !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  max-height: none !important;
+}
+
+body.desktop-mini-pip .player-wrapper {
+  width: 100vw !important;
+  height: 100vh !important;
+  max-height: none !important;
+  aspect-ratio: auto !important;
+  border: none !important;
+  border-radius: 0 !important;
+}
+
 .player-loading-overlay,
 .player-error-overlay {
   position: absolute;

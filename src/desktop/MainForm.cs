@@ -20,9 +20,15 @@ public partial class MainForm : Form
     private bool _isVlcActive = false;
     private bool _isFullScreen = false;
     private long _lastReportedTimeMs = 0;
+    private static readonly Size DefaultMinimumWindowSize = new(800, 600);
+    private static readonly Size PipMinimumWindowSize = new(240, 135);
     private FormWindowState _previousWindowState = FormWindowState.Normal;
     private FormBorderStyle _previousBorderStyle = FormBorderStyle.Sizable;
     private Rectangle _previousBounds;
+    private bool _isPipMode = false;
+    private FormWindowState _prePipWindowState = FormWindowState.Normal;
+    private FormBorderStyle _prePipBorderStyle = FormBorderStyle.Sizable;
+    private Rectangle _prePipBounds;
     private Button? _btnExitFullscreen;
     private System.Windows.Forms.Timer? _fullscreenTimer;
 
@@ -92,7 +98,11 @@ public partial class MainForm : Form
 
             _videoView.MouseDoubleClick += (s, e) =>
             {
-                if (_isVlcActive)
+                if (_isPipMode)
+                {
+                    BeginInvoke(() => SetMiniPlayerPip(false));
+                }
+                else if (_isVlcActive)
                 {
                     BeginInvoke(ToggleVlcFullscreen);
                 }
@@ -100,7 +110,7 @@ public partial class MainForm : Form
 
             _videoView.MouseMove += (s, e) =>
             {
-                if (_isFullScreen)
+                if (_isFullScreen || _isPipMode)
                 {
                     ShowExitFullscreenButton();
                 }
@@ -381,7 +391,7 @@ public partial class MainForm : Form
                                 {
                                     bool isVis = visEl.GetBoolean();
                                     BeginInvoke(() => {
-                                        if (_videoView != null && _isVlcActive && !_isFullScreen)
+                                        if (_videoView != null && _isVlcActive && !_isFullScreen && !_isPipMode)
                                         {
                                             _videoView.Visible = isVis;
                                         }
@@ -591,7 +601,7 @@ public partial class MainForm : Form
 
             SetVlcAspectRatio(ratio);
 
-            if (_isFullScreen)
+            if (_isFullScreen || _isPipMode)
             {
                 _videoView.Dock = DockStyle.Fill;
                 _videoView.Visible = true;
@@ -620,6 +630,10 @@ public partial class MainForm : Form
             if (_isFullScreen)
             {
                 SetVlcFullscreen(false);
+            }
+            if (_isPipMode)
+            {
+                SetMiniPlayerPip(false);
             }
             _vlcPlayer.Stop();
             _videoView.Visible = false;
@@ -717,38 +731,84 @@ public partial class MainForm : Form
         }
     }
 
-    private bool _isPipMode = false;
-    private Rectangle _prePipBounds;
-
     private void ToggleMiniPlayerPip()
     {
-        if (!_isPipMode)
+        SetMiniPlayerPip(!_isPipMode);
+    }
+
+    private void SetMiniPlayerPip(bool enabled)
+    {
+        if (_isPipMode == enabled) return;
+
+        if (enabled)
         {
-            _prePipBounds = Bounds;
+            if (_isFullScreen)
+            {
+                SetVlcFullscreen(false);
+            }
+
+            _prePipWindowState = WindowState;
+            _prePipBorderStyle = FormBorderStyle;
+            _prePipBounds = WindowState == FormWindowState.Normal ? Bounds : RestoreBounds;
+
             _isPipMode = true;
-            TopMost = true;
+            SuspendLayout();
+            if (WindowState != FormWindowState.Normal)
+            {
+                WindowState = FormWindowState.Normal;
+            }
+            MinimumSize = PipMinimumWindowSize;
             FormBorderStyle = FormBorderStyle.SizableToolWindow;
+            TopMost = true;
+
             var workArea = Screen.FromControl(this).WorkingArea;
             int pipW = 480;
             int pipH = 270;
             Bounds = new Rectangle(workArea.Right - pipW - 20, workArea.Bottom - pipH - 20, pipW, pipH);
+
             if (_isVlcActive && _videoView != null)
             {
                 _videoView.Dock = DockStyle.Fill;
                 _videoView.Visible = true;
                 _videoView.BringToFront();
             }
+            ResumeLayout(true);
+
+            ShowExitFullscreenButton();
+            _webView.CoreWebView2?.ExecuteScriptAsync("document.body.classList.add('desktop-mini-pip');");
         }
         else
         {
             _isPipMode = false;
+            SuspendLayout();
             TopMost = false;
-            FormBorderStyle = FormBorderStyle.Sizable;
-            Bounds = _prePipBounds;
+            FormBorderStyle = _prePipBorderStyle;
+            MinimumSize = DefaultMinimumWindowSize;
+            if (WindowState != FormWindowState.Normal)
+            {
+                WindowState = FormWindowState.Normal;
+            }
+            if (_prePipBounds.Width > 0 && _prePipBounds.Height > 0)
+            {
+                Bounds = _prePipBounds;
+            }
+            WindowState = _prePipWindowState;
+
+            if (_btnExitFullscreen != null)
+            {
+                _btnExitFullscreen.Visible = false;
+            }
+
             if (_isVlcActive && _videoView != null)
             {
                 _videoView.Dock = DockStyle.None;
-                UpdateVideoViewLayout();
+            }
+            ResumeLayout(true);
+
+            _webView.CoreWebView2?.ExecuteScriptAsync("document.body.classList.remove('desktop-mini-pip'); window.fluiStreamApp?.player?.reportLayout();");
+            if (_isVlcActive && _videoView != null)
+            {
+                BeginInvoke(UpdateVideoViewLayout);
             }
         }
     }
@@ -805,12 +865,12 @@ public partial class MainForm : Form
 
     private void ShowExitFullscreenButton()
     {
-        if (!_isFullScreen) return;
+        if (!_isFullScreen && !_isPipMode) return;
         if (_btnExitFullscreen == null)
         {
             _btnExitFullscreen = new Button
             {
-                Text = LocalizationService.Get("ExitFullscreenBtn"),
+                Text = LocalizationService.Get(_isPipMode ? "ExitPipBtn" : "ExitFullscreenBtn"),
                 Size = new Size(190, 36),
                 BackColor = Color.FromArgb(220, 15, 23, 42), // #0F172A
                 ForeColor = Color.FromArgb(240, 246, 252), // #F0F6FC
@@ -821,21 +881,26 @@ public partial class MainForm : Form
             };
             _btnExitFullscreen.FlatAppearance.BorderSize = 1;
             _btnExitFullscreen.FlatAppearance.BorderColor = Color.FromArgb(245, 158, 11); // #F59E0B
-            _btnExitFullscreen.Click += (s, e) => SetVlcFullscreen(false);
+            _btnExitFullscreen.Click += (s, e) =>
+            {
+                if (_isPipMode) SetMiniPlayerPip(false);
+                else SetVlcFullscreen(false);
+            };
             Controls.Add(_btnExitFullscreen);
 
             _fullscreenTimer = new System.Windows.Forms.Timer { Interval = 3000 };
             _fullscreenTimer.Tick += (s, e) =>
             {
                 _fullscreenTimer.Stop();
-                if (_isFullScreen && _btnExitFullscreen != null)
+                if ((_isFullScreen || _isPipMode) && _btnExitFullscreen != null)
                 {
                     _btnExitFullscreen.Visible = false;
                 }
             };
         }
 
-        _btnExitFullscreen.Location = new Point(ClientSize.Width - _btnExitFullscreen.Width - 24, 20);
+        _btnExitFullscreen.Text = LocalizationService.Get(_isPipMode ? "ExitPipBtn" : "ExitFullscreenBtn");
+        _btnExitFullscreen.Location = new Point(Math.Max(8, ClientSize.Width - _btnExitFullscreen.Width - 16), 12);
         _btnExitFullscreen.Visible = true;
         _btnExitFullscreen.BringToFront();
         _fullscreenTimer?.Stop();
@@ -844,7 +909,7 @@ public partial class MainForm : Form
 
     private void ApplyVlcLayout(int x, int y, int width, int height, bool visible)
     {
-        if (_videoView == null || !_isVlcActive || _isFullScreen) return;
+        if (_videoView == null || !_isVlcActive || _isFullScreen || _isPipMode) return;
 
         if (!visible || width <= 0 || height <= 0)
         {
@@ -860,7 +925,7 @@ public partial class MainForm : Form
 
     private async void UpdateVideoViewLayout()
     {
-        if (!_isVlcActive || _videoView == null || _webView.CoreWebView2 == null || _isFullScreen) return;
+        if (!_isVlcActive || _videoView == null || _webView.CoreWebView2 == null || _isFullScreen || _isPipMode) return;
         try
         {
             // Consulta as dimensões exatas da área #player-wrapper no HTML, ajustando para devicePixelRatio
@@ -958,6 +1023,12 @@ public partial class MainForm : Form
     protected override void OnKeyDown(KeyEventArgs e)
     {
         base.OnKeyDown(e);
+        if (e.KeyCode == Keys.Escape && _isPipMode)
+        {
+            SetMiniPlayerPip(false);
+            e.Handled = true;
+            return;
+        }
         if (_isVlcActive)
         {
             if (e.KeyCode == Keys.F11 || e.KeyCode == Keys.F)
@@ -1003,7 +1074,7 @@ public partial class MainForm : Form
         base.OnResize(e);
         if (_isVlcActive)
         {
-            if (_isFullScreen)
+            if (_isFullScreen || _isPipMode)
             {
                 _videoView?.SetBounds(0, 0, ClientSize.Width, ClientSize.Height);
             }
