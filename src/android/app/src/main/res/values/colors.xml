@@ -1,13 +1,24 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- GitHub Dark Palette (Cesar Ovies Engineering Standards) -->
-    <color name="gh_bg_primary">#0D1117</color>
-    <color name="gh_bg_surface">#161B22</color>
-    <color name="gh_border">#30363D</color>
-    <color name="gh_accent_green">#238636</color>
-    <color name="gh_accent_blue">#388BFD</color>
+    <!-- Midnight Amber Palette (FluiStream v2.0 / Cesar Ovies Engineering Standards) -->
+    <color name="bg_primary">#06101E</color>
+    <color name="bg_surface">#0F172A</color>
+    <color name="border">#1E293B</color>
+    <color name="accent_amber">#F59E0B</color>
+    <color name="accent_green">#10B981</color>
+    <color name="accent_blue">#38BDF8</color>
+    <color name="text_primary">#F0F6FC</color>
+    <color name="text_secondary">#94A3B8</color>
+    <color name="error">#F43F5E</color>
+
+    <!-- Backward-compatible resource aliases mapped to Midnight Amber -->
+    <color name="gh_bg_primary">#06101E</color>
+    <color name="gh_bg_surface">#0F172A</color>
+    <color name="gh_border">#1E293B</color>
+    <color name="gh_accent_green">#10B981</color>
+    <color name="gh_accent_blue">#38BDF8</color>
     <color name="gh_text_primary">#F0F6FC</color>
-    <color name="gh_text_secondary">#8B949E</color>
-    <color name="gh_error">#F85149</color>
-    <color name="ic_launcher_background">#0D1117</color>
+    <color name="gh_text_secondary">#94A3B8</color>
+    <color name="gh_error">#F43F5E</color>
+    <color name="ic_launcher_background">#06101E</color>
 </resources>

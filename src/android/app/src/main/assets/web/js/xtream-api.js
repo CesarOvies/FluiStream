@@ -67,20 +67,25 @@ export class XtreamApi {
         throw new Error(msg);
       }
 
+      const accountInfo = {
+        username: userInfo.username || this.username,
+        status: userInfo.status || 'Active',
+        expDate: userInfo.exp_date ? new Date(parseInt(userInfo.exp_date, 10) * 1000) : null,
+        expDateRaw: userInfo.exp_date,
+        isTrial: (userInfo.is_trial === '1' || userInfo.is_trial === 1) ? 'Yes' : 'No',
+        activeCons: userInfo.active_cons || '0',
+        createdAt: userInfo.created_at ? new Date(parseInt(userInfo.created_at, 10) * 1000) : null,
+        createdAtRaw: userInfo.created_at,
+        maxConnections: userInfo.max_connections || '1'
+      };
+      const serverInfo = data?.server_info || null;
+
       return {
         success: true,
-        user: {
-          username: userInfo.username || this.username,
-          status: userInfo.status || 'Active',
-          expDate: userInfo.exp_date ? new Date(parseInt(userInfo.exp_date, 10) * 1000) : null,
-          expDateRaw: userInfo.exp_date,
-          isTrial: (userInfo.is_trial === '1' || userInfo.is_trial === 1) ? 'Yes' : 'No',
-          activeCons: userInfo.active_cons || '0',
-          createdAt: userInfo.created_at ? new Date(parseInt(userInfo.created_at, 10) * 1000) : null,
-          createdAtRaw: userInfo.created_at,
-          maxConnections: userInfo.max_connections || '1'
-        },
-        server: data?.server_info || {},
+        user: accountInfo,
+        accountInfo,
+        server: serverInfo || {},
+        serverInfo,
         m3uUrl: this.getM3uUrl(),
         epgUrl: this.getEpgUrl()
       };

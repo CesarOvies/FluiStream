@@ -42,13 +42,13 @@ public partial class MainForm : Form
         Size = new Size(1280, 800);
         MinimumSize = new Size(800, 600);
         StartPosition = FormStartPosition.CenterScreen;
-        BackColor = Color.FromArgb(13, 17, 23); // #0D1117
-        ForeColor = Color.FromArgb(230, 237, 243);
+        BackColor = Color.FromArgb(6, 16, 30); // #06101E
+        ForeColor = Color.FromArgb(240, 246, 252); // #F0F6FC
 
         _webView = new WebView2
         {
             Dock = DockStyle.Fill,
-            DefaultBackgroundColor = Color.FromArgb(13, 17, 23)
+            DefaultBackgroundColor = Color.FromArgb(6, 16, 30) // #06101E
         };
 
         InitializeVlcPlayer();
@@ -452,8 +452,8 @@ public partial class MainForm : Form
             MinimizeBox = false,
             ShowInTaskbar = false,
             StartPosition = FormStartPosition.CenterParent,
-            BackColor = Color.FromArgb(22, 27, 34), // #161B22
-            ForeColor = Color.FromArgb(230, 237, 243),
+            BackColor = Color.FromArgb(15, 23, 42), // #0F172A
+            ForeColor = Color.FromArgb(240, 246, 252), // #F0F6FC
             ClientSize = new Size(500, 320),
             Text = LocalizationService.Get("UpdateAvailableTitle")
         };
@@ -466,12 +466,12 @@ public partial class MainForm : Form
 
         var lblHeader = new Label
         {
-            Text = $"🚀 Nova Versão Disponível: v{currentVer} → {newVersion}",
+            Text = string.Format(LocalizationService.Get("UpdatePromptHeader"), currentVer, newVersion ?? ""),
             TextAlign = ContentAlignment.MiddleCenter,
             Dock = DockStyle.Top,
             Height = 44,
             Font = new Font("Segoe UI", 11, FontStyle.Bold),
-            ForeColor = Color.FromArgb(16, 185, 129) // Emerald
+            ForeColor = Color.FromArgb(245, 158, 11) // #F59E0B Amber
         };
 
         var txtNotes = new TextBox
@@ -479,14 +479,14 @@ public partial class MainForm : Form
             Multiline = true,
             ReadOnly = true,
             ScrollBars = ScrollBars.Vertical,
-            BackColor = Color.FromArgb(13, 17, 23),
-            ForeColor = Color.FromArgb(139, 148, 158),
+            BackColor = Color.FromArgb(6, 16, 30), // #06101E
+            ForeColor = Color.FromArgb(148, 163, 184), // #94A3B8
             BorderStyle = BorderStyle.FixedSingle,
             Location = new Point(20, 52),
             Size = new Size(460, 120),
             Text = !string.IsNullOrWhiteSpace(releaseNotes) 
                 ? releaseNotes 
-                : "Melhorias de desempenho, estabilidade na reprodução e atualizações visuais."
+                : LocalizationService.Get("UpdateNotesFallback")
         };
 
         var lblStatus = new Label
@@ -512,7 +512,7 @@ public partial class MainForm : Form
         var btnUpdate = new Button
         {
             Text = LocalizationService.Get("BtnUpdate"),
-            BackColor = Color.FromArgb(35, 134, 54),
+            BackColor = Color.FromArgb(16, 185, 129), // #10B981 Emerald
             ForeColor = Color.White,
             FlatStyle = FlatStyle.Flat,
             Size = new Size(180, 38),
@@ -524,14 +524,14 @@ public partial class MainForm : Form
         var btnCancel = new Button
         {
             Text = LocalizationService.Get("BtnCancel"),
-            BackColor = Color.FromArgb(33, 38, 45),
-            ForeColor = Color.FromArgb(230, 237, 243),
+            BackColor = Color.FromArgb(6, 16, 30), // #06101E
+            ForeColor = Color.FromArgb(240, 246, 252), // #F0F6FC
             FlatStyle = FlatStyle.Flat,
             Size = new Size(140, 38),
             DialogResult = DialogResult.Cancel,
             Cursor = Cursors.Hand
         };
-        btnCancel.FlatAppearance.BorderColor = Color.FromArgb(48, 54, 61);
+        btnCancel.FlatAppearance.BorderColor = Color.FromArgb(30, 41, 59); // #1E293B
 
         int totalWidth = btnCancel.Width + 16 + btnUpdate.Width;
         int startX = (promptForm.ClientSize.Width - totalWidth) / 2;
@@ -810,17 +810,17 @@ public partial class MainForm : Form
         {
             _btnExitFullscreen = new Button
             {
-                Text = "✕ Sair da Tela Cheia (Esc)",
+                Text = LocalizationService.Get("ExitFullscreenBtn"),
                 Size = new Size(190, 36),
-                BackColor = Color.FromArgb(220, 22, 27, 34),
-                ForeColor = Color.White,
+                BackColor = Color.FromArgb(220, 15, 23, 42), // #0F172A
+                ForeColor = Color.FromArgb(240, 246, 252), // #F0F6FC
                 FlatStyle = FlatStyle.Flat,
                 Cursor = Cursors.Hand,
                 Font = new Font("Segoe UI", 9, FontStyle.Bold),
                 Anchor = AnchorStyles.Top | AnchorStyles.Right
             };
             _btnExitFullscreen.FlatAppearance.BorderSize = 1;
-            _btnExitFullscreen.FlatAppearance.BorderColor = Color.FromArgb(100, 255, 255, 255);
+            _btnExitFullscreen.FlatAppearance.BorderColor = Color.FromArgb(245, 158, 11); // #F59E0B
             _btnExitFullscreen.Click += (s, e) => SetVlcFullscreen(false);
             Controls.Add(_btnExitFullscreen);
 
@@ -1038,8 +1038,8 @@ public partial class MainForm : Form
             MinimizeBox = false,
             ShowInTaskbar = false,
             StartPosition = FormStartPosition.CenterParent,
-            BackColor = Color.FromArgb(22, 27, 34),
-            ForeColor = Color.FromArgb(230, 237, 243),
+            BackColor = Color.FromArgb(15, 23, 42), // #0F172A
+            ForeColor = Color.FromArgb(240, 246, 252), // #F0F6FC
             ClientSize = new Size(420, 180),
             Text = title
         };
@@ -1061,7 +1061,7 @@ public partial class MainForm : Form
         var btnOk = new Button
         {
             Text = "OK",
-            BackColor = Color.FromArgb(35, 134, 54),
+            BackColor = Color.FromArgb(16, 185, 129), // #10B981
             ForeColor = Color.White,
             FlatStyle = FlatStyle.Flat,
             Size = new Size(100, 32),

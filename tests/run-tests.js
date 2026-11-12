@@ -4,6 +4,9 @@
  */
 
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { M3UParser, ItemType } from '../src/web/js/m3u-parser.js';
 import { EPGParser } from '../src/web/js/epg-parser.js';
 import { XtreamApi } from '../src/web/js/xtream-api.js';
@@ -114,6 +117,7 @@ await test('Todos os 3 idiomas (pt-BR, en-US, es) devem possuir o mesmo conjunto
   const enKeys = Object.keys(translations['en-US']).sort();
   const esKeys = Object.keys(translations['es']).sort();
 
+  assert.equal(ptKeys.length, 224, `Esperado exatamente 224 chaves i18n em pt-BR, obtido ${ptKeys.length}`);
   assert.deepEqual(ptKeys, enKeys, 'Chaves pt-BR e en-US devem ser idênticas');
   assert.deepEqual(ptKeys, esKeys, 'Chaves pt-BR e es devem ser idênticas');
 
@@ -125,6 +129,27 @@ await test('Todos os 3 idiomas (pt-BR, en-US, es) devem possuir o mesmo conjunto
     assert.ok(translations[lang].settingsVersion.includes(APP_VERSION), `${lang}.settingsVersion deve refletir v${APP_VERSION}`);
     assert.ok('settingsAdvancedDebug' in translations[lang], `${lang} deve conter chave settingsAdvancedDebug`);
   }
+});
+
+await test('Todas as chaves data-i18n* em src/web/index.html devem existir em localization.js', () => {
+  const __dirname = dirname(fileURLToPath(import.meta.url));
+  const htmlPath = resolve(__dirname, '../src/web/index.html');
+  const html = readFileSync(htmlPath, 'utf8');
+  const attrRegex = /data-i18n(?:-[a-z-]+)?="([^"]+)"/g;
+  const htmlKeys = new Set();
+  let match;
+  while ((match = attrRegex.exec(html)) !== null) {
+    htmlKeys.add(match[1]);
+  }
+  assert.ok(htmlKeys.size > 0, 'Deve encontrar atributos data-i18n* no index.html');
+
+  const missing = [];
+  for (const key of htmlKeys) {
+    if (!(key in translations['pt-BR'])) {
+      missing.push(key);
+    }
+  }
+  assert.deepEqual(missing, [], `Chaves ausentes em localization.js: ${missing.join(', ')}`);
 });
 
 console.log('\n--- 5. Testes do Auto-Update & Versioning ---');
@@ -553,6 +578,253 @@ await test('Deve restaurar display block no <video> quando window.androidBridge 
     } else {
       globalThis.window = prevWindow;
     }
+  }
+});
+
+console.log('\n--- 13. Testes Midnight Amber v2: M3UParser Catch-up & Shift ---');
+
+await test('M3UParser deve extrair catchup, catchup-days, catchup-source, tvg-shift e hasCatchup', () => {
+  const m3u = `#EXTM3U
+#EXTINF:-1 tvg-id="c1" catchup="default" catchup-days="7" catchup-source="http://arc.com/{utc}" tvg-shift="-3" group-title="Canais",Canal Catchup
+http://stream.com/live/c1.m3u8
+#EXTINF:-1 tvg-id="c2" catchup=flussonic catchup-days=3 tvg-shift=1.5,Canal Flussonic
+http://stream.com/live/c2.m3u8
+#EXTINF:-1 tvg-id="c3" catchup="none" catchup-days="0",Canal Sem Catchup
+http://stream.com/live/c3.m3u8`;
+
+  const result = M3UParser.parse(m3u);
+  assert.equal(result.items.length, 3);
+
+  const [c1, c2, c3] = result.items;
+  assert.equal(c1.catchup, 'default');
+  assert.equal(c1.catchupDays, 7);
+  assert.equal(c1.catchupSource, 'http://arc.com/{utc}');
+  assert.equal(c1.tvgShift, -3);
+  assert.equal(c1.hasCatchup, true);
+
+  assert.equal(c2.catchup, 'flussonic');
+  assert.equal(c2.catchupDays, 3);
+  assert.equal(c2.tvgShift, 1.5);
+  assert.equal(c2.hasCatchup, true);
+
+  assert.equal(c3.catchup, 'none');
+  assert.equal(c3.catchupDays, 0);
+  assert.equal(c3.tvgShift, 0);
+  assert.equal(c3.hasCatchup, false);
+});
+
+console.log('\n--- 14. Testes Midnight Amber v2: EPGParser setTimeshift() e mergeXml() ---');
+
+await test('EPGParser.setTimeshift() deve deslocar horários em getChannelPrograms, getCurrentProgram e getUpcomingPrograms', () => {
+  const xml = `<?xml version="1.0" encoding="UTF-8"?>
+  <tv>
+    <channel id="ch.shift"><display-name>Canal Shift</display-name></channel>
+    <programme start="20261112100000 +0000" stop="20261112110000 +0000" channel="ch.shift">
+      <title>Programa A</title>
+    </programme>
+    <programme start="20261112110000 +0000" stop="20261112120000 +0000" channel="ch.shift">
+      <title>Programa B</title>
+    </programme>
+  </tv>`;
+
+  const parser = new EPGParser();
+  parser.parse(xml);
+
+  assert.equal(parser.setTimeshift(2), 2);
+  const shifted = parser.getChannelPrograms('ch.shift');
+  assert.equal(shifted[0].start.toISOString(), '2026-11-12T12:00:00.000Z');
+  assert.equal(shifted[0].stop.toISOString(), '2026-11-12T13:00:00.000Z');
+
+  const now = new Date('2026-11-12T12:30:00.000Z');
+  const current = parser.getCurrentProgram('ch.shift', '', now);
+  assert.ok(current);
+  assert.equal(current.title, 'Programa A');
+  assert.equal(current.progress, 50);
+
+  const upcoming = parser.getUpcomingPrograms('ch.shift', '', 5, now);
+  assert.equal(upcoming.length, 1);
+  assert.equal(upcoming[0].title, 'Programa B');
+  assert.equal(upcoming[0].start.toISOString(), '2026-11-12T13:00:00.000Z');
+
+  assert.equal(parser.setTimeshift('invalido'), 0);
+});
+
+await test('EPGParser.mergeXml() deve mesclar fontes, unir aliases, deduplicar e ordenar programas', () => {
+  const xml1 = `<?xml version="1.0" encoding="UTF-8"?>
+  <tv>
+    <channel id="espn.br"><display-name>ESPN</display-name></channel>
+    <programme start="20261112140000 +0000" stop="20261112150000 +0000" channel="espn.br">
+      <title>SportsCenter</title>
+    </programme>
+    <programme start="20261112100000 +0000" stop="20261112110000 +0000" channel="espn.br">
+      <title>Abre o Jogo</title>
+    </programme>
+  </tv>`;
+
+  const xml2 = `<?xml version="1.0" encoding="UTF-8"?>
+  <tv>
+    <channel id="espn.br">
+      <display-name>ESPN Brasil</display-name>
+      <icon src="https://img.example.com/espn.png" />
+    </channel>
+    <channel id="band.br"><display-name>Band</display-name></channel>
+    <programme start="20261112140000 +0000" stop="20261112150000 +0000" channel="espn.br">
+      <title>SportsCenter</title>
+    </programme>
+    <programme start="20261112120000 +0000" stop="20261112130000 +0000" channel="espn.br">
+      <title>Linha de Passe</title>
+    </programme>
+  </tv>`;
+
+  const parser = new EPGParser();
+  parser.mergeXml([xml1, xml2]);
+
+  assert.equal(parser.channels.size, 2);
+  const espnChannel = parser.channels.get('espn.br');
+  assert.deepEqual(espnChannel.names, ['ESPN', 'ESPN Brasil']);
+  assert.equal(espnChannel.icon, 'https://img.example.com/espn.png');
+
+  const progs = parser.getChannelPrograms('', 'ESPN Brasil');
+  assert.equal(progs.length, 3); // 1 duplicado removido
+  assert.deepEqual(progs.map(p => p.title), ['Abre o Jogo', 'Linha de Passe', 'SportsCenter']);
+});
+
+console.log('\n--- 15. Testes Midnight Amber v2: StorageService ---');
+
+function withMockLocalStorage(fn) {
+  const prevStorage = globalThis.localStorage;
+  const store = new Map();
+  globalThis.localStorage = {
+    get length() { return store.size; },
+    key(index) { return Array.from(store.keys())[index] ?? null; },
+    getItem(k) { return store.has(k) ? store.get(k) : null; },
+    setItem(k, v) { store.set(k, String(v)); },
+    removeItem(k) { store.delete(k); },
+    clear() { store.clear(); }
+  };
+  return Promise.resolve().then(() => fn(store)).finally(() => {
+    if (prevStorage === undefined) delete globalThis.localStorage;
+    else globalThis.localStorage = prevStorage;
+  });
+}
+
+await test('StorageService deve expor defaults expandidos em getSettings(), normalizar perfil Xtream, persistir epgSources/notifications/watchProgress e limpar tudo em clearAll()', async () => {
+  await withMockLocalStorage(async (store) => {
+    const svc = new StorageService();
+
+    // 1. Defaults expandidos de settings
+    const defaults = svc.getSettings();
+    assert.equal(defaults.timeFormat, '24h');
+    assert.equal(defaults.deviceMode, 'auto');
+    assert.equal(defaults.autoRefresh, false);
+    assert.equal(defaults.autoPlayNext, true);
+    assert.equal(defaults.epgTimeshift, 0);
+    assert.equal(defaults.parentalPinHash, '');
+
+    svc.saveSettings({ timeFormat: '12h', deviceMode: 'tv', autoRefresh: true, epgTimeshift: -3, parentalPinHash: 'abc123' });
+    const savedCfg = svc.getSettings();
+    assert.equal(savedCfg.timeFormat, '12h');
+    assert.equal(savedCfg.deviceMode, 'tv');
+    assert.equal(savedCfg.autoRefresh, true);
+    assert.equal(savedCfg.epgTimeshift, -3);
+    assert.equal(savedCfg.parentalPinHash, 'abc123');
+
+    // 2. Normalização de perfil Xtream
+    svc.saveProfile({
+      id: 'xt_1',
+      name: 'Xtream Casa',
+      type: 'xtream',
+      xtreamServer: 'http://panel.example.com:8080',
+      xtreamUser: 'cesar',
+      xtreamPass: 'segredo',
+      externalEpgUrl: 'http://panel.example.com:8080/xmltv.php'
+    });
+    const prof = svc.getActiveProfile();
+    assert.equal(prof.url, 'http://panel.example.com:8080');
+    assert.equal(prof.serverUrl, 'http://panel.example.com:8080');
+    assert.equal(prof.xtreamServer, 'http://panel.example.com:8080');
+    assert.equal(prof.username, 'cesar');
+    assert.equal(prof.xtreamUser, 'cesar');
+    assert.equal(prof.password, 'segredo');
+    assert.equal(prof.xtreamPass, 'segredo');
+    assert.equal(prof.epgUrl, 'http://panel.example.com:8080/xmltv.php');
+    assert.equal(prof.accountInfo.username, 'cesar');
+    assert.equal(prof.accountInfo.serverUrl, 'http://panel.example.com:8080');
+
+    // 3. epgSources por perfil
+    const sources = [{ url: 'http://epg1.xml', status: 'loaded' }, { url: 'http://epg2.xml', status: 'pending' }];
+    svc.saveEpgSources(sources);
+    assert.deepEqual(svc.getEpgSources(), sources);
+
+    // 4. Notificações
+    const added = svc.addNotification({ type: 'warning', title: 'Expiração', message: 'Expira em 3 dias' });
+    assert.ok(added?.id);
+    assert.equal(svc.getNotifications().length, 1);
+    assert.equal(svc.getNotifications()[0].title, 'Expiração');
+    svc.clearNotifications();
+    assert.equal(svc.getNotifications().length, 0);
+
+    // 5. WatchProgress
+    const prog = svc.saveWatchProgress('movie_42', 450, 900);
+    assert.equal(prog.percent, 50);
+    assert.equal(svc.getWatchProgress('movie_42')?.posSec, 450);
+    assert.equal(svc.saveWatchProgress('movie_99', 120, 60).percent, 100);
+
+    // 6. clearAll()
+    svc.toggleFavorite('ch_1');
+    svc.addRecent({ id: 'ch_1', name: 'Canal 1', url: 'http://stream/1.m3u8' });
+    svc.addNotification({ type: 'info', title: 'Teste', message: 'Msg' });
+    await svc.clearAll();
+
+    assert.equal(svc.getProfiles().length, 0);
+    assert.equal(svc.getActiveProfileId(), null);
+    assert.equal(svc.getEpgSources('xt_1').length, 0);
+    assert.equal(svc.getNotifications().length, 0);
+    assert.equal(svc.getWatchProgress('movie_42'), null);
+    assert.equal(svc.getSettings().timeFormat, '24h');
+    assert.equal(store.size, 0, `Store deveria estar vazio após clearAll(), restaram: ${Array.from(store.keys()).join(', ')}`);
+  });
+});
+
+console.log('\n--- 16. Testes Midnight Amber v2: XtreamApi.authenticate() serverInfo ---');
+
+await test('XtreamApi.authenticate() deve retornar serverInfo e accountInfo completos', async () => {
+  const prevFetch = globalThis.fetch;
+  const mockPayload = {
+    user_info: {
+      username: 'demo_user',
+      status: 'Active',
+      auth: 1,
+      exp_date: '1893456000',
+      is_trial: '0',
+      active_cons: '1',
+      max_connections: '3'
+    },
+    server_info: {
+      url: 'iptv.example.com',
+      port: '8080',
+      https_port: '8443',
+      server_protocol: 'http',
+      timezone: 'America/Sao_Paulo'
+    }
+  };
+
+  globalThis.fetch = async () => ({
+    ok: true,
+    arrayBuffer: async () => new TextEncoder().encode(JSON.stringify(mockPayload)).buffer
+  });
+
+  try {
+    const api = new XtreamApi('http://iptv.example.com:8080', 'demo_user', 'demo_pass');
+    const res = await api.authenticate();
+    assert.equal(res.success, true);
+    assert.deepEqual(res.serverInfo, mockPayload.server_info);
+    assert.deepEqual(res.server, mockPayload.server_info);
+    assert.equal(res.accountInfo.username, 'demo_user');
+    assert.equal(res.accountInfo.status, 'Active');
+    assert.equal(res.accountInfo.maxConnections, '3');
+  } finally {
+    globalThis.fetch = prevFetch;
   }
 });
 

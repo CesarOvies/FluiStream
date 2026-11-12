@@ -7,6 +7,7 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.res.ColorStateList
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.ColorDrawable
@@ -256,9 +257,9 @@ class AppUpdateManager(
             orientation = LinearLayout.VERTICAL
             setPadding(dp(20), dp(20), dp(20), dp(20))
             background = GradientDrawable().apply {
-                setColor(Color.parseColor("#161B22"))
+                setColor(Color.parseColor("#0F172A"))
                 cornerRadius = dp(12).toFloat()
-                setStroke(dp(1), Color.parseColor("#30363D"))
+                setStroke(dp(1), Color.parseColor("#1E293B"))
             }
         }
 
@@ -289,15 +290,15 @@ class AppUpdateManager(
             text = info.releaseNotes.ifBlank {
                 activity.getString(R.string.update_release_notes_fallback)
             }
-            setTextColor(Color.parseColor("#8B949E"))
+            setTextColor(Color.parseColor("#94A3B8"))
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
             setPadding(dp(12), dp(10), dp(12), dp(10))
             maxHeight = dp(140)
             movementMethod = ScrollingMovementMethod()
             background = GradientDrawable().apply {
-                setColor(Color.parseColor("#0D1117"))
+                setColor(Color.parseColor("#06101E"))
                 cornerRadius = dp(8).toFloat()
-                setStroke(dp(1), Color.parseColor("#30363D"))
+                setStroke(dp(1), Color.parseColor("#1E293B"))
             }
         }
         root.addView(notesView)
@@ -315,6 +316,9 @@ class AppUpdateManager(
             max = 100
             progress = 0
             visibility = View.GONE
+            progressTintList = ColorStateList.valueOf(Color.parseColor("#38BDF8"))
+            indeterminateTintList = ColorStateList.valueOf(Color.parseColor("#F59E0B"))
+            progressBackgroundTintList = ColorStateList.valueOf(Color.parseColor("#1E293B"))
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 dp(8)
@@ -333,16 +337,16 @@ class AppUpdateManager(
 
         val btnSecondary = createDialogButton(
             label = activity.getString(R.string.update_btn_later),
-            bgColor = "#21262D",
-            borderColor = "#30363D",
+            bgColor = "#1E293B",
+            borderColor = "#1E293B",
             textColor = "#F0F6FC",
             dp = dp
         )
         val btnPrimary = createDialogButton(
             label = activity.getString(R.string.update_btn_now),
-            bgColor = "#238636",
-            borderColor = "#2EA043",
-            textColor = "#FFFFFF",
+            bgColor = "#10B981",
+            borderColor = "#10B981",
+            textColor = "#06101E",
             dp = dp
         )
 
@@ -406,12 +410,14 @@ class AppUpdateManager(
                     activity.runOnUiThread {
                         if (!dialog.isShowing) return@runOnUiThread
                         progressBar.isIndeterminate = true
+                        statusView.setTextColor(Color.parseColor("#38BDF8"))
                         statusView.text = activity.getString(R.string.update_verifying_hash)
                     }
                 },
                 onLaunchingInstaller = { apkFile ->
                     activity.runOnUiThread {
                         if (dialog.isShowing) {
+                            statusView.setTextColor(Color.parseColor("#10B981"))
                             statusView.text = activity.getString(R.string.update_launching_installer)
                             dialog.dismiss()
                         }
@@ -427,7 +433,7 @@ class AppUpdateManager(
                         btnPrimary.alpha = 1f
                         btnSecondary.text = activity.getString(R.string.update_btn_later)
                         dialog.setCancelable(true)
-                        statusView.setTextColor(Color.parseColor("#F85149"))
+                        statusView.setTextColor(Color.parseColor("#F43F5E"))
                         statusView.text = activity.getString(R.string.update_error, message)
                     }
                 }
@@ -461,9 +467,9 @@ class AppUpdateManager(
             orientation = LinearLayout.VERTICAL
             setPadding(dp(20), dp(20), dp(20), dp(20))
             background = GradientDrawable().apply {
-                setColor(Color.parseColor("#161B22"))
+                setColor(Color.parseColor("#0F172A"))
                 cornerRadius = dp(12).toFloat()
-                setStroke(dp(1), Color.parseColor("#30363D"))
+                setStroke(dp(1), Color.parseColor("#1E293B"))
             }
         }
 
@@ -489,16 +495,16 @@ class AppUpdateManager(
         }
         val btnCancel = createDialogButton(
             label = activity.getString(R.string.update_btn_cancel),
-            bgColor = "#21262D",
-            borderColor = "#30363D",
+            bgColor = "#1E293B",
+            borderColor = "#1E293B",
             textColor = "#F0F6FC",
             dp = dp
         )
         val btnAuthorize = createDialogButton(
             label = activity.getString(R.string.update_btn_authorize),
-            bgColor = "#238636",
-            borderColor = "#2EA043",
-            textColor = "#FFFFFF",
+            bgColor = "#10B981",
+            borderColor = "#10B981",
+            textColor = "#06101E",
             dp = dp
         )
 
@@ -551,7 +557,7 @@ class AppUpdateManager(
         val focusedBg = GradientDrawable().apply {
             setColor(Color.parseColor(bgColor))
             cornerRadius = dp(8).toFloat()
-            setStroke(dp(2), Color.parseColor("#388BFD"))
+            setStroke(dp(2), Color.parseColor("#F59E0B"))
         }
         val stateBg = StateListDrawable().apply {
             addState(intArrayOf(android.R.attr.state_focused), focusedBg)

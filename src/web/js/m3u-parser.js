@@ -94,10 +94,15 @@ export class M3UParser {
       tvgName: '',
       tvgLogo: '',
       duration: -1,
-      rawTitle: ''
+      rawTitle: '',
+      catchup: '',
+      catchupDays: 0,
+      catchupSource: '',
+      tvgShift: 0,
+      hasCatchup: false
     };
 
-    // Separar parâmetros do nome (após a última vírgula do header de metadados)
+    // Separar parâmetros do nome (após a vírgula do header de metadados)
     const commaIdx = line.indexOf(',');
     let paramsPart = line;
     let titlePart = '';
@@ -113,18 +118,31 @@ export class M3UParser {
       item.duration = parseInt(durMatch[1], 10);
     }
 
-    // Atributos chave=valor
-    const attrRegex = /([a-zA-Z0-9_-]+)\s*=\s*["']([^"']*)["']/g;
+    // Atributos chave=valor (suporta aspas duplas, simples ou sem aspas)
+    const attrRegex = /([a-zA-Z0-9_-]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s,]+))/g;
     let match;
-    while ((match = attrRegex.exec(line)) !== null) {
+    while ((match = attrRegex.exec(paramsPart)) !== null) {
       const key = match[1].toLowerCase();
-      const val = match[2].trim();
+      const val = (match[2] ?? match[3] ?? match[4] ?? '').trim();
 
       if (key === 'tvg-id') item.tvgId = val;
       else if (key === 'tvg-name') item.tvgName = val;
       else if (key === 'tvg-logo') item.tvgLogo = val;
       else if (key === 'group-title') item.group = val;
+      else if (key === 'catchup') item.catchup = val;
+      else if (key === 'catchup-days') {
+        const days = parseInt(val, 10);
+        item.catchupDays = Number.isFinite(days) && days > 0 ? days : 0;
+      } else if (key === 'catchup-source') item.catchupSource = val;
+      else if (key === 'tvg-shift') {
+        const shift = parseFloat(val);
+        item.tvgShift = Number.isFinite(shift) ? shift : 0;
+      }
     }
+
+    const catchupNorm = item.catchup.toLowerCase();
+    const hasCatchupMode = Boolean(catchupNorm) && !['0', 'false', 'none', 'off'].includes(catchupNorm);
+    item.hasCatchup = hasCatchupMode || item.catchupDays > 0 || Boolean(item.catchupSource);
 
     item.name = titlePart || item.tvgName || 'Sem Nome';
     item.logo = item.tvgLogo || '';

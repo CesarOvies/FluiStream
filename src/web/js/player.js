@@ -91,10 +91,13 @@ export class VideoPlayerController {
 
   reportLayout() {
     if (this.currentEngine !== 'vlc' || typeof window === 'undefined' || !window.chrome?.webview || !this.container) return;
-    const hasOpenModal = Boolean(document.querySelector('.modal:not(.hidden), .dialog-overlay:not(.hidden), [data-modal-open="true"]'));
+    const hasOpenModal = typeof document !== 'undefined' && Boolean(
+      document.querySelector('.modal-backdrop:not(.hidden), .modal:not(.hidden), .dialog-overlay:not(.hidden), [data-modal-open="true"]')
+    );
+    const inHiddenAncestor = typeof this.container.closest === 'function' && Boolean(this.container.closest('.hidden'));
     const rect = this.container.getBoundingClientRect();
     const dpr = window.devicePixelRatio || 1;
-    const isVisible = !hasOpenModal && rect.width > 0 && rect.height > 0 && rect.bottom > 20 && rect.top < window.innerHeight;
+    const isVisible = !hasOpenModal && !inHiddenAncestor && rect.width > 0 && rect.height > 0 && rect.bottom > 20 && rect.top < window.innerHeight;
 
     this.notifyNativeVlc('VLC_LAYOUT_UPDATE', {
       rect: {
@@ -639,4 +642,82 @@ export class VideoPlayerController {
     this.notifyState('idle');
   }
 }
+
+/**
+ * Multi-Screen Controller — até 4 slots simultâneos em Web/HLS
+ * Em ambientes com engine nativa single-instance (Android ExoPlayer), sinaliza o slot ativo
+ * e usa fallback HTML5/<video> quando suportado pela WebView.
+ */
+export class MultiScreenController {
+  constructor() {
+    this.slots = new Map(); // slotIdx -> { video, hls, item }
+    this.activeAudioSlot = 0;
+    this.urlHelper = new VideoPlayerController(null, null);
+  }
+
+  attachSlot(slotIndex, videoElement, item, corsProxy = '', streamMode = 'auto') {
+    this.clearSlot(slotIndex);
+    if (!videoElement || !item || !item.url) return;
+
+    const streamUrl = this.urlHelper.resolveStreamUrl(item.url, item.type, streamMode);
+    const finalUrl = corsProxy ? applyCorsProxy(corsProxy, streamUrl) : streamUrl;
+    const isVideoFile = finalUrl.includes('.mp4') || finalUrl.includes('.mkv') || finalUrl.includes('.avi') || finalUrl.includes('.webm') || item.type === 'movie' || item.type === 'series';
+    const isHlsStream = !isVideoFile && (streamMode === 'hls' || finalUrl.includes('.m3u8') || (streamMode === 'auto' && (item.type === 'live' || finalUrl.includes('/live/'))));
+
+    videoElement.muted = slotIndex !== this.activeAudioSlot;
+    let hls = null;
+
+    if (isHlsStream && typeof window !== 'undefined' && window.Hls && window.Hls.isSupported()) {
+      hls = new window.Hls({
+        enableWorker: true,
+        lowLatencyMode: true,
+        maxBufferLength: 20,
+        maxMaxBufferLength: 40
+      });
+      hls.loadSource(finalUrl);
+      hls.attachMedia(videoElement);
+      hls.on(window.Hls.Events.MANIFEST_PARSED, () => {
+        videoElement.play().catch(() => {});
+      });
+    } else {
+      videoElement.src = finalUrl;
+      videoElement.load();
+      videoElement.play().catch(() => {});
+    }
+
+    this.slots.set(slotIndex, { video: videoElement, hls, item });
+  }
+
+  setAudioSlot(slotIndex) {
+    this.activeAudioSlot = slotIndex;
+    for (const [idx, slot] of this.slots.entries()) {
+      if (slot.video) {
+        slot.video.muted = idx !== slotIndex;
+      }
+    }
+  }
+
+  clearSlot(slotIndex) {
+    const slot = this.slots.get(slotIndex);
+    if (!slot) return;
+    if (slot.hls) {
+      try { slot.hls.destroy(); } catch {}
+    }
+    if (slot.video) {
+      try {
+        slot.video.pause();
+        slot.video.removeAttribute('src');
+        slot.video.load();
+      } catch {}
+    }
+    this.slots.delete(slotIndex);
+  }
+
+  clearAll() {
+    for (const idx of Array.from(this.slots.keys())) {
+      this.clearSlot(idx);
+    }
+  }
+}
+
 

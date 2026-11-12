@@ -44,7 +44,10 @@ public static class LocalizationService
         ["UpdateHashMissing"] = ("Hash SHA-256 não encontrado em SHA256SUMS.txt para este pacote.", "SHA-256 hash not found in SHA256SUMS.txt for this package.", "Hash SHA-256 no encontrado en SHA256SUMS.txt para este paquete."),
         ["UpdateHashFetchError"] = ("Não foi possível baixar SHA256SUMS.txt para validar a atualização.", "Unable to download SHA256SUMS.txt to validate update.", "No se pudo descargar SHA256SUMS.txt para validar la actualización."),
         ["UpdateApplying"] = ("Substituindo arquivos e reiniciando aplicação...", "Replacing files and restarting application...", "Reemplazando archivos y reiniciando la aplicación..."),
-        ["UpdateError"] = ("Erro ao atualizar: {0}", "Update error: {0}", "Error al actualizar: {0}")
+        ["UpdateError"] = ("Erro ao atualizar: {0}", "Update error: {0}", "Error al actualizar: {0}"),
+        ["ExitFullscreenBtn"] = ("✕ Sair da Tela Cheia (Esc)", "✕ Exit Fullscreen (Esc)", "✕ Salir de Pantalla Completa (Esc)"),
+        ["UpdatePromptHeader"] = ("🚀 Nova Versão Disponível: v{0} → {1}", "🚀 New Version Available: v{0} → {1}", "🚀 Nueva Versión Disponible: v{0} → {1}"),
+        ["UpdateNotesFallback"] = ("Melhorias de desempenho, estabilidade na reprodução e atualizações visuais.", "Performance improvements, playback stability, and visual updates.", "Mejoras de rendimiento, estabilidad en la reproducción y actualizaciones visuales.")
     };
 
     public static string Get(string key)

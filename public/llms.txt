@@ -18,9 +18,12 @@
 - Android & Android TV APK (`.apk`, API 24+): WebView (`WebViewAssetLoader`) + `NativeBridge` + `Media3 ExoPlayer` com suporte a D-Pad e Touch
 
 ## Recursos
+- Identidade Visual Midnight Amber & Steel (`#06101E` canvas, `#0F172A` surface, `#F59E0B` amber accent, `#38BDF8` sky accent, `#10B981` emerald CTA) com `:focus-visible` para D-Pad em TVs.
+- Interface Home Hub Bento + Split-Pane (sidebar com busca, filtros, favoritos, histórico e ordenação), Busca Global (Master Search) e Central de Notificações.
 - Motor Nativo de Reprodução: LibVLCSharp (`libvlc.dll`) no Desktop e AndroidX Media3 (`ExoPlayer`) no Android para MPEG-TS contínuo, HLS, DASH, RTSP/RTMP e codecs AC3/EAC3/DTS.
+- Multi-Screen no Desktop/Web (6 layouts de grade com até 4 slots simultâneos; no Android exibe aviso de superfície nativa única) e Controle Parental com PIN SHA-256.
 - Seletor de Estilo de Transmissão: Auto (HLS adaptativo), HLS (.m3u8), MPEG-TS (.ts) e Original (direto).
-- Categorização automática em: Ao Vivo (Live TV), Filmes (VOD) e Séries (com temporadas/episódios).
+- Categorização automática em: Ao Vivo (Live TV), Filmes (VOD), Séries (com temporadas/episódios) e suporte a atributos de Catch-up (`catchup`, `catchup-days`, `catchup-source`, `tvg-shift`).
 - Importação por Arquivo Local (.m3u, .m3u8), URL direta (sockets nativos sem CORS) ou Autenticação Xtream Codes API (`player_api.php`).
-- Guia Eletrônico de Programação (EPG XMLTV) embutido (`x-tvg-url`) ou anexo externo.
+- Gerenciador de Guia Eletrônico de Programação (EPG XMLTV): múltiplas fontes com `mergeXml()`, timeline, timeshift (`-12h` a `+12h`), `x-tvg-url` embutido ou anexo externo.
 - Documentação Técnica Completa: https://github.com/CesarOvies/FluiStream/blob/main/public/llms-full.txt

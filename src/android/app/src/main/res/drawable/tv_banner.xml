@@ -1,79 +1,90 @@
 <?xml version="1.0" encoding="utf-8"?>
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
     android:width="320dp"
     android:height="180dp"
     android:viewportWidth="320"
     android:viewportHeight="180">
 
-    <!-- GitHub Dark Banner Background -->
+    <!-- Midnight Amber Banner Base -->
     <path
-        android:fillColor="#0D1117"
+        android:fillColor="#06101E"
         android:pathData="M0,0h320v180h-320z" />
+
+    <!-- Surface Card -->
     <path
-        android:fillColor="#161B22"
-        android:pathData="M12,12 L308,12 A12,12 0,0 1,320 24 L320,156 A12,12 0,0 1,308 168 L12,168 A12,12 0,0 1,0 156 L0,24 A12,12 0,0 1,12 12 Z"
-        android:strokeColor="#30363D"
+        android:fillColor="#0F172A"
+        android:pathData="M14,14 L306,14 A12,12 0,0 1,318 26 L318,154 A12,12 0,0 1,306 166 L14,166 A12,12 0,0 1,2 154 L2,26 A12,12 0,0 1,14 14 Z"
+        android:strokeColor="#1E293B"
         android:strokeWidth="2" />
 
-    <!-- Accent Glow Bars -->
+    <!-- Diagonal Deep Navy Facet -->
     <path
-        android:fillColor="#238636"
+        android:fillColor="#0B192E"
+        android:fillAlpha="0.85"
+        android:pathData="M14,14 L220,14 L132,166 L14,166 A12,12 0,0 1,2 154 L2,26 A12,12 0,0 1,14 14 Z" />
+
+    <!-- Bottom Amber-Gold & Cyan-Blue Accent Bars -->
+    <path
+        android:fillColor="#F59E0B"
         android:pathData="M0,174h160v6h-160z" />
     <path
-        android:fillColor="#388BFD"
+        android:fillColor="#38BDF8"
         android:pathData="M160,174h160v6h-160z" />
 
-    <!-- Left Emblem (FluiStream TV + Play) -->
+    <!-- Left Emblem Badge -->
     <path
-        android:pathData="M78,44 L66,28"
-        android:strokeColor="#8B949E"
-        android:strokeLineCap="round"
-        android:strokeWidth="4" />
-    <path
-        android:fillColor="#238636"
-        android:pathData="M66,28m-3.5,0a3.5,3.5 0,1 1,7 0a3.5,3.5 0,1 1,-7 0" />
-    <path
-        android:pathData="M114,44 L126,28"
-        android:strokeColor="#8B949E"
-        android:strokeLineCap="round"
-        android:strokeWidth="4" />
-    <path
-        android:fillColor="#388BFD"
-        android:pathData="M126,28m-3.5,0a3.5,3.5 0,1 1,7 0a3.5,3.5 0,1 1,-7 0" />
+        android:fillColor="#06101E"
+        android:pathData="M50,38 L134,38 A14,14 0,0 1,148 52 L148,128 A14,14 0,0 1,134 142 L50,142 A14,14 0,0 1,36 128 L36,52 A14,14 0,0 1,50 38 Z"
+        android:strokeColor="#1E293B"
+        android:strokeWidth="2.5" />
 
+    <!-- Subtle Cyan-Blue Stream Arc -->
     <path
-        android:fillColor="#090D13"
-        android:pathData="M50,44 L142,44 A10,10 0,0 1,152 54 L152,118 A10,10 0,0 1,142 128 L50,128 A10,10 0,0 1,40 118 L40,54 A10,10 0,0 1,50 44 Z"
-        android:strokeColor="#30363D"
-        android:strokeWidth="3.5" />
+        android:fillColor="#38BDF8"
+        android:pathData="M56,115 C71,123 94,123 116,105 C104,119 80,129 56,120 Z" />
 
+    <!-- Midnight Amber Chevron-Play Mark -->
     <path
-        android:fillColor="#238636"
-        android:pathData="M56,68 C78,59 95,82 122,70 C127,68 131,72 129,76 C126,86 110,94 88,83 C72,74 63,79 56,79 Z" />
-    <path
-        android:fillColor="#388BFD"
-        android:pathData="M56,89 C77,89 89,108 116,97 C121,95 125,99 123,104 C118,113 100,120 79,108 C66,101 60,102 56,101 Z" />
+        android:pathData="M62,56 C69,51 78,51 86,56 L124,80 C132,85 132,95 124,100 L86,124 C78,129 69,129 62,124 C72,112 78,101 78,90 C78,79 72,68 62,56 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:endX="128"
+                android:endY="124"
+                android:startX="62"
+                android:startY="54"
+                android:type="linear">
+                <item
+                    android:color="#FBBF24"
+                    android:offset="0.0" />
+                <item
+                    android:color="#F97316"
+                    android:offset="0.55" />
+                <item
+                    android:color="#EF4444"
+                    android:offset="1.0" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Inner Play Core -->
     <path
         android:fillColor="#F0F6FC"
-        android:pathData="M86,74 L112,88 L86,102 Z" />
+        android:pathData="M84,74 L113,90 L84,106 C88,97 88,83 84,74 Z" />
 
-    <path
-        android:pathData="M96,128 L96,138 M80,138 L112,138"
-        android:strokeColor="#30363D"
-        android:strokeLineCap="round"
-        android:strokeWidth="4" />
-
-    <!-- Right Stylized Wordmark Bars ("FS" + Stream Lines) -->
+    <!-- Right FS Monogram ("F" + "S") + Stream Accent Bars -->
     <path
         android:fillColor="#F0F6FC"
-        android:pathData="M180,62 L245,62 L245,73 L193,73 L193,85 L236,85 L236,96 L193,96 L193,118 L180,118 Z" />
+        android:pathData="M174,56 L224,56 L224,67 L187,67 L187,83 L217,83 L217,94 L187,94 L187,120 L174,120 Z" />
     <path
-        android:fillColor="#388BFD"
-        android:pathData="M258,62 L288,62 L288,73 L258,73 Z" />
+        android:fillColor="#F0F6FC"
+        android:pathData="M236,56 L284,56 L284,67 L249,67 L249,82 L284,82 L284,120 L236,120 L236,109 L271,109 L271,93 L236,93 Z" />
+
+    <!-- Telemetry Accent Bars under Monogram -->
     <path
-        android:fillColor="#238636"
-        android:pathData="M258,85 L280,85 L280,96 L258,96 Z" />
+        android:fillColor="#F59E0B"
+        android:pathData="M174,132 L224,132 L224,137 L174,137 Z" />
     <path
-        android:fillColor="#8B949E"
-        android:pathData="M258,107 L288,107 L288,118 L258,118 Z" />
+        android:fillColor="#38BDF8"
+        android:pathData="M232,132 L284,132 L284,137 L232,137 Z" />
 </vector>

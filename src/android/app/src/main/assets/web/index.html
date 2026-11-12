@@ -3,10 +3,11 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="theme-color" content="#0D1117" />
+  <meta name="color-scheme" content="dark" />
+  <meta name="theme-color" content="#06101E" />
   <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1" />
 
-  <title>FluiStream — Reprodutor M3U, EPG & Xtream Codes</title>
+  <title>FluiStream — Reprodutor M3U, EPG &amp; Xtream Codes</title>
   <meta name="description" content="Reprodutor moderno e fluido de listas M3U/M3U8 com EPG XMLTV, Xtream Codes API, versão Web Responsiva e Desktop Portable em User-Space." />
   <meta name="keywords" content="reprodutor m3u, iptv player, epg xmltv, xtream codes api, web player, portable m3u player, cesar ovies" />
 
@@ -20,7 +21,7 @@
   <!-- OpenGraph & Twitter Cards -->
   <meta property="og:type" content="website" />
   <meta property="og:url" content="https://cesarovies.github.io/FluiStream/" />
-  <meta property="og:title" content="FluiStream — Reprodutor M3U, EPG & Xtream Codes" />
+  <meta property="og:title" content="FluiStream — Reprodutor M3U, EPG &amp; Xtream Codes" />
   <meta property="og:description" content="Reprodutor moderno e fluido de listas M3U/M3U8 com EPG XMLTV e Xtream Codes API." />
   <meta property="og:image" content="https://cesarovies.github.io/FluiStream/assets/icon-512.png" />
   <meta property="og:image:alt" content="FluiStream Logo" />
@@ -31,7 +32,7 @@
   <meta property="og:locale:alternate" content="es_ES" />
 
   <meta name="twitter:card" content="summary_large_image" />
-  <meta name="twitter:title" content="FluiStream — Reprodutor M3U, EPG & Xtream Codes" />
+  <meta name="twitter:title" content="FluiStream — Reprodutor M3U, EPG &amp; Xtream Codes" />
   <meta name="twitter:description" content="Reprodutor moderno e fluido de listas M3U/M3U8 com EPG XMLTV e Xtream Codes API." />
   <meta name="twitter:image" content="https://cesarovies.github.io/FluiStream/assets/icon-512.png" />
 
@@ -46,7 +47,7 @@
         "url": "https://cesarovies.github.io/FluiStream/",
         "downloadUrl": "https://github.com/CesarOvies/FluiStream/releases",
         "applicationCategory": "MultimediaApplication",
-        "operatingSystem": "Web Browser, Windows 10/11 x64, Linux x64, macOS",
+        "operatingSystem": "Web Browser, Windows 10/11 x64, Linux x64, macOS, Android, Android TV",
         "inLanguage": ["pt-BR", "en-US", "es"],
         "isAccessibleForFree": true,
         "license": "https://opensource.org/licenses/MIT",
@@ -60,7 +61,7 @@
           "price": "0",
           "priceCurrency": "USD"
         },
-        "description": "Reprodutor moderno e fluido de listas M3U/M3U8 com suporte a EPG XMLTV, autenticação Xtream Codes, divisão em Ao Vivo, Filmes e Séries, compatível com Web e Portable Desktop."
+        "description": "Reprodutor moderno e fluido de listas M3U/M3U8 com suporte a EPG XMLTV, autenticação Xtream Codes, divisão em Ao Vivo, Filmes e Séries, compatível com Web, Portable Desktop e Android TV."
       }
     ]
   }
@@ -85,47 +86,77 @@
 <body>
 
   <!-- Barra Superior de Navegação -->
-  <header class="app-header">
+  <header class="app-header" id="app-header">
     <div class="header-inner">
-      <div class="brand-wrapper" id="btn-brand-home" role="button" tabindex="0" title="FluiStream — Início" style="cursor: pointer;">
-        <img src="assets/logo.svg" alt="FluiStream Logo" class="brand-logo" />
-        <span class="brand-title">FluiStream</span>
+      <div class="header-left">
+        <div class="brand-wrapper" id="btn-brand-home" role="button" tabindex="0" title="FluiStream — Início">
+          <img src="assets/logo.svg" alt="FluiStream Logo" class="brand-logo" />
+          <span class="brand-title">FluiStream</span>
+        </div>
+        <div class="header-clock-wrap" aria-live="off">
+          <span class="header-clock-time" id="header-clock-time">--:--</span>
+          <span class="header-clock-date" id="header-clock-date">---</span>
+        </div>
       </div>
 
-      <!-- Abas de Conteúdo (Ao Vivo, Filmes, Séries, Favoritos) -->
-      <nav class="nav-tabs-wrapper" aria-label="Navegação Principal">
-        <button class="nav-tab-btn active" data-view="live" data-i18n="navLive">Ao Vivo</button>
-        <button class="nav-tab-btn" data-view="movie" data-i18n="navMovies">Filmes</button>
-        <button class="nav-tab-btn" data-view="series" data-i18n="navSeries">Séries</button>
-        <button class="nav-tab-btn" data-view="favorites" data-i18n="navFavorites">Favoritos</button>
-      </nav>
+      <div class="header-center">
+        <button class="btn-master-search" id="btn-master-search" data-i18n-title="masterSearch">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <span data-i18n="masterSearch">Busca Global</span>
+        </button>
 
-      <!-- Ações Rápidas (Perfis, Importar, Conta, Sobre, Configurações) -->
+        <nav class="nav-tabs-wrapper" aria-label="Navegação Principal">
+          <button class="nav-tab-btn active" data-view="home" data-i18n="navHome">Início</button>
+          <button class="nav-tab-btn" data-view="live" data-i18n="navLive">Ao Vivo</button>
+          <button class="nav-tab-btn" data-view="movie" data-i18n="navMovies">Filmes</button>
+          <button class="nav-tab-btn" data-view="series" data-i18n="navSeries">Séries</button>
+          <button class="nav-tab-btn" data-view="favorites" data-i18n="navFavorites">Favoritos</button>
+        </nav>
+      </div>
+
+      <!-- Ações Rápidas -->
       <div class="header-actions">
-        <button class="btn-secondary" id="btn-open-profiles" title="Perfis / Listas (List Playlist)" data-i18n-title="navProfiles">
+        <button class="btn-icon" id="btn-quick-live-epg" title="Live with EPG" data-i18n-title="homeLiveEpg">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="15" rx="2"/><polyline points="17 2 12 7 7 2"/></svg>
+        </button>
+        <button class="btn-icon" id="btn-quick-epg-guide" title="TV Guide (EPG)" data-i18n-title="navEpg">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+        </button>
+        <button class="btn-icon" id="btn-quick-multiscreen" title="Multi-Screen" data-i18n-title="settingsMultiScreen">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+        </button>
+        <button class="btn-icon" id="btn-quick-notifications" title="Notifications" data-i18n-title="notificationsTitle">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+          <span class="notif-badge hidden" id="notif-badge">0</span>
+        </button>
+        <button class="btn-icon" id="btn-quick-catchup" title="Catch Up" data-i18n-title="homeCatchUp">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
+        </button>
+        <button class="btn-secondary" id="btn-open-profiles" title="Perfis / Listas" data-i18n-title="navProfiles">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
           <span id="header-profile-name">Perfil</span>
         </button>
-        <button class="btn-secondary btn-icon" id="btn-open-account" title="Account Info" data-i18n-title="accountInfoTitle">
+        <button class="btn-icon" id="btn-open-account" title="Account Info" data-i18n-title="accountInfoTitle">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
         </button>
-        <button class="btn-primary" id="btn-open-import" data-i18n="navImport">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-          Importar Lista
+        <button class="btn-amber" id="btn-open-import">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+          <span data-i18n="navImport">Importar Lista</span>
         </button>
-        <button class="btn-secondary" id="btn-open-about" data-i18n-title="navAbout" title="Sobre o Projeto">
+        <button class="btn-icon" id="btn-open-settings" data-i18n-title="navSettings" title="Configurações">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        </button>
+        <button class="btn-icon" id="btn-open-about" data-i18n-title="navAbout" title="Sobre o Projeto">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
-        </button>
-        <button class="btn-secondary" id="btn-open-settings" data-i18n-title="navSettings" title="Configurações">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
         </button>
       </div>
     </div>
   </header>
 
   <!-- Conteúdo Principal -->
-  <main class="main-layout">
-    <!-- Estado Vazio (Inicial / Apresentação) -->
+  <main class="main-layout" id="main-layout">
+
+    <!-- Estado Vazio (Inicial / Sem lista) -->
     <section class="empty-state" id="empty-state-view">
       <div class="empty-state-logo-wrap">
         <img src="assets/logo.svg" alt="FluiStream" class="empty-state-logo" />
@@ -133,160 +164,464 @@
       <h2 data-i18n="emptyListTitle">Nenhuma lista carregada</h2>
       <p data-i18n="emptyListDesc">Importe sua lista M3U via arquivo local, URL ou conecte sua conta Xtream Codes para começar.</p>
       <div class="empty-state-actions">
-        <button class="btn-primary" id="btn-empty-import" data-i18n="btnImportNow">Importar Lista Agora</button>
+        <button class="btn-amber" id="btn-empty-import" data-i18n="btnImportNow">Importar Lista Agora</button>
         <button class="btn-secondary" id="btn-load-demo" data-i18n="btnLoadSample">Carregar Lista de Demonstração</button>
         <button class="btn-secondary" id="btn-empty-about" data-i18n="navAbout">Sobre o Projeto</button>
       </div>
     </section>
 
-    <!-- Área Ativa (Player + Grade) -->
-    <div id="main-content-view" class="hidden" style="display: flex; flex-direction: column; gap: 1.5rem;">
-      <!-- Seção do Player de Vídeo -->
-      <section class="player-section">
-        <div class="player-wrapper" id="player-wrapper">
-          <div id="player-loading-spinner" class="player-loading-overlay hidden">
-            <div class="spinner"></div>
-            <span id="player-loading-text">Carregando stream...</span>
-          </div>
-          <div id="player-error-overlay" class="player-error-overlay hidden">
-            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-            <p id="player-error-msg" class="player-error-text">Falha ao reproduzir o canal</p>
-            <p id="player-error-hint" class="player-error-hint hidden"></p>
-            <div class="player-error-actions">
-              <button class="btn-primary" id="btn-player-retry" data-i18n="playerRetry">Tentar Novamente</button>
-              <button class="btn-secondary hidden" id="btn-player-open-settings" data-i18n="btnConfigureProxy">Configurar Proxy</button>
+    <!-- TELA 1: HOME HUB (BENTO DASHBOARD) -->
+    <section class="home-hub-view hidden" id="home-hub-view">
+      <div class="home-bento-layout">
+        <div class="home-bento-left">
+          <!-- 3 Cards Principais -->
+          <div class="home-hero-row">
+            <div class="bento-card" data-bento="live" tabindex="0" role="button">
+              <div class="bento-card-head">
+                <div class="bento-card-icon">
+                  <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="15" rx="2"/><polyline points="17 2 12 7 7 2"/></svg>
+                </div>
+                <span class="bento-count-pill" id="home-count-live">0</span>
+              </div>
+              <div class="bento-card-body">
+                <h2 class="bento-card-title" data-i18n="homeLiveTv">LIVE TV</h2>
+              </div>
+              <div class="bento-card-footer">
+                <span class="bento-updated-text"><span data-i18n="homeLastUpdated">Atualizado em</span>: <strong id="home-updated-live">--</strong></span>
+                <button class="btn-bento-refresh" id="btn-refresh-live" title="Atualizar" aria-label="Atualizar Live TV">↻</button>
+              </div>
+            </div>
+
+            <div class="bento-card" data-bento="movie" tabindex="0" role="button">
+              <div class="bento-card-head">
+                <div class="bento-card-icon">
+                  <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="20" rx="2.18"/><line x1="7" y1="2" x2="7" y2="22"/><line x1="17" y1="2" x2="17" y2="22"/><line x1="2" y1="12" x2="22" y2="12"/></svg>
+                </div>
+                <span class="bento-count-pill" id="home-count-movies">0</span>
+              </div>
+              <div class="bento-card-body">
+                <h2 class="bento-card-title" data-i18n="homeMovies">MOVIES</h2>
+              </div>
+              <div class="bento-card-footer">
+                <span class="bento-updated-text"><span data-i18n="homeLastUpdated">Atualizado em</span>: <strong id="home-updated-movies">--</strong></span>
+                <button class="btn-bento-refresh" id="btn-refresh-movies" title="Atualizar" aria-label="Atualizar Filmes">↻</button>
+              </div>
+            </div>
+
+            <div class="bento-card" data-bento="series" tabindex="0" role="button">
+              <div class="bento-card-head">
+                <div class="bento-card-icon">
+                  <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>
+                </div>
+                <span class="bento-count-pill" id="home-count-series">0</span>
+              </div>
+              <div class="bento-card-body">
+                <h2 class="bento-card-title" data-i18n="homeSeries">SERIES</h2>
+              </div>
+              <div class="bento-card-footer">
+                <span class="bento-updated-text"><span data-i18n="homeLastUpdated">Atualizado em</span>: <strong id="home-updated-series">--</strong></span>
+                <button class="btn-bento-refresh" id="btn-refresh-series" title="Atualizar" aria-label="Atualizar Séries">↻</button>
+              </div>
             </div>
           </div>
-          <video id="main-video" playsinline controls></video>
+
+          <!-- 3 Tiles Gradientes -->
+          <div class="home-gradient-row">
+            <button class="gradient-tile gradient-tile--epg" id="btn-home-live-epg">
+              <div>
+                <span class="gradient-tile-label" data-i18n="homeLiveEpg">LIVE WITH EPG</span>
+                <span class="gradient-tile-sub" id="home-epg-sub">XMLTV</span>
+              </div>
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+            </button>
+
+            <button class="gradient-tile gradient-tile--fav" id="btn-home-favourite">
+              <div>
+                <span class="gradient-tile-label" data-i18n="homeFavourite">FAVOURITE</span>
+                <span class="gradient-tile-sub" id="home-count-fav">0</span>
+              </div>
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="currentColor"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+            </button>
+
+            <button class="gradient-tile gradient-tile--catchup" id="btn-home-catchup">
+              <div>
+                <span class="gradient-tile-label" data-i18n="homeCatchUp">CATCH UP</span>
+                <span class="gradient-tile-sub" id="home-count-catchup">0</span>
+              </div>
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
+            </button>
+          </div>
         </div>
-        <!-- Barra de Metadados e EPG do Canal Atual -->
-        <div class="player-meta-bar">
-          <div class="player-meta-top">
-            <div class="player-now-playing">
-              <img id="player-channel-logo" class="player-channel-logo-img hidden" alt="" />
-              <div class="player-info-text">
-                <div class="player-channel-title-row">
-                  <h3 id="player-channel-title">FluiStream</h3>
-                  <span id="player-channel-group" class="badge-group"></span>
+
+        <!-- Painel Direito: Featured / Continuar Assistindo / Recentes -->
+        <aside class="home-featured-panel" id="home-featured-panel">
+          <div class="home-featured-header">
+            <h3 data-i18n="homeFeatured">Destaques &amp; Recentes</h3>
+            <button class="btn-secondary" id="btn-home-history" style="font-size: 0.74rem; padding: 0.25rem 0.6rem;" data-i18n="sidebarHistory">HISTÓRICO</button>
+          </div>
+          <div class="home-featured-list" id="home-featured-list"></div>
+        </aside>
+      </div>
+
+      <!-- Rodapé de Expiração da Assinatura -->
+      <footer class="home-expiration-footer" id="home-expiration-footer">
+        <div class="home-exp-left">
+          <strong id="home-exp-profile" style="color: var(--text-primary);">-</strong>
+          <span class="status-pill status-pill--active" id="home-exp-status">Active</span>
+          <span><span data-i18n="homeExpiration">Expiração</span>: <strong id="home-exp-date" style="color: var(--text-primary);">-</strong></span>
+          <span id="home-exp-cons" style="color: var(--text-secondary);"></span>
+        </div>
+        <button class="btn-secondary" id="btn-home-account-info" data-i18n="settingsAccountInfo">Informações da Conta</button>
+      </footer>
+    </section>
+
+    <!-- TELA 2: SPLIT-PANE BROWSER + PLAYER -->
+    <div id="main-content-view" class="main-content-view hidden">
+      <div class="split-pane-shell">
+        <!-- Sidebar Esquerda (#05070B) -->
+        <aside class="split-sidebar" id="split-sidebar" aria-label="Categorias">
+          <div class="split-sidebar-header">
+            <button class="btn-icon" id="btn-sidebar-home" title="Home" data-i18n-title="navHome">
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+            </button>
+            <div class="split-sidebar-brand">
+              <img src="assets/logo.svg" alt="" width="22" height="22" />
+              <span>FluiStream</span>
+            </div>
+            <button class="btn-icon" id="btn-sidebar-close" title="Fechar">×</button>
+          </div>
+
+          <div class="split-sidebar-search">
+            <div class="search-input-wrap" style="min-width: 0; max-width: none;">
+              <svg class="search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+              <input type="text" id="sidebar-category-search" class="search-input" data-i18n-placeholder="sidebarSearchCategories" placeholder="Buscar categorias..." />
+            </div>
+          </div>
+
+          <div class="split-sidebar-list" id="sidebar-category-list"></div>
+        </aside>
+
+        <!-- Painel Direito: Player + Grade Glassmorphic -->
+        <div class="split-main-pane">
+          <!-- Seção do Player de Vídeo (#player-wrapper preservado!) -->
+          <section class="player-section" id="player-section">
+            <div class="player-wrapper" id="player-wrapper">
+              <div id="player-loading-spinner" class="player-loading-overlay hidden">
+                <div class="spinner"></div>
+                <span id="player-loading-text">Carregando stream...</span>
+              </div>
+              <div id="player-error-overlay" class="player-error-overlay hidden">
+                <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                <p id="player-error-msg" class="player-error-text">Falha ao reproduzir o canal</p>
+                <p id="player-error-hint" class="player-error-hint hidden"></p>
+                <div class="player-error-actions">
+                  <button class="btn-primary" id="btn-player-retry" data-i18n="playerRetry">Tentar Novamente</button>
+                  <button class="btn-secondary hidden" id="btn-player-open-settings" data-i18n="btnConfigureProxy">Configurar Proxy</button>
+                </div>
+              </div>
+              <video id="main-video" playsinline controls></video>
+            </div>
+
+            <!-- Barra de Metadados e EPG do Canal Atual -->
+            <div class="player-meta-bar">
+              <div class="player-meta-top">
+                <div class="player-now-playing">
+                  <img id="player-channel-logo" class="player-channel-logo-img hidden" alt="" />
+                  <div class="player-info-text">
+                    <div class="player-channel-title-row">
+                      <h3 id="player-channel-title">FluiStream</h3>
+                      <span id="player-channel-group" class="badge-group"></span>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="player-controls-right">
+                  <div class="player-volume-wrap" id="player-volume-wrap">
+                    <button class="btn-secondary btn-icon" id="btn-player-mute" title="Mudo (M)" data-i18n-title="playerMute">
+                      <svg id="icon-volume-high" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
+                      <svg id="icon-volume-muted" class="hidden" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/></svg>
+                    </button>
+                    <input type="range" id="input-player-volume" class="volume-slider" min="0" max="1" step="0.05" value="0.8" aria-label="Volume" />
+                  </div>
+                  <select class="select-custom" id="select-player-engine" title="Motor do Player" data-i18n-title="playerEngine">
+                    <option value="hls" data-i18n="playerEngineHls">Player HLS Nativo</option>
+                    <option value="vlc" data-i18n="playerEngineVlc">Player VLC</option>
+                  </select>
+                  <select class="select-custom" id="select-stream-mode" title="Estilo de Transmissão" data-i18n-title="playerStreamMode">
+                    <option value="auto" data-i18n="playerStreamAuto">Auto (HLS)</option>
+                    <option value="hls" data-i18n="playerStreamHls">HLS (.m3u8)</option>
+                    <option value="ts" data-i18n="playerStreamTs">MPEG-TS (.ts)</option>
+                    <option value="direct" data-i18n="playerStreamDirect">Original</option>
+                  </select>
+                  <select class="select-custom" id="select-aspect-ratio" title="Proporção" data-i18n-title="playerAspectRatio">
+                    <option value="auto" data-i18n="playerAspectAuto">Auto</option>
+                    <option value="16:9">16:9</option>
+                    <option value="4:3">4:3</option>
+                    <option value="fill" data-i18n="playerAspectFill">Preencher</option>
+                  </select>
+                  <select class="select-custom" id="select-player-audio" title="Faixa de Áudio / Idioma" data-i18n-title="playerAudioTrack">
+                    <option value="-1" data-i18n="playerAudioDefault">Áudio: Padrão</option>
+                  </select>
+                  <select class="select-custom" id="select-player-subtitles" title="Legendas" data-i18n-title="playerSubtitles">
+                    <option value="-1" data-i18n="playerSubtitlesNone">Legendas: Desativadas</option>
+                  </select>
+                  <button class="btn-icon" id="btn-player-pip" title="Picture-in-Picture" data-i18n-title="playerPip">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><rect x="12" y="9" width="8" height="6" rx="1"/></svg>
+                  </button>
+                  <button class="btn-icon" id="btn-player-fullscreen" title="Tela Cheia" data-i18n-title="playerFullscreen">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>
+                  </button>
+                  <button class="btn-icon" id="btn-player-playpause" title="Pausar / Reproduzir (Espaço)" data-i18n-title="playerPause">
+                    <svg id="icon-player-pause" width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>
+                    <svg id="icon-player-play" class="hidden" width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                  </button>
+                  <button class="btn-icon" id="btn-player-stop" title="Parar Reprodução" data-i18n-title="playerStop">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="5" y="5" width="14" height="14" rx="2"/></svg>
+                  </button>
+                  <button class="btn-icon" id="btn-player-close" title="Fechar Player" data-i18n-title="playerClose">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                  </button>
+                </div>
+              </div>
+
+              <div class="player-epg-card" id="player-epg-card">
+                <div class="epg-card-header">
+                  <span class="epg-badge-live" id="epg-status-badge">AO VIVO</span>
+                  <h4 id="player-current-prog-title" class="epg-prog-title">Nenhum canal em reprodução</h4>
+                  <span id="player-current-prog-time" class="epg-time-badge hidden"></span>
+                </div>
+                <div class="epg-progress-row player-timeline-row">
+                  <span id="player-time-current" class="player-time-badge hidden">00:00:00</span>
+                  <div class="player-progress-bar-wrap" id="player-progress-bar-wrap" role="slider" tabindex="0" title="Arraste para avançar ou voltar no vídeo" data-i18n-title="playerSeek">
+                    <div class="player-progress-bar-fill" id="player-prog-progress-bar"></div>
+                    <div class="player-progress-thumb" id="player-prog-thumb"></div>
+                  </div>
+                  <span id="player-time-total" class="player-time-badge hidden">00:00:00</span>
+                  <span id="player-current-prog-remaining" class="epg-remaining-text"></span>
                 </div>
               </div>
             </div>
+          </section>
 
-            <div class="player-controls-right">
-              <!-- Controle de Volume -->
-              <div class="player-volume-wrap" id="player-volume-wrap">
-                <button class="btn-secondary btn-icon" id="btn-player-mute" title="Mudo (M)" data-i18n-title="playerMute">
-                  <svg id="icon-volume-high" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
-                  <svg id="icon-volume-muted" class="hidden" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/></svg>
-                </button>
-                <input type="range" id="input-player-volume" class="volume-slider" min="0" max="1" step="0.05" value="0.8" aria-label="Volume" />
-              </div>
-              <!-- Video Engine Selector (HTML5 Web vs VLC Nativo) -->
-              <select class="select-custom" id="select-player-engine" title="Motor do Player" data-i18n-title="playerEngine">
-                <option value="hls" data-i18n="playerEngineHls">Player HLS Nativo</option>
-                <option value="vlc" data-i18n="playerEngineVlc">Player VLC</option>
-              </select>
-              <!-- Stream Protocol / Style Selector -->
-              <select class="select-custom" id="select-stream-mode" title="Estilo de Transmissão" data-i18n-title="playerStreamMode">
-                <option value="auto" data-i18n="playerStreamAuto">Auto (HLS)</option>
-                <option value="hls" data-i18n="playerStreamHls">HLS (.m3u8)</option>
-                <option value="ts" data-i18n="playerStreamTs">MPEG-TS (.ts)</option>
-                <option value="direct" data-i18n="playerStreamDirect">Original</option>
-              </select>
-              <!-- Aspect Ratio -->
-              <select class="select-custom" id="select-aspect-ratio" title="Proporção" data-i18n-title="playerAspectRatio">
-                <option value="auto" data-i18n="playerAspectAuto">Auto</option>
-                <option value="16:9">16:9</option>
-                <option value="4:3">4:3</option>
-                <option value="fill" data-i18n="playerAspectFill">Preencher</option>
-              </select>
-              <!-- Seletor de Idioma / Faixa de Áudio -->
-              <select class="select-custom" id="select-player-audio" title="Faixa de Áudio / Idioma" data-i18n-title="playerAudioTrack">
-                <option value="-1" data-i18n="playerAudioDefault">Áudio: Padrão</option>
-              </select>
-              <!-- Seletor de Legendas -->
-              <select class="select-custom" id="select-player-subtitles" title="Legendas" data-i18n-title="playerSubtitles">
-                <option value="-1" data-i18n="playerSubtitlesNone">Legendas: Desativadas</option>
-              </select>
-              <!-- PiP -->
-              <button class="btn-secondary" id="btn-player-pip" title="Picture-in-Picture" data-i18n-title="playerPip">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><rect x="12" y="9" width="8" height="6" rx="1" ry="1"/></svg>
-              </button>
-              <!-- Fullscreen -->
-              <button class="btn-secondary" id="btn-player-fullscreen" title="Tela Cheia" data-i18n-title="playerFullscreen">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>
-              </button>
-              <!-- Pausar / Reproduzir -->
-              <button class="btn-secondary" id="btn-player-playpause" title="Pausar / Reproduzir (Espaço)" data-i18n-title="playerPause">
-                <svg id="icon-player-pause" width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>
-                <svg id="icon-player-play" class="hidden" width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-              </button>
-              <!-- Parar Reprodução -->
-              <button class="btn-secondary" id="btn-player-stop" title="Parar Reprodução" data-i18n-title="playerStop">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="5" y="5" width="14" height="14" rx="2"/></svg>
-              </button>
-              <!-- Fechar Player / Voltar ao Início -->
-              <button class="btn-secondary" id="btn-player-close" title="Fechar Player e Voltar ao Início" data-i18n-title="playerClose">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          <!-- Barra de Navegação / Voltar da Categoria Ativa (compatível com Android Back) -->
+          <section class="category-nav-bar" id="category-nav-bar">
+            <div style="display: flex; align-items: center; gap: 0.5rem;">
+              <button class="btn-icon" id="btn-toggle-sidebar-mobile" title="Categorias">☰</button>
+              <button class="btn-secondary btn-back-categories" id="btn-back-categories">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+                <span data-i18n="navHome">Início</span>
               </button>
             </div>
-          </div>
+            <span class="category-current-badge" id="category-current-title">ALL</span>
+          </section>
 
-          <!-- Card de EPG & Timeline de Alta Legibilidade -->
-          <div class="player-epg-card" id="player-epg-card">
-            <div class="epg-card-header">
-              <span class="epg-badge-live" id="epg-status-badge">AO VIVO</span>
-              <h4 id="player-current-prog-title" class="epg-prog-title">Nenhum canal em reprodução</h4>
-              <span id="player-current-prog-time" class="epg-time-badge hidden"></span>
+          <!-- Barra de Pesquisa & Ordenação -->
+          <section class="search-filter-bar">
+            <div class="search-input-wrap">
+              <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+              <input type="text" id="global-search" class="search-input" data-i18n-placeholder="searchPlaceholder" placeholder="Buscar canais, filmes ou séries..." />
             </div>
-            <div class="epg-progress-row player-timeline-row">
-              <span id="player-time-current" class="player-time-badge hidden">00:00:00</span>
-              <div class="player-progress-bar-wrap" id="player-progress-bar-wrap" role="slider" tabindex="0" title="Arraste para avançar ou voltar no vídeo" data-i18n-title="playerSeek">
-                <div class="player-progress-bar-fill" id="player-prog-progress-bar"></div>
-                <div class="player-progress-thumb" id="player-prog-thumb"></div>
-              </div>
-              <span id="player-time-total" class="player-time-badge hidden">00:00:00</span>
-              <span id="player-current-prog-remaining" class="epg-remaining-text"></span>
+            <div class="split-toolbar-right">
+              <select class="select-custom" id="select-sort-items" aria-label="Sort">
+                <option value="default">Default</option>
+                <option value="alpha" data-i18n="sortAlpha">A-Z</option>
+                <option value="recent" data-i18n="sortRecent">Recentes</option>
+              </select>
+              <div id="items-count-badge" style="font-size: 0.8125rem; color: var(--text-secondary);"></div>
             </div>
-          </div>
-        </div>
-      </section>
+          </section>
 
-      <!-- Barra de Filtros e Pesquisa -->
-      <section class="search-filter-bar">
-        <div class="search-input-wrap">
-          <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-          <input type="text" id="global-search" class="search-input" data-i18n-placeholder="searchPlaceholder" placeholder="Buscar canais, filmes ou séries..." />
+          <!-- Grade de Canais / Itens -->
+          <section class="channel-grid-section" id="channel-grid-section">
+            <div class="channel-grid" id="channel-grid"></div>
+            <div class="load-more-wrap hidden" id="load-more-wrap">
+              <button class="btn-secondary" id="btn-load-more" data-i18n="btnLoadMore">Carregar Mais</button>
+            </div>
+          </section>
         </div>
-        <div id="items-count-badge" style="font-size: 0.8125rem; color: var(--text-secondary);"></div>
-      </section>
-
-      <!-- Barra de Navegação/Voltar da Categoria Ativa -->
-      <section class="category-nav-bar hidden" id="category-nav-bar">
-        <button class="btn-secondary btn-back-categories" id="btn-back-categories">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
-          <span data-i18n="btnBackCategories">Voltar para Categorias</span>
-        </button>
-        <span class="category-current-badge" id="category-current-title"></span>
-      </section>
-
-      <!-- Tela Inicial de Categorias (Visão Pré-load por Gênero para evitar travamentos) -->
-      <section class="category-overview-section" id="category-overview-section">
-        <div class="category-overview-header">
-          <h3 data-i18n="categoryOverviewTitle">Selecione uma Categoria</h3>
-          <p class="category-overview-desc" data-i18n="categoryOverviewDesc">Escolha uma categoria para navegar com máxima velocidade e sem travamentos.</p>
-        </div>
-        <div class="category-grid" id="category-overview-grid"></div>
-      </section>
-
-      <!-- Grade de Canais / Itens (Carregamento Paginado/Lazy) -->
-      <section class="channel-grid-section hidden" id="channel-grid-section">
-        <div class="channel-grid" id="channel-grid"></div>
-        <div class="load-more-wrap hidden" id="load-more-wrap">
-          <button class="btn-secondary" id="btn-load-more" data-i18n="btnLoadMore">Carregar Mais</button>
-        </div>
-      </section>
+      </div>
     </div>
+
+    <!-- TELAS 3 & 5: CENTRAL DE CONFIGURAÇÕES (TILE HUB 3-COL) -->
+    <section class="subscreen-view hidden" id="settings-hub-view">
+      <div class="subscreen-topbar">
+        <div class="subscreen-title-group">
+          <button class="btn-gradient-back" id="btn-settings-back" data-i18n="btnBack">BACK</button>
+          <h2 data-i18n="navSettings">Configurações</h2>
+        </div>
+        <span style="font-size: 0.82rem; color: var(--text-secondary);" data-i18n="settingsVersion">Versão 2.0.0 — Padrão Cesar Ovies</span>
+      </div>
+
+      <div class="settings-tile-grid" id="settings-tile-grid">
+        <button class="settings-tile" data-settings-tile="general">
+          <div class="settings-tile-icon">⚙</div>
+          <div class="settings-tile-info">
+            <h4 data-i18n="settingsGeneral">Configurações Gerais</h4>
+            <span data-i18n="settingsLanguage">Idioma, Updates &amp; Dados</span>
+          </div>
+        </button>
+
+        <button class="settings-tile" data-settings-tile="epg">
+          <div class="settings-tile-icon">📅</div>
+          <div class="settings-tile-info">
+            <h4 data-i18n="settingsEpg">EPG (Guia de TV)</h4>
+            <span data-i18n="epgSourcesTab">Fontes XMLTV, Timeline &amp; Timeshift</span>
+          </div>
+        </button>
+
+        <button class="settings-tile" data-settings-tile="stream">
+          <div class="settings-tile-icon">📡</div>
+          <div class="settings-tile-info">
+            <h4 data-i18n="settingsStreamFormat">Formato de Transmissão</h4>
+            <span data-i18n="playerEngine">HLS / MPEG-TS / VLC</span>
+          </div>
+        </button>
+
+        <button class="settings-tile" data-settings-tile="time">
+          <div class="settings-tile-icon">🕒</div>
+          <div class="settings-tile-info">
+            <h4 data-i18n="settingsTimeFormat">Formato de Hora</h4>
+            <span id="tile-time-format-sub">24h</span>
+          </div>
+        </button>
+
+        <button class="settings-tile" data-settings-tile="automation">
+          <div class="settings-tile-icon">⚡</div>
+          <div class="settings-tile-info">
+            <h4 data-i18n="settingsAutomation">Automação</h4>
+            <span data-i18n="autoPlayNextLabel">Auto-Refresh &amp; Auto-Play</span>
+          </div>
+        </button>
+
+        <button class="settings-tile" data-settings-tile="parental">
+          <div class="settings-tile-icon">🔒</div>
+          <div class="settings-tile-info">
+            <h4 data-i18n="settingsParentalControl">Controle Parental (PIN)</h4>
+            <span id="tile-parental-sub">PIN</span>
+          </div>
+        </button>
+
+        <button class="settings-tile" data-settings-tile="multiscreen">
+          <div class="settings-tile-icon">⊞</div>
+          <div class="settings-tile-info">
+            <h4 data-i18n="settingsMultiScreen">Multi-Tela</h4>
+            <span data-i18n="multiScreenTitle">Layouts 2x2 / 1+3 / 2x1</span>
+          </div>
+        </button>
+
+        <button class="settings-tile" data-settings-tile="speedtest">
+          <div class="settings-tile-icon">🚀</div>
+          <div class="settings-tile-info">
+            <h4 data-i18n="settingsSpeedTest">Teste de Velocidade</h4>
+            <span data-i18n="speedTestRun">Latência &amp; Mbps</span>
+          </div>
+        </button>
+
+        <button class="settings-tile" data-settings-tile="network">
+          <div class="settings-tile-icon">🌐</div>
+          <div class="settings-tile-info">
+            <h4 data-i18n="settingsNetworkProxy">Rede / Proxy</h4>
+            <span data-i18n="settingsCorsProxy">CORS Proxy &amp; Bridge Local</span>
+          </div>
+        </button>
+
+        <button class="settings-tile" data-settings-tile="devicemode">
+          <div class="settings-tile-icon">📺</div>
+          <div class="settings-tile-info">
+            <h4 data-i18n="settingsSwitchDeviceMode">Modo de Dispositivo</h4>
+            <span id="tile-device-mode-sub">Auto</span>
+          </div>
+        </button>
+
+        <button class="settings-tile" data-settings-tile="account">
+          <div class="settings-tile-icon">👤</div>
+          <div class="settings-tile-info">
+            <h4 data-i18n="settingsAccountInfo">Informações da Conta</h4>
+            <span data-i18n="accountInfoTitle">Xtream &amp; Assinatura</span>
+          </div>
+        </button>
+      </div>
+    </section>
+
+    <!-- TELA 8: SETTINGS | EPG SPLIT SUB-SCREEN -->
+    <section class="subscreen-view hidden" id="epg-settings-view">
+      <div class="subscreen-topbar">
+        <div class="subscreen-title-group">
+          <button class="btn-gradient-back" id="btn-epg-back" data-i18n="btnBack">BACK</button>
+          <h2 data-i18n="settingsEpg">Settings | EPG</h2>
+        </div>
+        <button class="btn-amber" id="btn-epg-refresh-all">↻ <span data-i18n="epgRefresh">Atualizar EPG</span></button>
+      </div>
+
+      <div class="epg-split-layout">
+        <nav class="epg-rail" aria-label="EPG Sections">
+          <button class="epg-rail-btn active" data-epg-tab="sources" data-i18n="epgSourcesTab">EPG SOURCES</button>
+          <button class="epg-rail-btn" data-epg-tab="timeline" data-i18n="epgTimelineTab">EPG TIMELINE</button>
+          <button class="epg-rail-btn" data-epg-tab="timeshift" data-i18n="epgTimeshiftTab">EPG TIMESHIFT</button>
+        </nav>
+
+        <div class="epg-content-panel">
+          <!-- Tab 1: EPG SOURCES -->
+          <div id="epg-panel-sources">
+            <div style="display: flex; gap: 0.6rem; flex-wrap: wrap; margin-bottom: 1rem;">
+              <input type="url" id="input-epg-source-url" class="form-control" style="flex: 1; min-width: 220px;" data-i18n-placeholder="epgSourceUrlPlaceholder" placeholder="http://servidor.com/epg.xml" />
+              <button class="btn-primary" id="btn-epg-add-source" data-i18n="epgAddSource">+ Adicionar Fonte</button>
+            </div>
+            <div id="epg-sources-list" style="display: flex; flex-direction: column; gap: 0.6rem;"></div>
+          </div>
+
+          <!-- Tab 2: EPG TIMELINE -->
+          <div id="epg-panel-timeline" class="hidden">
+            <div style="display: flex; gap: 0.75rem; margin-bottom: 1rem; flex-wrap: wrap;">
+              <input type="text" id="input-epg-timeline-search" class="form-control" style="flex: 1; min-width: 220px;" data-i18n-placeholder="searchPlaceholder" placeholder="Buscar canal..." />
+            </div>
+            <div class="epg-timeline-scroll" id="epg-timeline-container"></div>
+          </div>
+
+          <!-- Tab 3: EPG TIMESHIFT -->
+          <div id="epg-panel-timeshift" class="hidden">
+            <div class="form-group">
+              <label data-i18n="epgTimeshiftLabel">Deslocamento de Horário (Timeshift)</label>
+              <div style="display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; margin-top: 0.5rem;">
+                <button class="btn-secondary" id="btn-timeshift-minus">-1h</button>
+                <input type="range" id="input-epg-timeshift" min="-12" max="12" step="1" value="0" style="flex: 1; min-width: 180px;" />
+                <button class="btn-secondary" id="btn-timeshift-plus">+1h</button>
+                <strong id="epg-timeshift-value" style="min-width: 60px; text-align: center; color: var(--accent-amber-bright);">0h</strong>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- TELA 7: CENTRAL DE NOTIFICAÇÕES -->
+    <section class="subscreen-view hidden" id="notifications-view">
+      <div class="subscreen-topbar">
+        <div class="subscreen-title-group">
+          <button class="btn-gradient-back" id="btn-notif-back" data-i18n="btnBack">BACK</button>
+          <h2 data-i18n="notificationsTitle">Notificações</h2>
+        </div>
+        <button class="btn-gradient-logout" id="btn-notif-clear" data-i18n="notificationsClear">Limpar</button>
+      </div>
+
+      <div class="glass-panel" style="padding: 1.25rem;">
+        <div class="notifications-list" id="notifications-list"></div>
+      </div>
+    </section>
+
+    <!-- TELA 6: MULTI-SCREEN PLAYER GRID -->
+    <section class="subscreen-view hidden" id="multiscreen-view">
+      <div class="subscreen-topbar">
+        <div class="subscreen-title-group">
+          <button class="btn-gradient-back" id="btn-multiscreen-back" data-i18n="btnBack">BACK</button>
+          <h2 data-i18n="multiScreenTitle">Multi-Tela</h2>
+        </div>
+        <button class="btn-amber" id="btn-multiscreen-choose-layout" data-i18n="multiScreenTitle">Alterar Layout</button>
+      </div>
+      <p id="multiscreen-native-note" class="help-text hidden" style="color: var(--accent-amber-bright);" data-i18n="multiScreenNativeNote"></p>
+      <div class="multiscreen-grid layout-2x2" id="multiscreen-grid"></div>
+    </section>
+
   </main>
 
   <!-- Modal de Importação -->
@@ -297,19 +632,17 @@
         <button class="modal-close-btn" id="btn-close-import">&times;</button>
       </div>
       <div class="modal-body">
-        <div class="form-group" style="margin-bottom: 1rem;">
+        <div class="form-group">
           <label data-i18n="profileName">Nome do Perfil</label>
           <input type="text" id="input-profile-name" placeholder="Ex: Eu, Sala, Filmes" class="form-control" />
         </div>
 
-        <!-- Abas do Modal (Arquivo, URL, Xtream) -->
         <div class="import-tabs">
           <button class="import-tab-btn active" data-panel="panel-file" data-i18n="tabFile">Arquivo Local</button>
           <button class="import-tab-btn" data-panel="panel-url" data-i18n="tabUrl">URL da Lista</button>
           <button class="import-tab-btn" data-panel="panel-xtream" data-i18n="tabXtream">API Xtream Codes</button>
         </div>
 
-        <!-- Painel 1: Arquivo Local -->
         <div class="import-panel" id="panel-file">
           <div class="form-group">
             <label data-i18n="labelFileSelect">Selecione ou arraste seu arquivo .m3u ou .m3u8</label>
@@ -317,7 +650,6 @@
           </div>
         </div>
 
-        <!-- Painel 2: URL -->
         <div class="import-panel hidden" id="panel-url">
           <div class="form-group">
             <label data-i18n="labelUrlInput">URL da Lista M3U / M3U8</label>
@@ -325,7 +657,6 @@
           </div>
         </div>
 
-        <!-- Painel 3: Xtream Codes API -->
         <div class="import-panel hidden" id="panel-xtream">
           <div class="form-group">
             <label data-i18n="labelServerUrl">URL do Servidor</label>
@@ -341,8 +672,7 @@
           </div>
         </div>
 
-        <!-- Configurações de EPG Opcionais -->
-        <div style="border-top: 1px solid var(--border-subtle); padding-top: 1rem; margin-top: 0.5rem; display: flex; flex-direction: column; gap: 0.75rem;">
+        <div style="border-top: 1px solid var(--border-subtle); padding-top: 0.85rem; display: flex; flex-direction: column; gap: 0.65rem;">
           <label class="checkbox-label">
             <input type="checkbox" id="check-use-embedded-epg" checked />
             <span data-i18n="labelUseEmbeddedEpg">Usar EPG embutido na lista se disponível</span>
@@ -355,31 +685,30 @@
 
         <div id="import-status-text" style="font-size: 0.8125rem; color: var(--accent-blue);"></div>
 
-        <!-- Avisos de Conformidade e CORS Web -->
-        <div class="legal-notice-box" style="margin-top: 1rem; padding: 0.75rem; background-color: rgba(110, 118, 129, 0.1); border: 1px solid var(--border-subtle); border-radius: 6px; font-size: 0.75rem; color: var(--text-muted); line-height: 1.4;">
-          <p data-i18n="legalDisclaimer" style="margin-bottom: 0.35rem;">Aviso Legal: FluiStream é um reprodutor neutro de software livre. Não fornece, não hospeda e não comercializa listas ou conteúdo de mídia. O usuário é o único responsável pela legalidade das fontes que carrega.</p>
-          <p id="import-web-cors-notice" data-i18n="webCorsNotice" style="margin: 0;">Nota Web (HTTPS): No navegador em conexões seguras (como GitHub Pages), transmissões sem cabeçalho CORS ou em HTTP inseguro podem ser bloqueadas pelo navegador. Se isso ocorrer, utilize fluxos HTTPS com CORS habilitado ou utilize a versão Desktop Portable sem restrições.</p>
+        <div class="legal-notice-box" style="padding: 0.75rem; background-color: rgba(148, 163, 184, 0.08); border: 1px solid var(--border-subtle); border-radius: 8px; font-size: 0.75rem; color: var(--text-muted); line-height: 1.4;">
+          <p data-i18n="legalDisclaimer" style="margin-bottom: 0.35rem;">Aviso Legal: FluiStream é um reprodutor neutro de software livre.</p>
+          <p id="import-web-cors-notice" data-i18n="webCorsNotice" style="margin: 0;">Nota Web (HTTPS)</p>
         </div>
       </div>
       <div class="modal-footer">
-        <button class="btn-primary" id="btn-submit-import" data-i18n="btnConfirmImport">Carregar Lista</button>
+        <button class="btn-amber" id="btn-submit-import" data-i18n="btnConfirmImport">Carregar Lista</button>
       </div>
     </div>
   </div>
 
-  <!-- Modal de Configurações -->
+  <!-- Sub-Modal de Configurações (General / Stream / Network) -->
   <div class="modal-backdrop hidden" id="modal-settings">
     <div class="modal-dialog">
       <div class="modal-header">
-        <h3 data-i18n="settingsTitle">Configurações do Player</h3>
+        <h3 id="modal-settings-title" data-i18n="settingsTitle">Configurações do Player</h3>
         <button class="modal-close-btn" id="btn-close-settings">&times;</button>
       </div>
       <div class="modal-body">
         <div class="modal-brand-hero">
           <img src="assets/logo.svg" alt="FluiStream" class="modal-brand-logo" />
           <div>
-            <h4 style="font-size: 1.125rem; font-weight: 700; color: var(--text-primary); margin: 0 0 2px;">FluiStream</h4>
-            <p style="font-size: 0.8125rem; color: var(--text-secondary); margin: 0;">Reprodutor M3U, EPG XMLTV &amp; Xtream Codes</p>
+            <h4 style="font-size: 1.05rem; font-weight: 700; color: var(--text-primary); margin: 0 0 2px;">FluiStream</h4>
+            <p style="font-size: 0.8rem; color: var(--text-secondary); margin: 0;" data-i18n="appTagline">Reprodutor M3U, EPG XMLTV &amp; Xtream Codes</p>
           </div>
         </div>
 
@@ -398,7 +727,7 @@
             <option value="hls" data-i18n="playerEngineHls">Player HLS Nativo (HTML5)</option>
             <option value="vlc" data-i18n="playerEngineVlc">Player VLC (Nativo Desktop)</option>
           </select>
-          <p class="help-text" data-i18n="settingsPlayerEngineHelp">O Player VLC usa libvlc diretamente no Desktop para decodificar MPEG-TS, fluxos com proteção XUI e múltiplos codecs de áudio.</p>
+          <p class="help-text" data-i18n="settingsPlayerEngineHelp"></p>
         </div>
 
         <div class="form-group">
@@ -409,38 +738,70 @@
             <option value="ts" data-i18n="playerStreamTs">MPEG-TS (.ts)</option>
             <option value="direct" data-i18n="playerStreamDirect">Original (Direto)</option>
           </select>
-          <p class="help-text" data-i18n="settingsStreamModeHelp">Define o formato preferido para reprodução de canais ao vivo (HLS segmentado, MPEG-TS contínuo ou URL original).</p>
+          <p class="help-text" data-i18n="settingsStreamModeHelp"></p>
         </div>
 
         <details class="advanced-debug-details" id="settings-advanced-details">
           <summary data-i18n="settingsAdvancedDebug">Avançado / Depuração (Web CORS)</summary>
-          <div class="advanced-debug-body">
+          <div class="advanced-debug-body" style="display: flex; flex-direction: column; gap: 0.7rem;">
             <div class="form-group">
-              <label data-i18n="settingsCorsProxy">Proxy CORS (para URLs que bloqueiam navegadores)</label>
+              <label data-i18n="settingsCorsProxy">Proxy CORS</label>
               <div style="display: flex; gap: 0.5rem; align-items: center;">
                 <input type="text" id="settings-cors-input" placeholder="http://127.0.0.1:8787/?" class="form-control" style="flex: 1;" />
-                <button type="button" class="btn-secondary" id="btn-use-local-proxy" data-i18n="btnLocalBridge" style="white-space: nowrap; font-size: 0.8125rem; padding: 0.45rem 0.75rem;">Bridge Local</button>
+                <button type="button" class="btn-secondary" id="btn-use-local-proxy" data-i18n="btnLocalBridge">Bridge Local</button>
               </div>
-              <p class="help-text" id="local-proxy-detect-status" data-i18n="settingsCorsHelp">Usado na versão Web para contornar restrições CORS de streams remotos. O app Portable não necessita de proxy.</p>
+              <p class="help-text" id="local-proxy-detect-status" data-i18n="settingsCorsHelp"></p>
             </div>
           </div>
         </details>
 
-        <div style="border-top: 1px solid var(--border-subtle); padding-top: 1rem; display: flex; flex-direction: column; gap: 0.75rem;">
-          <div style="display: flex; justify-content: space-between; align-items: center;">
-            <span style="font-size: 0.8125rem; color: var(--text-secondary);" data-i18n="settingsVersion">Versão 1.1.0 — Padrão Cesar Ovies</span>
-            <button class="btn-secondary" id="btn-check-updates-manual" data-i18n="btnCheckUpdates">
-              Verificar Atualizações
-            </button>
+        <div style="border-top: 1px solid var(--border-subtle); padding-top: 0.9rem; display: flex; flex-direction: column; gap: 0.7rem;">
+          <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+            <span style="font-size: 0.81rem; color: var(--text-secondary);" data-i18n="settingsVersion">Versão 2.0.0 — Padrão Cesar Ovies</span>
+            <button class="btn-secondary" id="btn-check-updates-manual" data-i18n="btnCheckUpdates">Verificar Atualizações</button>
           </div>
-          <div id="settings-update-status" style="font-size: 0.8125rem; color: var(--accent-blue);"></div>
-          <button class="btn-secondary" id="btn-clear-all-data" style="color: var(--error-red); border-color: var(--error-red); align-self: flex-start;" data-i18n="settingsClearData">
-            Limpar Todos os Dados Salvos
-          </button>
+          <div id="settings-update-status" style="font-size: 0.81rem; color: var(--accent-blue);"></div>
+          <button class="btn-secondary" id="btn-clear-all-data" style="color: var(--error-red); border-color: var(--error-red); align-self: flex-start;" data-i18n="settingsClearData">Limpar Todos os Dados Salvos</button>
         </div>
       </div>
       <div class="modal-footer">
         <button class="btn-primary" id="btn-save-settings" data-i18n="btnSave">Salvar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Sub-Modal: Time Format / Automation / Device Mode / Parental / Speed Test -->
+  <div class="modal-backdrop hidden" id="modal-settings-sub">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <h3 id="modal-settings-sub-title">Settings</h3>
+        <button class="modal-close-btn" id="btn-close-settings-sub">&times;</button>
+      </div>
+      <div class="modal-body" id="modal-settings-sub-body"></div>
+      <div class="modal-footer" id="modal-settings-sub-footer">
+        <button class="btn-secondary" id="btn-cancel-settings-sub" data-i18n="btnCancel">Cancelar</button>
+        <button class="btn-primary" id="btn-save-settings-sub" data-i18n="btnSave">Salvar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal de PIN Parental -->
+  <div class="modal-backdrop hidden" id="modal-parental-pin">
+    <div class="modal-dialog" style="max-width: 380px;">
+      <div class="modal-header">
+        <h3 data-i18n="settingsParentalControl">Controle Parental</h3>
+        <button class="modal-close-btn" id="btn-close-parental-pin">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label data-i18n="parentalEnterPin">Digite o PIN Parental</label>
+          <input type="password" inputmode="numeric" maxlength="8" id="input-parental-pin-verify" class="form-control" placeholder="••••" />
+        </div>
+        <p id="parental-pin-error" class="hidden" style="color: var(--error-red); font-size: 0.82rem;" data-i18n="parentalWrongPin">PIN incorreto.</p>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-secondary" id="btn-cancel-parental-pin" data-i18n="btnCancel">Cancelar</button>
+        <button class="btn-amber" id="btn-confirm-parental-pin" data-i18n="btnSave">Confirmar</button>
       </div>
     </div>
   </div>
@@ -453,48 +814,45 @@
         <button class="modal-close-btn" id="btn-close-about">&times;</button>
       </div>
       <div class="modal-body" style="text-align: center; padding: 1.5rem;">
-        <img src="assets/logo.svg" alt="FluiStream Logo" style="width: 88px; height: 88px; margin: 0 auto 1rem; filter: drop-shadow(0 4px 16px rgba(16, 185, 129, 0.35));" />
-        <h2 style="font-size: 1.5rem; font-weight: 700; margin-bottom: 0.25rem;">FluiStream</h2>
-        <p style="color: var(--text-secondary); font-size: 0.875rem; margin-bottom: 1.25rem;">
+        <img src="assets/logo.svg" alt="FluiStream Logo" style="width: 88px; height: 88px; margin: 0 auto 1rem; filter: drop-shadow(0 4px 16px rgba(245, 158, 11, 0.35));" />
+        <h2 style="font-size: 1.5rem; font-weight: 800; margin-bottom: 0.25rem;">FluiStream</h2>
+        <p style="color: var(--text-secondary); font-size: 0.875rem; margin-bottom: 1.25rem;" data-i18n="appTagline">
           Reprodutor moderno e fluido de listas M3U/M3U8 com EPG XMLTV, Xtream Codes API, Web Responsiva e Desktop Portable.
         </p>
 
         <div style="display: flex; justify-content: center; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 1.25rem;">
-          <span style="background: rgba(16, 185, 129, 0.15); color: #10B981; border: 1px solid rgba(16, 185, 129, 0.3); padding: 0.25rem 0.6rem; border-radius: 9999px; font-size: 0.75rem; font-weight: 600;">Ao Vivo + EPG</span>
-          <span style="background: rgba(56, 139, 253, 0.15); color: #388BFD; border: 1px solid rgba(56, 139, 253, 0.3); padding: 0.25rem 0.6rem; border-radius: 9999px; font-size: 0.75rem; font-weight: 600;">Filmes VOD</span>
-          <span style="background: rgba(168, 85, 247, 0.15); color: #A855F7; border: 1px solid rgba(168, 85, 247, 0.3); padding: 0.25rem 0.6rem; border-radius: 9999px; font-size: 0.75rem; font-weight: 600;">Séries &amp; Temporadas</span>
-          <span style="background: rgba(245, 158, 11, 0.15); color: #F59E0B; border: 1px solid rgba(245, 158, 11, 0.3); padding: 0.25rem 0.6rem; border-radius: 9999px; font-size: 0.75rem; font-weight: 600;">Xtream Codes API</span>
-          <span style="background: rgba(139, 148, 158, 0.15); color: #8B949E; border: 1px solid rgba(139, 148, 158, 0.3); padding: 0.25rem 0.6rem; border-radius: 9999px; font-size: 0.75rem; font-weight: 600;">100% User-Space</span>
+          <span class="status-pill status-pill--active">Ao Vivo + EPG</span>
+          <span class="channel-badge movie" style="padding: 0.25rem 0.65rem; border-radius: 9999px;">Filmes VOD</span>
+          <span class="channel-badge series" style="padding: 0.25rem 0.65rem; border-radius: 9999px;">Séries &amp; Temporadas</span>
+          <span class="badge-group" style="color: var(--accent-amber-bright); border-color: rgba(245,158,11,0.35);">Xtream Codes API</span>
+          <span class="badge-group">100% User-Space</span>
         </div>
 
-        <div style="background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 1rem; text-align: left; font-size: 0.8125rem; color: var(--text-secondary); line-height: 1.6; margin-bottom: 1.25rem;">
+        <div style="background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: 10px; padding: 1rem; text-align: left; font-size: 0.8125rem; color: var(--text-secondary); line-height: 1.6; margin-bottom: 1.25rem;">
           <div><strong>Autor:</strong> Cesar Ovies</div>
-          <div><strong>Padrões de Engenharia:</strong> DWM Dark Mode, i18n Reativo (PT/EN/ES), Single-file Portable sem instalador, Auto-Update seguro com SHA-256 e Defender scan.</div>
-          <div style="margin-top: 0.5rem;"><strong>Versão:</strong> 1.1.0</div>
+          <div><strong>Padrões de Engenharia:</strong> Midnight Amber &amp; Steel, DWM Dark Mode, i18n Reativo (PT/EN/ES), Single-file Portable, Auto-Update SHA-256.</div>
         </div>
 
         <div style="display: flex; justify-content: center; gap: 0.75rem; flex-wrap: wrap;">
           <a href="https://github.com/CesarOvies/FluiStream" target="_blank" rel="noopener noreferrer" class="btn-secondary" style="text-decoration: none;">GitHub</a>
-          <a href="https://github.com/CesarOvies/FluiStream/releases" target="_blank" rel="noopener noreferrer" class="btn-primary" style="text-decoration: none;">Baixar App Desktop</a>
+          <a href="https://github.com/CesarOvies/FluiStream/releases" target="_blank" rel="noopener noreferrer" class="btn-amber" style="text-decoration: none;">Releases</a>
         </div>
       </div>
     </div>
   </div>
 
-  <!-- Modal de Perfis / List Playlist (Tela 7) -->
+  <!-- Modal de Perfis / List Playlist -->
   <div class="modal-backdrop hidden" id="modal-profiles">
     <div class="modal-dialog modal-lg">
       <div class="modal-header">
         <h3 data-i18n="listPlaylist">LIST PLAYLIST</h3>
         <div style="display: flex; align-items: center; gap: 0.5rem;">
-          <button class="btn-primary" id="btn-profiles-add" data-i18n="btnAddPlaylist">+ ADD PLAYLIST</button>
+          <button class="btn-amber" id="btn-profiles-add" data-i18n="btnAddPlaylist">+ ADD PLAYLIST</button>
           <button class="modal-close-btn" id="btn-close-profiles">&times;</button>
         </div>
       </div>
       <div class="modal-body">
-        <div class="profiles-grid" id="profiles-grid-list">
-          <!-- Cards de perfis renderizados dinamicamente -->
-        </div>
+        <div class="profiles-grid" id="profiles-grid-list"></div>
       </div>
     </div>
   </div>
@@ -510,12 +868,11 @@
         <input type="hidden" id="edit-profile-id" />
         <input type="hidden" id="edit-profile-type" />
 
-        <div class="form-group" style="margin-bottom: 1rem;">
+        <div class="form-group">
           <label data-i18n="profileName">Nome do Perfil</label>
           <input type="text" id="input-edit-profile-name" class="form-control" />
         </div>
 
-        <!-- Seção Xtream (visível se type === 'xtream') -->
         <div id="edit-section-xtream" class="hidden">
           <div class="form-group">
             <label data-i18n="labelServerUrl">URL do Servidor</label>
@@ -531,7 +888,6 @@
           </div>
         </div>
 
-        <!-- Seção M3U URL (visível se type === 'm3u_url') -->
         <div id="edit-section-m3u-url" class="hidden">
           <div class="form-group">
             <label data-i18n="labelUrlInput">URL da Lista M3U / M3U8</label>
@@ -539,14 +895,12 @@
           </div>
         </div>
 
-        <!-- Seção EPG URL -->
-        <div class="form-group" style="margin-top: 0.75rem;">
+        <div class="form-group">
           <label data-i18n="labelExternalEpg">EPG Externo (URL XMLTV)</label>
           <input type="url" id="input-edit-external-epg" placeholder="http://servidor.com/epg.xml" class="form-control" />
         </div>
 
-        <!-- Preferências de Reprodução do Perfil -->
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-top: 0.75rem;">
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
           <div class="form-group">
             <label data-i18n="playerStreamMode">Estilo de Transmissão</label>
             <select id="select-edit-stream-mode" class="form-control">
@@ -565,8 +919,7 @@
           </div>
         </div>
 
-        <!-- Seção Avançada / Proxy CORS específico do perfil -->
-        <details class="advanced-debug-details" id="edit-profile-advanced-details" style="margin-top: 0.75rem;">
+        <details class="advanced-debug-details" id="edit-profile-advanced-details">
           <summary data-i18n="settingsAdvancedDebug">Avançado / Depuração (Web CORS)</summary>
           <div class="advanced-debug-body">
             <div class="form-group">
@@ -576,9 +929,9 @@
           </div>
         </details>
 
-        <div id="edit-profile-status" style="font-size: 0.8125rem; margin-top: 0.5rem; color: var(--accent-blue);"></div>
+        <div id="edit-profile-status" style="font-size: 0.8125rem; color: var(--accent-blue);"></div>
       </div>
-      <div class="modal-footer" style="display: flex; justify-content: space-between;">
+      <div class="modal-footer" style="justify-content: space-between;">
         <button class="btn-secondary" id="btn-cancel-edit-profile" data-i18n="btnCancel">Cancelar</button>
         <div style="display: flex; gap: 0.5rem;">
           <button class="btn-secondary" id="btn-reload-edit-profile" data-i18n="btnReloadPlaylist" style="display: none;">Recarregar Lista</button>
@@ -588,11 +941,14 @@
     </div>
   </div>
 
-  <!-- Modal de Informações da Conta / Perfil (Tela 6) -->
+  <!-- TELA 4: MODAL DE INFORMAÇÕES DA CONTA / ASSINATURA -->
   <div class="modal-backdrop hidden" id="modal-account">
     <div class="modal-dialog">
       <div class="modal-header">
-        <h3 data-i18n="accountInfoTitle">Account Info</h3>
+        <div style="display: flex; align-items: center; gap: 0.65rem;">
+          <h3 data-i18n="accountInfoTitle">Account Info</h3>
+          <span id="acc-refresh-status" style="font-size: 0.75rem; color: var(--accent-blue);"></span>
+        </div>
         <button class="modal-close-btn" id="btn-close-account">&times;</button>
       </div>
       <div class="modal-body">
@@ -603,7 +959,7 @@
           </div>
           <div class="account-info-row">
             <span class="account-info-label" data-i18n="accStatus">Account Status</span>
-            <span class="account-info-value status-active" id="acc-info-status">Active</span>
+            <span class="status-pill status-pill--active" id="acc-info-status">Active</span>
           </div>
           <div class="account-info-row">
             <span class="account-info-label" data-i18n="accExpireDate">Expire Date</span>
@@ -627,17 +983,17 @@
           </div>
         </div>
       </div>
-      <div class="modal-footer" style="display: flex; justify-content: space-between;">
+      <div class="modal-footer" style="justify-content: space-between;">
         <div style="display: flex; gap: 0.5rem;">
-          <button class="btn-secondary" id="btn-acc-back" data-i18n="btnBack">BACK</button>
+          <button class="btn-gradient-back" id="btn-acc-back" data-i18n="btnBack">BACK</button>
           <button class="btn-secondary" id="btn-acc-edit" data-i18n="btnEditProfile">EDITAR PERFIL</button>
         </div>
-        <button class="btn-danger" id="btn-acc-logout" data-i18n="btnLogout">LOGOUT</button>
+        <button class="btn-gradient-logout" id="btn-acc-logout" data-i18n="btnLogout">LOGOUT</button>
       </div>
     </div>
   </div>
 
-  <!-- Modal de Informações da Série & Episódios (Telas 3 e 4) -->
+  <!-- Modal de Informações da Série & Episódios -->
   <div class="modal-backdrop hidden" id="modal-series">
     <div class="modal-dialog modal-xl series-modal-dialog">
       <div class="modal-header">
@@ -658,50 +1014,106 @@
             </div>
             <p id="series-modal-desc" class="series-hero-desc"></p>
             <div class="series-hero-actions">
-              <button class="btn-primary btn-watch-now" id="btn-series-watch-now" data-i18n="btnWatchNow">
-                ▶ WATCH NOW
-              </button>
-              <button class="btn-secondary btn-season-picker" id="btn-series-season-select">
-                SEASON - 1 ▾
-              </button>
+              <button class="btn-watch-now" id="btn-series-watch-now" data-i18n="btnWatchNow">▶ WATCH NOW</button>
+              <button class="btn-season-picker" id="btn-series-season-select">SEASON - 1 ▾</button>
             </div>
           </div>
         </div>
 
-        <!-- Seletor Modal Popup de Temporadas (Tela 4) -->
         <div class="seasons-popup-backdrop hidden" id="seasons-popup">
           <div class="seasons-popup-box">
             <div class="seasons-popup-header">
               <h4 data-i18n="selectSeason" style="margin: 0; font-size: 1rem;">Seasons</h4>
               <button class="btn-icon" id="btn-close-seasons-popup">&times;</button>
             </div>
-            <div class="seasons-popup-list" id="seasons-popup-list">
-              <!-- Lista de temporadas -->
-            </div>
+            <div class="seasons-popup-list" id="seasons-popup-list"></div>
           </div>
         </div>
 
-        <!-- Aba de Episódios -->
         <div class="series-tabs-bar">
           <button class="series-tab-btn active" data-i18n="tabEpisodes">Episodes</button>
         </div>
-        <div class="series-episodes-container" id="series-episodes-container">
-          <!-- Lista de episódios da temporada selecionada -->
+        <div class="series-episodes-container" id="series-episodes-container"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- TELA 6: MODAL CHOOSE MULTI-SCREEN LAYOUT -->
+  <div class="modal-backdrop hidden" id="modal-multiscreen">
+    <div class="modal-dialog modal-lg">
+      <div class="modal-header">
+        <h3 data-i18n="multiScreenTitle">Escolher Layout Multi-Tela</h3>
+        <button class="modal-close-btn" id="btn-close-multiscreen">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="layout-picker-grid" id="multiscreen-layout-options">
+          <button class="layout-template-card" data-layout="2x2">
+            <div class="layout-wireframe wf-2x2"><span></span><span></span><span></span><span></span></div>
+            <strong>2 × 2</strong>
+          </button>
+          <button class="layout-template-card" data-layout="1-3">
+            <div class="layout-wireframe wf-1-3"><span></span><span></span><span></span><span></span></div>
+            <strong>1 + 3</strong>
+          </button>
+          <button class="layout-template-card" data-layout="1-2">
+            <div class="layout-wireframe wf-1-2"><span></span><span></span><span></span></div>
+            <strong>1 + 2</strong>
+          </button>
+          <button class="layout-template-card" data-layout="2-1">
+            <div class="layout-wireframe wf-2-1"><span></span><span></span><span></span></div>
+            <strong>2 + 1</strong>
+          </button>
+          <button class="layout-template-card" data-layout="2x1">
+            <div class="layout-wireframe wf-2x1"><span></span><span></span></div>
+            <strong>2 × 1</strong>
+          </button>
+          <button class="layout-template-card" data-layout="1x2">
+            <div class="layout-wireframe wf-1x2"><span></span><span></span></div>
+            <strong>1 × 2</strong>
+          </button>
         </div>
       </div>
     </div>
   </div>
 
-  <!-- Toast Flutuante de Notificação de Auto-Atualização -->
+  <!-- Modal Seletor de Canal para Slot Multi-Screen -->
+  <div class="modal-backdrop hidden" id="modal-slot-picker">
+    <div class="modal-dialog modal-lg">
+      <div class="modal-header">
+        <h3 data-i18n="multiScreenSelectSlot">Selecionar Canal</h3>
+        <button class="modal-close-btn" id="btn-close-slot-picker">&times;</button>
+      </div>
+      <div class="modal-body">
+        <input type="text" id="input-slot-picker-search" class="form-control" data-i18n-placeholder="searchPlaceholder" placeholder="Buscar canal..." />
+        <div class="master-search-results" id="slot-picker-results"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal Master Search (Live + Movies + Series + EPG) -->
+  <div class="modal-backdrop hidden" id="modal-master-search">
+    <div class="modal-dialog modal-lg">
+      <div class="modal-header">
+        <h3 data-i18n="masterSearch">Busca Global</h3>
+        <button class="modal-close-btn" id="btn-close-master-search">&times;</button>
+      </div>
+      <div class="modal-body">
+        <input type="text" id="input-master-search" class="form-control" data-i18n-placeholder="masterSearchPlaceholder" placeholder="Buscar canais, filmes, séries ou programas EPG..." />
+        <div class="master-search-results" id="master-search-results"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Flutuante de Auto-Atualização -->
   <aside id="update-toast" class="update-toast hidden" role="alert" aria-live="polite">
     <div class="update-toast-content">
       <div class="update-toast-icon">
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#10B981" stroke-width="2.2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
       </div>
       <div class="update-toast-text">
-        <h4 id="update-toast-title" data-i18n="updateNotificationTitle" style="font-size: 0.9375rem; font-weight: 600; color: #E6EDF3; margin-bottom: 2px;">Nova Versão Disponível!</h4>
-        <p id="update-toast-desc" style="font-size: 0.8125rem; color: #8B949E; margin-bottom: 6px;"></p>
-        <div id="update-toast-notes" style="font-size: 0.75rem; color: #6E7681; max-height: 48px; overflow: hidden; text-overflow: ellipsis;"></div>
+        <h4 id="update-toast-title" data-i18n="updateNotificationTitle" style="font-size: 0.9375rem; font-weight: 600; color: var(--text-primary); margin-bottom: 2px;">Nova Versão Disponível!</h4>
+        <p id="update-toast-desc" style="font-size: 0.8125rem; color: var(--text-secondary); margin-bottom: 6px;"></p>
+        <div id="update-toast-notes" style="font-size: 0.75rem; color: var(--text-muted); max-height: 48px; overflow: hidden; text-overflow: ellipsis;"></div>
       </div>
     </div>
     <div class="update-toast-actions">
@@ -711,19 +1123,17 @@
   </aside>
 
   <!-- Web Component Footer Cesar Ovies -->
-  <site-footer></site-footer>
+  <site-footer id="site-footer"></site-footer>
 
   <!-- Registro do Service Worker e Módulos -->
   <script type="module" src="assets/site-footer.js"></script>
-  <script type="module" src="js/app.js?v=1.1.0"></script>
+  <script type="module" src="js/app.js?v=2.0.0"></script>
   <script>
     if ('serviceWorker' in navigator && (window.location.protocol === 'https:' || window.location.hostname === 'localhost')) {
       navigator.serviceWorker.register('./sw.js').then((reg) => {
-        // Forçar verificação de atualização do Service Worker a cada carregamento
         reg.update();
       }).catch(() => {});
     }
   </script>
 </body>
 </html>
-

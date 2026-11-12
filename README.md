@@ -50,15 +50,15 @@ A partir da versão **v1.1.0**, a versão Web pública foi descontinuada em favo
 
 ## Recursos Principais
 
-### 1. Organização Inteligente em 3 Seções
-- 📺 **Ao Vivo (Live TV)**: Canais de televisão abertos e por assinatura, esportes, notícias e variedades com guia de programação em tempo real.
-- 🎬 **Filmes (VOD)**: Catálogo de filmes sob demanda organizados por categorias e gêneros.
-- 🍿 **Séries (Series & Shows)**: Detecção automática de séries com agrupamento inteligente por Temporadas e Episódios (ex: `S01E02`, `1x05`, `Temporada 1`).
+### 1. Home Hub Bento, Split-Pane & Organização Inteligente
+- 🏠 **Home Hub Bento**: Painel inicial estilo Bento com cartões dedicados para **Ao Vivo (Live TV)**, **Filmes (VOD)**, **Séries**, **Live EPG**, **Favoritos**, **Catch-up**, **Master Search** (busca global unificada) e **Central de Notificações**.
+- 🗂️ **Navegação Split-Pane**: Sidebar interativa com busca de categorias, filtros rápidos (`Tudo`, `Favoritos`, `Histórico`), ordenação alfabética/recente e grade de conteúdo com barra de progresso de reprodução e indicador de **Catch-up** (`catchup`, `catchup-days`, `catchup-source`, `tvg-shift`).
+- 📺 **Ao Vivo (Live TV)**, 🎬 **Filmes (VOD)** e 🍿 **Séries (Series & Shows)** com agrupamento automático por Temporadas e Episódios (ex: `S01E02`, `1x05`, `Temporada 1`).
 
-### 2. Guia Eletrônico de Programação (EPG XMLTV)
-- **EPG Embutido**: Detecção e extração automática de URLs de EPG declaradas na própria lista (`#EXTM3U x-tvg-url="..."` ou `url-tvg="..."`).
-- **EPG Externo**: Possibilidade de anexar EPG externo via URL XMLTV ou envio de arquivo `.xml`.
-- **Exibição em Tempo Real**: Cálculo dinâmico do programa em exibição no momento, percentual decorrido na barra de progresso e lista dos próximos programas agendados.
+### 2. Gerenciador de Guia Eletrônico de Programação (EPG XMLTV)
+- **EPG Embutido & Multi-Fonte**: Detecção automática de `x-tvg-url`/`url-tvg`, suporte a múltiplas fontes XMLTV mescladas (`mergeXml`) e envio de arquivo `.xml`.
+- **EPG Timeline & Timeshift**: Visualização em linha do tempo dos próximos programas e ajuste fino de fuso horário (**Timeshift** de `-12h` a `+12h`).
+- **Exibição em Tempo Real**: Cálculo dinâmico do programa em exibição, percentual decorrido na barra de progresso e próximos programas agendados.
 
 ### 3. Três Formas de Importação Flexíveis
 1. **Arquivo Fixo Local**: Upload ou arraste (Drag & Drop) de arquivos `.m3u` ou `.m3u8`.
@@ -70,10 +70,11 @@ A partir da versão **v1.1.0**, a versão Web pública foi descontinuada em favo
 - **Android & Android TV (`WebView` + `NativeBridge` + `AndroidX Media3 ExoPlayer`)**: Reprodução nativa acelerada por hardware para streams HTTP/HTTPS (HLS, DASH, MPEG-TS), com suporte completo a controle remoto (**D-Pad / Leanback**) e tela sensível ao toque.
 - **Seletor de Estilo de Transmissão**: Escolha instantânea no player entre `Auto (HLS Adaptativo)`, `HLS (.m3u8)`, `MPEG-TS (.ts)` ou `Original (Direto)`.
 - Ajuste de **Proporção de Tela (Aspect Ratio)**: Automático, 16:9 (Widescreen), 4:3 (Clássico) e Preencher (Fill).
-- Sistema de **Favoritos** persistente e histórico de canais recentes.
+- **Multi-Screen (Desktop/Web)** & **Controle Parental**: Grade simultânea com 6 layouts (`2x2`, `1+3`, `1+2`, `2+1`, `2x1`, `1x2`, até 4 slots HTML5/HLS) e bloqueio por PIN com hash **SHA-256** no Settings Hub.
+- Sistema de **Favoritos** persistente, **Progresso de Reprodução** (`Continue Watching`) e histórico de canais recentes.
 
 ### 5. Padrões Cesar Ovies
-- **Design GitHub Dark Theme** (`#0D1117`, `#161B22`, `#30363D`, `#238636`, `#388BFD`).
+- **Design Midnight Amber & Steel** (`#06101E` canvas, `#0F172A` surface, `#1E293B` border, `#F59E0B` amber accent, `#38BDF8` sky accent, `#10B981` emerald CTA).
 - **i18n Obrigatório em 3 Idiomas**: Português do Brasil (`pt-BR`), Inglês (`en-US`) e Espanhol (`es`).
 - **100% User-Space**: Sem exigência de permissões elevadas de Administrador (`asInvoker`).
 - **Auto-Atualização Desktop Segura**: `UpdateService` com verificação semântica no GitHub Releases, validação criptográfica **SHA-256** e atualização atômica em segundo plano.
@@ -85,7 +86,7 @@ A partir da versão **v1.1.0**, a versão Web pública foi descontinuada em favo
 ```mermaid
 flowchart TD
     subgraph Core_UI["Core UI Assets (src/web)"]
-        UI["HTML5 + CSS #0D1117 + Vanilla JS + i18n (PT-BR / EN-US / ES)"]
+        UI["HTML5 + CSS Midnight Amber #06101E + Vanilla JS + i18n (PT-BR / EN-US / ES)"]
         Parsers["M3U Parser + XMLTV EPG Parser + Xtream API"]
         Parsers --> UI
     end
