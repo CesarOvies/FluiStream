@@ -594,14 +594,28 @@ class FluiStreamApp {
     }
   }
 
+  resolveEffectiveDeviceMode(mode = storage.getSettings().deviceMode || 'auto') {
+    if (mode === 'tv' || mode === 'mobile' || mode === 'desktop') return mode;
+    if (typeof window === 'undefined') return 'desktop';
+    const ua = navigator?.userAgent || '';
+    const isTvUa = /(android tv|smarttv|googletv|aft[a-z0-9]|bravia|mibox|tizen|webos)/i.test(ua);
+    const hasCoarse = typeof window.matchMedia === 'function' && window.matchMedia('(hover: none) and (pointer: coarse)').matches;
+    const hasNoPointer = typeof window.matchMedia === 'function' && window.matchMedia('(pointer: none)').matches;
+    if (isTvUa || hasNoPointer) return 'tv';
+    if (hasCoarse || (('ontouchstart' in window) && window.innerWidth <= 900)) return 'mobile';
+    return 'desktop';
+  }
+
   applyDeviceMode() {
     const cfg = storage.getSettings();
     const mode = cfg.deviceMode || 'auto';
+    const effective = this.resolveEffectiveDeviceMode(mode);
     if (mode === 'auto') {
       document.body.removeAttribute('data-device-mode');
     } else {
       document.body.setAttribute('data-device-mode', mode);
     }
+    document.body.setAttribute('data-effective-device-mode', effective);
     this.updateSettingsTileSubtitles();
   }
 
@@ -623,13 +637,17 @@ class FluiStreamApp {
       this.dom.tileStreamFormatSub.textContent = modeMap[cfg.streamMode || 'auto'] || modeMap.auto;
     }
     if (this.dom.tileDeviceModeSub) {
+      const mode = cfg.deviceMode || 'auto';
+      const effective = this.resolveEffectiveDeviceMode(mode);
       const map = {
         auto: i18n.get('deviceModeAuto'),
         tv: i18n.get('deviceModeTv'),
         desktop: i18n.get('deviceModeDesktop'),
         mobile: i18n.get('deviceModeMobile')
       };
-      this.dom.tileDeviceModeSub.textContent = map[cfg.deviceMode || 'auto'] || 'Auto';
+      this.dom.tileDeviceModeSub.textContent = mode === 'auto'
+        ? `${map.auto} (${map[effective] || effective})`
+        : (map[mode] || map.auto);
     }
   }
 
@@ -1259,6 +1277,15 @@ class FluiStreamApp {
 
     // Global Keyboard & Spatial D-Pad Navigation
     window.addEventListener('keydown', (e) => this.handleGlobalKeyDown(e));
+    let deviceResizeTimer;
+    window.addEventListener('resize', () => {
+      clearTimeout(deviceResizeTimer);
+      deviceResizeTimer = setTimeout(() => {
+        if ((storage.getSettings().deviceMode || 'auto') === 'auto') {
+          this.applyDeviceMode();
+        }
+      }, 150);
+    });
   }
 
   handleGlobalKeyDown(e) {
@@ -1268,9 +1295,9 @@ class FluiStreamApp {
     const isArrow = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key);
 
     if (isArrow) {
-      // Se foco está dentro da área de player/slider, mantém controle do player
-      const inPlayer = Boolean(e.target.closest('#player-section, [role="slider"]'));
-      if (inPlayer && !isModalOpen) {
+      // Se foco está dentro da área de vídeo/slider, controla canal/seek; nos controles/botões usa navegação espacial
+      const inPlayerRange = Boolean(e.target.closest('[role="slider"], #player-center-hit, #btn-player-center-toggle'));
+      if (inPlayerRange && !isModalOpen) {
         if (e.key === 'ArrowUp') { e.preventDefault(); this.navigateChannel(-1); }
         else if (e.key === 'ArrowDown') { e.preventDefault(); this.navigateChannel(1); }
         else if (e.key === 'ArrowLeft') { e.preventDefault(); this.seekRelative(-10); }
@@ -1278,11 +1305,16 @@ class FluiStreamApp {
         return;
       }
 
-      // Navegação espacial D-Pad em grids, tiles e sidebar
       if (this.moveSpatialFocus(e.key, isModalOpen)) {
         e.preventDefault();
         return;
       }
+    }
+
+    if ((e.key === 'Backspace' || e.key === 'GoBack' || e.key === 'BrowserBack') && !isModalOpen) {
+      e.preventDefault();
+      this.handleNativeBack();
+      return;
     }
 
     if (e.key === ' ' || e.code === 'Space') {
@@ -1297,21 +1329,53 @@ class FluiStreamApp {
   }
 
   moveSpatialFocus(direction, isModalOpen) {
-    const scope = isModalOpen
+    const scopeRoot = isModalOpen
       ? Array.from(document.querySelectorAll('.modal-backdrop:not(.hidden)')).pop()
-      : document.getElementById('main-layout');
-    if (!scope) return false;
+      : document.body;
+    if (!scopeRoot) return false;
 
-    const selector = '.bento-card, .gradient-tile, .featured-item-row, .settings-tile, .sidebar-cat-btn, .channel-card, .layout-template-card, .profile-card, .episode-item-row, .epg-rail-btn, .multiscreen-slot';
-    const candidates = Array.from(scope.querySelectorAll(selector)).filter(el => {
-      if (el.closest('.hidden')) return false;
+    const selector = [
+      '.nav-tab-btn',
+      '.header-actions button',
+      '#btn-brand-home',
+      '#btn-master-search',
+      '.bento-card',
+      '.gradient-tile',
+      '.featured-item-row',
+      '.settings-tile',
+      '.sidebar-cat-btn',
+      '.sidebar-item-row',
+      '.split-sidebar-header button',
+      '.category-nav-bar button',
+      '.player-controls-bar button',
+      '.player-controls-bar select',
+      '#btn-player-center-toggle',
+      '.layout-template-card',
+      '.profile-card',
+      '.episode-item-row',
+      '.epg-rail-btn',
+      '.epg-source-item button',
+      '.multiscreen-slot',
+      '.btn-notif-update',
+      '.modal-header button',
+      '.modal-footer button'
+    ].join(', ');
+
+    const headerEl = !isModalOpen ? document.getElementById('app-header') : null;
+    const mainEl = !isModalOpen ? document.getElementById('main-layout') : scopeRoot;
+    const rawElements = [];
+    if (headerEl) rawElements.push(...headerEl.querySelectorAll(selector));
+    if (mainEl) rawElements.push(...mainEl.querySelectorAll(selector));
+
+    const candidates = rawElements.filter(el => {
+      if (el.disabled || el.closest('.hidden')) return false;
       const rect = el.getBoundingClientRect();
       return rect.width > 0 && rect.height > 0;
     });
     if (candidates.length === 0) return false;
 
     const current = document.activeElement;
-    if (!current || !scope.contains(current) || !current.matches(selector)) {
+    if (!current || !scopeRoot.contains(current) || !current.matches(selector)) {
       candidates[0].focus();
       return true;
     }
@@ -2003,6 +2067,7 @@ class FluiStreamApp {
           <option value="desktop" ${cur === 'desktop' ? 'selected' : ''}>${this.escapeHtml(i18n.get('deviceModeDesktop'))}</option>
           <option value="mobile" ${cur === 'mobile' ? 'selected' : ''}>${this.escapeHtml(i18n.get('deviceModeMobile'))}</option>
         </select>
+        <p class="help-text">${this.escapeHtml(i18n.get('deviceModeHelp'))}</p>
       </div>
     `;
     this.dom.btnSaveSettingsSub.onclick = () => {

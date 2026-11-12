@@ -101,19 +101,113 @@ body {
   background-attachment: scroll;
 }
 
-/* Device Mode Density Modifiers */
+/* Device Mode Ergonomics & Interaction Modifiers */
+body[data-effective-device-mode="tv"],
 body[data-device-mode="tv"] {
-  font-size: 17px;
+  font-size: 17.5px;
 }
 
+body[data-effective-device-mode="tv"] .header-inner,
+body[data-device-mode="tv"] .header-inner,
+body[data-effective-device-mode="tv"] .main-container,
+body[data-device-mode="tv"] .main-container {
+  padding-inline: 1.5rem;
+}
+
+body[data-effective-device-mode="tv"] .sidebar-cat-btn,
+body[data-device-mode="tv"] .sidebar-cat-btn {
+  min-height: 50px;
+  padding: 0.72rem 0.9rem;
+  font-size: 0.92rem;
+}
+
+body[data-effective-device-mode="tv"] .sidebar-item-row,
+body[data-device-mode="tv"] .sidebar-item-row {
+  min-height: 58px;
+  padding: 0.7rem 0.85rem;
+}
+
+body[data-effective-device-mode="tv"] .settings-tile,
+body[data-device-mode="tv"] .settings-tile {
+  min-height: 92px;
+  padding: 1.15rem;
+}
+
+body[data-effective-device-mode="tv"] .btn-icon,
+body[data-device-mode="tv"] .btn-icon,
+body[data-effective-device-mode="tv"] .nav-tab-btn,
+body[data-device-mode="tv"] .nav-tab-btn {
+  min-height: 44px;
+  min-width: 44px;
+}
+
+body[data-effective-device-mode="tv"] :focus-visible,
+body[data-device-mode="tv"] :focus-visible {
+  outline: 3px solid #FBBF24;
+  outline-offset: 2px;
+  box-shadow: 0 0 0 6px rgba(245, 158, 11, 0.34);
+  transform: scale(1.012);
+}
+
+body[data-effective-device-mode="tv"] .channel-grid,
 body[data-device-mode="tv"] .channel-grid {
   grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
   gap: 1.25rem;
 }
 
+body[data-effective-device-mode="mobile"],
+body[data-device-mode="mobile"] {
+  -webkit-tap-highlight-color: rgba(245, 158, 11, 0.18);
+}
+
+body[data-effective-device-mode="mobile"] .btn-icon,
+body[data-device-mode="mobile"] .btn-icon,
+body[data-effective-device-mode="mobile"] .nav-tab-btn,
+body[data-device-mode="mobile"] .nav-tab-btn,
+body[data-effective-device-mode="mobile"] .sidebar-item-fav,
+body[data-device-mode="mobile"] .sidebar-item-fav {
+  min-width: 44px;
+  min-height: 44px;
+}
+
+body[data-effective-device-mode="mobile"] .sidebar-cat-btn,
+body[data-device-mode="mobile"] .sidebar-cat-btn,
+body[data-effective-device-mode="mobile"] .sidebar-item-row,
+body[data-device-mode="mobile"] .sidebar-item-row {
+  min-height: 52px;
+  padding: 0.7rem 0.8rem;
+}
+
+body[data-effective-device-mode="mobile"] .split-sidebar-list,
+body[data-device-mode="mobile"] .split-sidebar-list {
+  gap: 0.45rem;
+}
+
+body[data-effective-device-mode="mobile"] .player-center-toggle,
+body[data-device-mode="mobile"] .player-center-toggle {
+  opacity: 0.58;
+}
+
+body[data-effective-device-mode="mobile"] .volume-slider::-webkit-slider-thumb,
+body[data-device-mode="mobile"] .volume-slider::-webkit-slider-thumb {
+  width: 18px;
+  height: 18px;
+}
+
+body[data-effective-device-mode="mobile"] .channel-grid,
 body[data-device-mode="mobile"] .channel-grid {
   grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
   gap: 0.75rem;
+}
+
+body[data-effective-device-mode="desktop"] .sidebar-cat-btn,
+body[data-device-mode="desktop"] .sidebar-cat-btn {
+  padding: 0.5rem 0.72rem;
+}
+
+body[data-effective-device-mode="desktop"] .sidebar-item-row,
+body[data-device-mode="desktop"] .sidebar-item-row {
+  padding: 0.52rem 0.68rem;
 }
 
 .hidden {

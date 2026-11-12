@@ -117,7 +117,7 @@ await test('Todos os 3 idiomas (pt-BR, en-US, es) devem possuir o mesmo conjunto
   const enKeys = Object.keys(translations['en-US']).sort();
   const esKeys = Object.keys(translations['es']).sort();
 
-  assert.equal(ptKeys.length, 242, `Esperado exatamente 242 chaves i18n em pt-BR, obtido ${ptKeys.length}`);
+  assert.equal(ptKeys.length, 243, `Esperado exatamente 243 chaves i18n em pt-BR, obtido ${ptKeys.length}`);
   assert.deepEqual(ptKeys, enKeys, 'Chaves pt-BR e en-US devem ser idênticas');
   assert.deepEqual(ptKeys, esKeys, 'Chaves pt-BR e es devem ser idênticas');
 
@@ -954,6 +954,20 @@ await test('Histórico limitado e limpeza, Teste de Velocidade real e Update ape
   assert.match(appJs, /runFreeSpeedTest\(/);
   assert.match(appJs, /notifyHostUpdateAvailable\(/);
   assert.match(mainFormCs, /DispatchPendingUpdateNotification/);
+});
+
+await test('Modo de Dispositivo aplica TV/Mobile/Desktop e inclui sidebar e header na navegação espacial D-Pad', () => {
+  const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+  const css = readFileSync(resolve(rootDir, 'src/web/css/style.css'), 'utf-8');
+  const appJs = readFileSync(resolve(rootDir, 'src/web/js/app.js'), 'utf-8');
+
+  assert.match(css, /data-effective-device-mode="tv"/);
+  assert.match(css, /data-effective-device-mode="mobile"/);
+  assert.match(css, /data-effective-device-mode="desktop"/);
+  assert.match(appJs, /resolveEffectiveDeviceMode\(/);
+  assert.match(appJs, /data-effective-device-mode/);
+  assert.match(appJs, /'\.sidebar-item-row'/);
+  assert.match(appJs, /deviceModeHelp/);
 });
 
 console.log(`\n========================================`);
