@@ -2,22 +2,81 @@ name: Release Automation & Security Scan
 
 on:
   push:
+    branches: [main]
     tags:
       - 'v*.*.*'
   workflow_dispatch:
     inputs:
       tag_name:
-        description: 'Tag de versão (ex: v1.1.0)'
+        description: 'Tag de versão (ex: v1.1.0). Vazio = auto-resolver pelo .csproj/tags'
         required: false
-        default: 'v1.1.0'
+        default: ''
 
 permissions:
   contents: write
   id-token: write
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
+  resolve-version:
+    name: Resolve Release Version
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.ver.outputs.tag }}
+      version: ${{ steps.ver.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Determine Semver Tag & Version
+        id: ver
+        shell: bash
+        run: |
+          set -euo pipefail
+          INPUT_TAG="${{ github.event.inputs.tag_name || '' }}"
+
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            TAG="${{ github.ref_name }}"
+          elif [ -n "$INPUT_TAG" ]; then
+            TAG="v${INPUT_TAG#v}"
+          else
+            CSPROJ_VER=$(grep -oPm1 '(?<=<Version>)[^<]+' src/desktop/FluiStream.Desktop.csproj)
+            if [ -z "$CSPROJ_VER" ]; then
+              echo "Could not read <Version> from FluiStream.Desktop.csproj" >&2
+              exit 1
+            fi
+            HEAD_TAG=$(git tag --points-at HEAD | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n1 || true)
+            if [ -n "$HEAD_TAG" ]; then
+              TAG="$HEAD_TAG"
+            else
+              CANDIDATE="v${CSPROJ_VER}"
+              if ! git rev-parse -q --verify "refs/tags/${CANDIDATE}" >/dev/null; then
+                TAG="$CANDIDATE"
+              else
+                MAJOR_MINOR=$(echo "$CSPROJ_VER" | awk -F. '{print $1"."$2}')
+                LATEST_PATCH_TAG=$(git tag -l "v${MAJOR_MINOR}.*" | grep -E "^v${MAJOR_MINOR}\.[0-9]+$" | sort -V | tail -n1 || true)
+                if [ -n "$LATEST_PATCH_TAG" ]; then
+                  LAST_PATCH=${LATEST_PATCH_TAG##*.}
+                  TAG="v${MAJOR_MINOR}.$((LAST_PATCH + 1))"
+                else
+                  TAG="${CANDIDATE}"
+                fi
+              fi
+            fi
+          fi
+
+          VERSION="${TAG#v}"
+          echo "Resolved release tag=$TAG version=$VERSION"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
   build-android:
     name: Build Android APK
+    needs: resolve-version
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -55,7 +114,7 @@ jobs:
 
   build-release:
     name: Build Multi-OS Portables, Package APK & Defender Scan
-    needs: build-android
+    needs: [resolve-version, build-android]
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -79,9 +138,7 @@ jobs:
       - name: Compile Multi-OS Portables via build-all.ps1
         shell: pwsh
         run: |
-          $tag = "${{ github.ref_type == 'tag' && github.ref_name || inputs.tag_name || 'v1.1.0' }}"
-          $ver = $tag.TrimStart('v')
-          ./build-all.ps1 -Version $ver
+          ./build-all.ps1 -Version "${{ needs.resolve-version.outputs.version }}"
 
       - name: Download Android APK Artifact
         uses: actions/download-artifact@v4
@@ -92,7 +149,7 @@ jobs:
       - name: Stage Android APK & Update SHA-256 / SHA-512 Checksums
         shell: pwsh
         run: |
-          $tag = "${{ github.ref_type == 'tag' && github.ref_name || inputs.tag_name || 'v1.1.0' }}"
+          $tag = "${{ needs.resolve-version.outputs.tag }}"
           $apkSource = Get-ChildItem -Path "dist/android-apk" -Filter "*.apk" | Select-Object -First 1
           if (-not $apkSource) {
             Write-Error "Android APK artifact not found in dist/android-apk"
@@ -127,7 +184,8 @@ jobs:
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref_type == 'tag' && github.ref_name || inputs.tag_name || 'v1.1.0' }}
+          tag_name: ${{ needs.resolve-version.outputs.tag }}
+          name: "${{ needs.resolve-version.outputs.tag }} — FluiStream Multiplatform"
           files: |
             dist/*
           generate_release_notes: true
