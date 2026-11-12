@@ -117,7 +117,7 @@ await test('Todos os 3 idiomas (pt-BR, en-US, es) devem possuir o mesmo conjunto
   const enKeys = Object.keys(translations['en-US']).sort();
   const esKeys = Object.keys(translations['es']).sort();
 
-  assert.equal(ptKeys.length, 228, `Esperado exatamente 228 chaves i18n em pt-BR, obtido ${ptKeys.length}`);
+  assert.equal(ptKeys.length, 230, `Esperado exatamente 230 chaves i18n em pt-BR, obtido ${ptKeys.length}`);
   assert.deepEqual(ptKeys, enKeys, 'Chaves pt-BR e en-US devem ser idênticas');
   assert.deepEqual(ptKeys, esKeys, 'Chaves pt-BR e es devem ser idênticas');
 
@@ -903,6 +903,25 @@ await test('Desktop MainForm.cs deve desmaximizar e reduzir MinimumSize ao entra
   assert.match(mainFormCs, /MinimumSize\s*=\s*PipMinimumWindowSize/);
   assert.match(mainFormCs, /WindowState\s*=\s*FormWindowState\.Normal/);
   assert.match(mainFormCs, /_isFullScreen\s*\|\|\s*_isPipMode/);
+  assert.match(mainFormCs, /_vlcSingleClickTimer/);
+  assert.match(mainFormCs, /UpdateCenterPlayOverlay/);
+});
+
+await test('Mute icon, volume bar, pause central, botões de cabeçalho e Formato de Stream separado', () => {
+  const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+  const html = readFileSync(resolve(rootDir, 'src/web/index.html'), 'utf-8');
+  const css = readFileSync(resolve(rootDir, 'src/web/css/style.css'), 'utf-8');
+  const appJs = readFileSync(resolve(rootDir, 'src/web/js/app.js'), 'utf-8');
+
+  assert.match(html, /id="btn-player-center-toggle"/);
+  assert.match(html, /data-i18n="navAccount"/);
+  assert.match(html, /data-i18n="navAboutShort"/);
+  assert.equal(html.includes('id="settings-stream-mode-select"'), false);
+  assert.match(css, /--vol-pct/);
+  assert.match(css, /\.player-center-toggle\s*\{/);
+  assert.match(appJs, /syncVolumeUi\(/);
+  assert.match(appJs, /addEventListener\('volumechange'/);
+  assert.match(appJs, /openStreamFormatSubModal\(/);
 });
 
 console.log(`\n========================================`);

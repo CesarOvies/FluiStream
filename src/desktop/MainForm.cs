@@ -30,7 +30,9 @@ public partial class MainForm : Form
     private FormBorderStyle _prePipBorderStyle = FormBorderStyle.Sizable;
     private Rectangle _prePipBounds;
     private Button? _btnExitFullscreen;
+    private Button? _btnCenterPlayOverlay;
     private System.Windows.Forms.Timer? _fullscreenTimer;
+    private System.Windows.Forms.Timer? _vlcSingleClickTimer;
 
     [DllImport("dwmapi.dll")]
     private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int attrValue, int attrSize);
@@ -96,8 +98,28 @@ public partial class MainForm : Form
                 BackColor = Color.Black
             };
 
+            _vlcSingleClickTimer = new System.Windows.Forms.Timer { Interval = 220 };
+            _vlcSingleClickTimer.Tick += (s, e) =>
+            {
+                _vlcSingleClickTimer.Stop();
+                if (_isVlcActive)
+                {
+                    _vlcPlayer?.Pause();
+                }
+            };
+
+            _videoView.MouseClick += (s, e) =>
+            {
+                if (e.Button == MouseButtons.Left && _isVlcActive)
+                {
+                    _vlcSingleClickTimer?.Stop();
+                    _vlcSingleClickTimer?.Start();
+                }
+            };
+
             _videoView.MouseDoubleClick += (s, e) =>
             {
+                _vlcSingleClickTimer?.Stop();
                 if (_isPipMode)
                 {
                     BeginInvoke(() => SetMiniPlayerPip(false));
@@ -120,6 +142,7 @@ public partial class MainForm : Form
             {
                 BeginInvoke(() =>
                 {
+                    UpdateCenterPlayOverlay(false);
                     _webView.CoreWebView2?.ExecuteScriptAsync("window.fluiStreamApp?.handlePlayerState('playing');");
                 });
                 Task.Delay(800).ContinueWith(_ => BeginInvoke(SendVlcTracksToWeb));
@@ -129,6 +152,7 @@ public partial class MainForm : Form
             {
                 BeginInvoke(() =>
                 {
+                    UpdateCenterPlayOverlay(true);
                     _webView.CoreWebView2?.ExecuteScriptAsync("window.fluiStreamApp?.handlePlayerState('paused');");
                 });
             };
@@ -137,6 +161,7 @@ public partial class MainForm : Form
             {
                 BeginInvoke(() =>
                 {
+                    UpdateCenterPlayOverlay(false);
                     _webView.CoreWebView2?.ExecuteScriptAsync("window.fluiStreamApp?.handlePlayerState('idle');");
                 });
             };
@@ -637,6 +662,7 @@ public partial class MainForm : Form
             }
             _vlcPlayer.Stop();
             _videoView.Visible = false;
+            UpdateCenterPlayOverlay(false);
         }
         catch
         {
@@ -863,6 +889,42 @@ public partial class MainForm : Form
         }
     }
 
+    private void UpdateCenterPlayOverlay(bool show)
+    {
+        if (!show || !_isVlcActive || _videoView == null || !_videoView.Visible)
+        {
+            if (_btnCenterPlayOverlay != null)
+            {
+                _btnCenterPlayOverlay.Visible = false;
+            }
+            return;
+        }
+
+        if (_btnCenterPlayOverlay == null)
+        {
+            _btnCenterPlayOverlay = new Button
+            {
+                Text = "▶",
+                Size = new Size(68, 68),
+                BackColor = Color.FromArgb(220, 15, 23, 42),
+                ForeColor = Color.FromArgb(245, 158, 11),
+                FlatStyle = FlatStyle.Flat,
+                Cursor = Cursors.Hand,
+                Font = new Font("Segoe UI", 20, FontStyle.Bold)
+            };
+            _btnCenterPlayOverlay.FlatAppearance.BorderSize = 2;
+            _btnCenterPlayOverlay.FlatAppearance.BorderColor = Color.FromArgb(245, 158, 11);
+            _btnCenterPlayOverlay.Click += (s, e) => _vlcPlayer?.Pause();
+            Controls.Add(_btnCenterPlayOverlay);
+        }
+
+        int cx = _videoView.Left + Math.Max(0, (_videoView.Width - _btnCenterPlayOverlay.Width) / 2);
+        int cy = _videoView.Top + Math.Max(0, (_videoView.Height - _btnCenterPlayOverlay.Height) / 2);
+        _btnCenterPlayOverlay.Location = new Point(cx, cy);
+        _btnCenterPlayOverlay.Visible = true;
+        _btnCenterPlayOverlay.BringToFront();
+    }
+
     private void ShowExitFullscreenButton()
     {
         if (!_isFullScreen && !_isPipMode) return;
@@ -921,6 +983,10 @@ public partial class MainForm : Form
         _videoView.SetBounds(x, y, width, height);
         _videoView.Visible = true;
         _videoView.BringToFront();
+        if (_btnCenterPlayOverlay != null && _btnCenterPlayOverlay.Visible)
+        {
+            UpdateCenterPlayOverlay(true);
+        }
     }
 
     private async void UpdateVideoViewLayout()

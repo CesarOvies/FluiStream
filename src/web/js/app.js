@@ -177,6 +177,10 @@ class FluiStreamApp {
       // Player
       playerSection: document.getElementById('player-section'),
       playerIdleOverlay: document.getElementById('player-idle-overlay'),
+      playerCenterHit: document.getElementById('player-center-hit'),
+      btnPlayerCenterToggle: document.getElementById('btn-player-center-toggle'),
+      iconCenterPause: document.getElementById('icon-center-pause'),
+      iconCenterPlay: document.getElementById('icon-center-play'),
       playerTimelineRow: document.getElementById('player-timeline-row'),
       playerEpgCard: document.getElementById('player-epg-card'),
       btnEpgModeChannel: document.getElementById('btn-epg-mode-channel'),
@@ -228,6 +232,7 @@ class FluiStreamApp {
       btnSettingsBack: document.getElementById('btn-settings-back'),
       settingsTileGrid: document.getElementById('settings-tile-grid'),
       tileTimeFormatSub: document.getElementById('tile-time-format-sub'),
+      tileStreamFormatSub: document.getElementById('tile-stream-format-sub'),
       tileParentalSub: document.getElementById('tile-parental-sub'),
       tileDeviceModeSub: document.getElementById('tile-device-mode-sub'),
       modalSettings: document.getElementById('modal-settings'),
@@ -238,7 +243,6 @@ class FluiStreamApp {
       corsInput: document.getElementById('settings-cors-input'),
       btnUseLocalProxy: document.getElementById('btn-use-local-proxy'),
       localProxyDetectStatus: document.getElementById('local-proxy-detect-status'),
-      settingsStreamModeSelect: document.getElementById('settings-stream-mode-select'),
       settingsPlayerEngineSelect: document.getElementById('settings-player-engine-select'),
       btnSaveSettings: document.getElementById('btn-save-settings'),
       btnClearAllData: document.getElementById('btn-clear-all-data'),
@@ -464,6 +468,10 @@ class FluiStreamApp {
 
     window.fluiStreamApp = this;
     this.player.onTracksUpdated = (tracksInfo) => this.updateTrackSelectors(tracksInfo);
+    if (this.dom.video) {
+      this.dom.video.addEventListener('volumechange', () => this.syncVolumeUi());
+    }
+    this.syncVolumeUi();
     this.handleVlcTimeUpdate = (curSec, durSec, pos, isSeekable) => {
       this.currentDuration = durSec;
       this.player.handleVlcTime(curSec, durSec, pos, isSeekable);
@@ -479,18 +487,35 @@ class FluiStreamApp {
     };
   }
 
+  syncVolumeUi() {
+    const vid = this.player?.video;
+    const rawVol = vid && typeof vid.volume === 'number' ? vid.volume : parseFloat(this.dom.inputVolume?.value || '0.8');
+    const vol = Math.max(0, Math.min(1, Number.isFinite(rawVol) ? rawVol : 0.8));
+    const muted = Boolean(vid?.muted);
+    const isSilent = muted || vol === 0;
+    const pct = `${isSilent ? 0 : Math.round(vol * 100)}%`;
+
+    if (this.dom.inputVolume) {
+      this.dom.inputVolume.value = String(vol);
+      this.dom.inputVolume.style.setProperty('--vol-pct', pct);
+    }
+    if (this.dom.btnMute) {
+      this.dom.btnMute.classList.toggle('is-muted', isSilent);
+    }
+    if (this.dom.iconVolumeHigh && this.dom.iconVolumeMuted) {
+      this.dom.iconVolumeHigh.classList.toggle('hidden', isSilent);
+      this.dom.iconVolumeMuted.classList.toggle('hidden', !isSilent);
+    }
+  }
+
   handleHardwareVolume(normVolume, isMuted) {
     const vol = Math.max(0, Math.min(1, Number(normVolume) || 0));
     const muted = Boolean(isMuted);
-    if (this.dom.inputVolume) this.dom.inputVolume.value = String(vol);
     if (this.player?.video) {
       this.player.video.volume = vol;
       this.player.video.muted = muted;
     }
-    if (this.dom.iconVolumeHigh && this.dom.iconVolumeMuted) {
-      this.dom.iconVolumeHigh.classList.toggle('hidden', muted || vol === 0);
-      this.dom.iconVolumeMuted.classList.toggle('hidden', !muted && vol > 0);
-    }
+    this.syncVolumeUi();
   }
 
   handleNativeBack() {
@@ -588,6 +613,15 @@ class FluiStreamApp {
     }
     if (this.dom.tileParentalSub) {
       this.dom.tileParentalSub.textContent = cfg.parentalPinHash ? 'PIN Active' : 'Off';
+    }
+    if (this.dom.tileStreamFormatSub) {
+      const modeMap = {
+        auto: i18n.get('playerStreamAuto'),
+        hls: i18n.get('playerStreamHls'),
+        ts: i18n.get('playerStreamTs'),
+        direct: i18n.get('playerStreamDirect')
+      };
+      this.dom.tileStreamFormatSub.textContent = modeMap[cfg.streamMode || 'auto'] || modeMap.auto;
     }
     if (this.dom.tileDeviceModeSub) {
       const map = {
@@ -865,6 +899,21 @@ class FluiStreamApp {
 
     // Player Controls
     if (this.dom.btnPlayerPlayPause) this.dom.btnPlayerPlayPause.addEventListener('click', () => this.player.togglePlay());
+    if (this.dom.playerCenterHit) {
+      let centerClickTimer = null;
+      this.dom.playerCenterHit.addEventListener('click', () => {
+        if (!this.currentPlayingItem) return;
+        clearTimeout(centerClickTimer);
+        centerClickTimer = setTimeout(() => {
+          this.player.togglePlay();
+        }, 180);
+      });
+      this.dom.playerCenterHit.addEventListener('dblclick', () => {
+        if (!this.currentPlayingItem) return;
+        clearTimeout(centerClickTimer);
+        this.player.toggleFullscreen();
+      });
+    }
     if (this.dom.btnPlayerStop) this.dom.btnPlayerStop.addEventListener('click', () => this.stopPlayback());
     if (this.dom.btnPlayerClose) this.dom.btnPlayerClose.addEventListener('click', () => this.closePlayerAndReset());
     if (this.dom.btnPlayerFullscreen) this.dom.btnPlayerFullscreen.addEventListener('click', () => this.player.toggleFullscreen());
@@ -876,9 +925,17 @@ class FluiStreamApp {
       this.dom.selectPlayerSubtitles.addEventListener('change', (e) => this.player.setSubtitleTrack(parseInt(e.target.value, 10)));
     }
     if (this.dom.inputVolume) {
-      this.dom.inputVolume.addEventListener('input', (e) => this.player.setVolume(parseFloat(e.target.value)));
+      this.dom.inputVolume.addEventListener('input', (e) => {
+        this.player.setVolume(parseFloat(e.target.value));
+        this.syncVolumeUi();
+      });
     }
-    if (this.dom.btnMute) this.dom.btnMute.addEventListener('click', () => this.player.toggleMute());
+    if (this.dom.btnMute) {
+      this.dom.btnMute.addEventListener('click', () => {
+        this.player.toggleMute();
+        this.syncVolumeUi();
+      });
+    }
     if (this.dom.aspectSelect) {
       this.dom.aspectSelect.addEventListener('change', (e) => this.player.setAspectRatio(e.target.value));
     }
@@ -979,7 +1036,6 @@ class FluiStreamApp {
       this.dom.btnSaveSettings.addEventListener('click', () => {
         const cfg = storage.getSettings();
         if (this.dom.corsInput) cfg.corsProxy = this.dom.corsInput.value.trim();
-        if (this.dom.settingsStreamModeSelect) cfg.streamMode = this.dom.settingsStreamModeSelect.value;
         if (this.dom.settingsPlayerEngineSelect) {
           const isDesktop = Boolean(window.chrome?.webview);
           if (isDesktop || this.dom.settingsPlayerEngineSelect.value !== 'vlc') {
@@ -1759,7 +1815,6 @@ class FluiStreamApp {
     const cfg = storage.getSettings();
     if (this.dom.corsInput) this.dom.corsInput.value = cfg.corsProxy || '';
     if (this.dom.settingsAdvancedDetails) this.dom.settingsAdvancedDetails.open = Boolean(openAdvanced);
-    if (this.dom.settingsStreamModeSelect) this.dom.settingsStreamModeSelect.value = cfg.streamMode || 'auto';
     if (this.dom.settingsPlayerEngineSelect) {
       const isDesktop = Boolean(window.chrome?.webview);
       const vlcOpt = this.dom.settingsPlayerEngineSelect.querySelector('option[value="vlc"]');
@@ -1776,8 +1831,10 @@ class FluiStreamApp {
   handleSettingsTileClick(tileId) {
     switch (tileId) {
       case 'general':
-      case 'stream':
         this.openSettingsModal(false);
+        break;
+      case 'stream':
+        this.openStreamFormatSubModal();
         break;
       case 'network':
         this.openSettingsModal(true);
@@ -1807,6 +1864,34 @@ class FluiStreamApp {
         this.openSpeedTestSubModal();
         break;
     }
+  }
+
+  openStreamFormatSubModal() {
+    const cfg = storage.getSettings();
+    const curMode = cfg.streamMode || 'auto';
+    this.dom.modalSettingsSubTitle.textContent = i18n.get('settingsStreamFormat');
+    this.dom.modalSettingsSubFooter.classList.remove('hidden');
+    this.dom.modalSettingsSubBody.innerHTML = `
+      <div class="form-group">
+        <label for="sub-stream-mode-select">${this.escapeHtml(i18n.get('settingsStreamMode'))}</label>
+        <select id="sub-stream-mode-select" class="form-control">
+          <option value="auto" ${curMode === 'auto' ? 'selected' : ''}>${this.escapeHtml(i18n.get('playerStreamAuto'))}</option>
+          <option value="hls" ${curMode === 'hls' ? 'selected' : ''}>${this.escapeHtml(i18n.get('playerStreamHls'))}</option>
+          <option value="ts" ${curMode === 'ts' ? 'selected' : ''}>${this.escapeHtml(i18n.get('playerStreamTs'))}</option>
+          <option value="direct" ${curMode === 'direct' ? 'selected' : ''}>${this.escapeHtml(i18n.get('playerStreamDirect'))}</option>
+        </select>
+        <p class="help-text">${this.escapeHtml(i18n.get('settingsStreamModeHelp'))}</p>
+      </div>
+    `;
+    this.dom.btnSaveSettingsSub.onclick = () => {
+      const val = document.getElementById('sub-stream-mode-select')?.value || 'auto';
+      storage.saveSettings({ streamMode: val });
+      if (this.dom.streamModeSelect) this.dom.streamModeSelect.value = val;
+      this.updateSettingsTileSubtitles();
+      this.closeModal(this.dom.modalSettingsSub);
+      if (this.currentPlayingItem) this.playChannel(this.currentPlayingItem);
+    };
+    this.openModal(this.dom.modalSettingsSub);
   }
 
   openTimeFormatSubModal() {
@@ -3262,6 +3347,8 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
     const activeEngine = this.dom.playerEngineSelect?.value || cfg.playerEngine || (window.chrome?.webview ? 'vlc' : 'hls');
 
     this.player.playStream(item, cfg.corsProxy, activeStreamMode, activeEngine);
+    this.dom.playerCenterHit?.classList.toggle('hidden', activeEngine === 'vlc' && Boolean(window.chrome?.webview));
+    this.syncVolumeUi();
 
     if (this.dom.currentChannelName) this.dom.currentChannelName.textContent = item.name;
     if (this.dom.currentChannelGroup) this.dom.currentChannelGroup.textContent = item.group || '';
@@ -3294,6 +3381,8 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
     this.browseEpgMode = 'all';
     this._lastExtendedEpgSig = '';
     this.updatePlayPauseUi(false);
+    this.dom.playerCenterHit?.classList.add('hidden');
+    this.dom.playerCenterHit?.classList.remove('is-paused');
     this.dom.playerIdleOverlay?.classList.remove('hidden');
     if (this.dom.currentChannelName) this.dom.currentChannelName.textContent = i18n.get('appName');
     if (this.dom.currentChannelGroup) this.dom.currentChannelGroup.textContent = '';
@@ -3387,6 +3476,11 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
     if (!this.dom.iconPlayerPause || !this.dom.iconPlayerPlay) return;
     this.dom.iconPlayerPlay.classList.toggle('hidden', isPlaying);
     this.dom.iconPlayerPause.classList.toggle('hidden', !isPlaying);
+    if (this.dom.iconCenterPlay && this.dom.iconCenterPause) {
+      this.dom.iconCenterPlay.classList.toggle('hidden', isPlaying);
+      this.dom.iconCenterPause.classList.toggle('hidden', !isPlaying);
+    }
+    this.dom.playerCenterHit?.classList.toggle('is-paused', Boolean(this.currentPlayingItem) && !isPlaying);
   }
 
   updateTimelineDisplay(currentTime, duration, position, isSeekable) {
