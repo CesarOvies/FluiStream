@@ -6,7 +6,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>FluiStream</AssemblyName>
     <RootNamespace>FluiStream.Desktop</RootNamespace>
-    <Version>1.0.0</Version>
+    <Version>1.1.0</Version>
     <Authors>Cesar Ovies</Authors>
     <Company>Cesar Ovies</Company>
     <Description>FluiStream — Reprodutor M3U, EPG &amp; Xtream Codes Portable</Description>

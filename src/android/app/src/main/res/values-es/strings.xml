@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">FluiStream</string>
+    <string name="player_loading">Cargando transmisión…</string>
+    <string name="player_error_playback">No se pudo reproducir esta transmisión.</string>
+    <string name="player_error_network">Error de red al conectar con la transmisión.</string>
+    <string name="player_btn_close">Cerrar Reproductor</string>
+    <string name="player_btn_aspect">Proporción</string>
+    <string name="player_aspect_auto">Auto</string>
+    <string name="player_aspect_16_9">16:9</string>
+    <string name="player_aspect_4_3">4:3</string>
+    <string name="player_aspect_fill">Rellenar</string>
+    <string name="tv_back_exit_hint">Presione Atrás nuevamente para salir de FluiStream</string>
+    <string name="webview_unavailable">Se requiere Android System WebView para ejecutar FluiStream.</string>
+</resources>

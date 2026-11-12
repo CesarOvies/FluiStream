@@ -1,0 +1,13 @@
+{
+  "name": "fluistream",
+  "version": "1.1.0",
+  "description": "Reprodutor nativo moderno e fluido de listas M3U/M3U8 com EPG XMLTV e Xtream Codes API para Desktop Portable e Android / Android TV.",
+  "type": "module",
+  "scripts": {
+    "test": "node tests/run-tests.js",
+    "proxy": "node tools/stream-proxy.js",
+    "start": "node tools/stream-proxy.js"
+  },
+  "author": "Cesar Ovies",
+  "license": "MIT"
+}

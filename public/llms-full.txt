@@ -1,29 +1,41 @@
-# FluiStream — Especificação Técnica Completa
+# FluiStream (v1.1.0) — Especificação Técnica Completa
 
-## 1. Arquitetura
-FluiStream adota uma arquitetura híbrida de alto desempenho:
-1. **Core Web Player (Client-Side SPA / PWA)**:
-   - Parser M3U com classificação heurística inteligente.
-   - Parser EPG XMLTV com cálculo em tempo real de programas atuais e grade de horários.
+## 1. Visão Geral e Posicionamento (v1.1.0)
+A partir da versão 1.1.0, o **FluiStream** é distribuído exclusivamente como um **reprodutor de mídia 100% nativo multiplataforma** (Desktop Portable + Android APK). A hospedagem Web pública (GitHub Pages) foi descontinuada por incompatibilidades estruturais dos navegadores com streams IPTV (Mixed Content HTTPS->HTTP, redirects 302 sem headers CORS, bloqueios de Private Network Access em portas altas e ausência de decodificação nativa de MPEG-TS/AC3/EAC3).
+
+Os arquivos em `src/web/` permanecem como o **Core UI** compartilhado, embutido e executado localmente tanto pelo host Desktop (.NET 10) quanto pelo app Android (via `WebViewAssetLoader`).
+
+## 2. Arquitetura Multiplataforma
+1. **Core UI (`src/web/` — HTML5 + CSS + ES Modules)**:
+   - Parser M3U com classificação heurística inteligente (`live`, `movie`, `series`).
+   - Parser EPG XMLTV com índice multi-apelidos e cálculo em tempo real de programas atuais e grade de horários.
    - Connector Xtream Codes compatível com `player_api.php`, `get.php` e `xmltv.php`.
-   - Gerenciador de vídeo baseado em Hls.js e HTML5 Video com Picture-in-Picture, Fullscreen e controle de Aspect Ratio.
-   - Sistema de internacionalização (i18n) em 3 idiomas: pt-BR, en-US e es.
-2. **Desktop Portable (.NET 10 / User-Space)**:
-   - Executável independente compilado como Single-File (`win-x64`, `linux-x64`, `osx-arm64`).
-   - Manifest configurado como `asInvoker` (zero privilégios de Admin).
-   - Renderização via Microsoft Edge WebView2 acelerado por hardware sem restrições de CORS para streams IPTV remotos.
-   - DWM Dark Mode na janela do Windows 10/11.
-   - `UpdateService` com verificação de novas versões no GitHub Releases e script atômico de substituição.
+   - Controlador de vídeo (`VideoPlayerController`) com delegação nativa automática para `window.androidBridge` no Android e fallback HTML5/Hls.js/VLC no Desktop.
+   - Sistema de internacionalização (i18n) obrigatório em 3 idiomas com paridade estrita de chaves: `pt-BR`, `en-US` e `es`.
+   - Paleta GitHub Dark (`#0D1117`, `#161B22`, `#30363D`, `#238636`, `#388BFD`) com realce `:focus-visible` para D-Pad em TVs.
 
-## 2. Modelos de Dados
+2. **Desktop Portable (`src/desktop/` — .NET 10 / User-Space)**:
+   - Binários self-contained Single-File para `win-x64`, `linux-x64`, `linux-arm64` e `osx-arm64`.
+   - Manifest configurado como `asInvoker` (zero privilégios de Admin).
+   - Renderização no Windows via Microsoft Edge WebView2 acelerado por hardware e reprodução nativa via `LibVLCSharp` (`libvlc.dll`) sem restrições de CORS.
+   - DWM Dark Mode na janela do Windows 10/11.
+   - `UpdateService` com verificação semântica de releases no GitHub, download via stream bufferizado, validação obrigatória de hash **SHA-256** via `SHA256SUMS.txt` e atualização atômica em segundo plano em `%LOCALAPPDATA%\FluiStream`.
+
+3. **Android & Android TV APK (`src/android/` — Kotlin + Media3)**:
+   - `minSdk = 24` (Android 7.0+), `targetSdk = 34` (Android 14), suporte a Touchscreen e Leanback (Android TV / Fire TV Stick / TV Box).
+   - `MainActivity.kt` carrega o Core UI em `assets/web/` por meio de `WebViewAssetLoader` (origem HTTPS local segura para ES Modules sem falha de `file://` CORS) e intercepta teclas D-Pad (`DPAD_CENTER`, `UP/DOWN/LEFT/RIGHT`, `BACK`).
+   - `NativeBridge.kt` expõe `@JavascriptInterface` (`playStream`, `stopStream`, `setAspectRatio`, `isAndroid`, `getPlatform`).
+   - `VideoPlayerManager.kt` utiliza **AndroidX Media3 (ExoPlayer)** com módulos HLS, DASH e Progressive/MPEG-TS, além de `network_security_config.xml` permitindo conexões HTTP cleartext em qualquer porta.
+
+## 3. Modelos de Dados
 - **PlaylistItem**: `{ id, name, group, logo, url, duration, type: 'live' | 'movie' | 'series', seriesTitle, season, episode }`
 - **EpgProgram**: `{ title, desc, category, start: Date, stop: Date, progress: number, remainingMinutes: number }`
 - **XtreamCredentials**: `{ serverUrl, username, password, m3uUrl, epgUrl }`
 
-## 3. Segurança e Governança
+## 4. Segurança, CI/CD e Governança
 - Zero secrets no código cliente.
-- Isolamento de execução em User-Space (`%LOCALAPPDATA%`).
-- Gitflow estrito: `main` (apenas releases oficiais via PR) e `develop` (desenvolvimento contínuo).
-- Regra de Ouro 1: Proibido commit sem testes prévios validados.
-- Regra de Ouro 2: Proibido git push sem autorização explícita do usuário.
-
+- Isolamento de execução em User-Space (`%LOCALAPPDATA%` / app sandbox).
+- Gitflow estrito: `main` (apenas releases oficiais via PR de `develop`) e `develop` (desenvolvimento contínuo).
+- Pipelines GitHub Actions: `ci.yml` (testes JS, build .NET 10, build Android APK) e `release.yml` (binários Desktop + APK + `SHA256SUMS.txt`/`SHA512SUMS.txt` + Microsoft Defender Deep Scan).
+- Regra de Ouro 1: Proibido commit sem testes prévios validados (`node tests/run-tests.js`, `dotnet build`, `./gradlew`).
+- Regra de Ouro 2: Proibido `git push` sem autorização explícita do usuário.

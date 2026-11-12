@@ -1,21 +1,26 @@
-# FluiStream
-> Reprodutor moderno e fluido de listas M3U/M3U8 com EPG XMLTV e Xtream Codes API.
+# FluiStream (v1.1.0)
+> Reprodutor nativo multiplataforma moderno e fluido de listas M3U/M3U8 com EPG XMLTV e Xtream Codes API para Desktop Portable (Windows, Linux, macOS) e Android / Android TV.
 
 ## Informações Principais
 - Repositório: https://github.com/CesarOvies/FluiStream
-- Live Web App: https://cesarovies.github.io/FluiStream/
+- Versão Atual: 1.1.0
 - Autor: Cesar Ovies (https://github.com/CesarOvies)
 - Licença: MIT
-- Tecnologias: JavaScript (ES Modules), HTML5 Video, HLS.js, LibVLCSharp (libvlc nativo), C# .NET 10, WebView2
+- Distribuição: 100% Nativa (Desktop Portable + Android APK). A versão Web pública foi descontinuada na v1.1.0 devido a restrições de navegador (Mixed Content, CORS em redirects, portas PNA e codecs MPEG-TS).
+- Tecnologias: JavaScript (ES Modules Core UI), C# .NET 10, WebView2, LibVLCSharp (libvlc nativo), Kotlin, Android WebView + NativeBridge, AndroidX Media3 (ExoPlayer)
 - Idiomas: Português (pt-BR), Inglês (en-US), Espanhol (es)
-- Execução: 100% User-Space (asInvoker), sem necessidade de instalação ou privilégios de Administrador.
+- Execução: 100% User-Space (`asInvoker`), sem necessidade de instalador ou privilégios de Administrador.
+
+## Plataformas Suportadas
+- Windows x64 Portable (`.zip`): WinForms + WebView2 + LibVLC
+- Linux x64 e ARM64 Portable (`.tar.gz` / `.zip`): Binário self-contained .NET 10
+- macOS ARM64 Portable (`.tar.gz` / `.zip`): Binário self-contained Apple Silicon
+- Android & Android TV APK (`.apk`, API 24+): WebView (`WebViewAssetLoader`) + `NativeBridge` + `Media3 ExoPlayer` com suporte a D-Pad e Touch
 
 ## Recursos
-- Motor Duplo de Reprodução: Player HLS Nativo (Web/Desktop) e Player VLC (Desktop com LibVLC para MPEG-TS contínuo, codecs AC3/DTS e servidores XUI).
+- Motor Nativo de Reprodução: LibVLCSharp (`libvlc.dll`) no Desktop e AndroidX Media3 (`ExoPlayer`) no Android para MPEG-TS contínuo, HLS, DASH, RTSP/RTMP e codecs AC3/EAC3/DTS.
 - Seletor de Estilo de Transmissão: Auto (HLS adaptativo), HLS (.m3u8), MPEG-TS (.ts) e Original (direto).
 - Categorização automática em: Ao Vivo (Live TV), Filmes (VOD) e Séries (com temporadas/episódios).
-- Importação por Arquivo Local (.m3u, .m3u8), URL direta ou Autenticação Xtream Codes API (player_api.php).
-- Guia Eletrônico de Programação (EPG XMLTV) embutido (x-tvg-url) ou anexo externo.
-- Versão Web responsiva (PWA) e Versão Desktop Portable (.NET 10).
-- Documentação Técnica Completa: https://cesarovies.github.io/FluiStream/llms-full.txt
-
+- Importação por Arquivo Local (.m3u, .m3u8), URL direta (sockets nativos sem CORS) ou Autenticação Xtream Codes API (`player_api.php`).
+- Guia Eletrônico de Programação (EPG XMLTV) embutido (`x-tvg-url`) ou anexo externo.
+- Documentação Técnica Completa: https://github.com/CesarOvies/FluiStream/blob/main/public/llms-full.txt

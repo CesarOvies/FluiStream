@@ -40,6 +40,16 @@ async function decodeResponseText(res) {
   return new TextDecoder('utf-8').decode(buffer);
 }
 
+export function applyCorsProxy(proxy, url) {
+  if (!proxy || !url || url.startsWith('blob:') || url.startsWith('data:')) return url;
+  const p = proxy.trim();
+  if (!p) return url;
+  const enc = encodeURIComponent(url);
+  if (p.endsWith('?') || p.endsWith('=')) return `${p}${enc}`;
+  if (p.endsWith('/')) return `${p}${enc}`;
+  return `${p}/${enc}`;
+}
+
 export async function fetchRemoteText(url, timeoutMs = 60000) {
   if (!url) throw new Error('URL inválida');
 
@@ -104,7 +114,7 @@ export async function fetchRemoteText(url, timeoutMs = 60000) {
     // 4. Fallback com Proxy CORS se falhou no navegador
     const cfg = storage.getSettings();
     const proxy = cfg.corsProxy || 'https://api.allorigins.win/raw?url=';
-    const proxiedUrl = proxy.endsWith('/') ? `${proxy}${encodeURIComponent(url)}` : `${proxy}/${encodeURIComponent(url)}`;
+    const proxiedUrl = applyCorsProxy(proxy, url);
 
     try {
       const proxyRes = await fetch(proxiedUrl);

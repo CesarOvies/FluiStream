@@ -151,7 +151,11 @@
           <div id="player-error-overlay" class="player-error-overlay hidden">
             <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
             <p id="player-error-msg" class="player-error-text">Falha ao reproduzir o canal</p>
-            <button class="btn-primary" id="btn-player-retry">Tentar Novamente</button>
+            <p id="player-error-hint" class="player-error-hint hidden"></p>
+            <div class="player-error-actions">
+              <button class="btn-primary" id="btn-player-retry" data-i18n="playerRetry">Tentar Novamente</button>
+              <button class="btn-secondary hidden" id="btn-player-open-settings" data-i18n="btnConfigureProxy">Configurar Proxy</button>
+            </div>
           </div>
           <video id="main-video" playsinline controls></video>
         </div>
@@ -354,7 +358,7 @@
         <!-- Avisos de Conformidade e CORS Web -->
         <div class="legal-notice-box" style="margin-top: 1rem; padding: 0.75rem; background-color: rgba(110, 118, 129, 0.1); border: 1px solid var(--border-subtle); border-radius: 6px; font-size: 0.75rem; color: var(--text-muted); line-height: 1.4;">
           <p data-i18n="legalDisclaimer" style="margin-bottom: 0.35rem;">Aviso Legal: FluiStream é um reprodutor neutro de software livre. Não fornece, não hospeda e não comercializa listas ou conteúdo de mídia. O usuário é o único responsável pela legalidade das fontes que carrega.</p>
-          <p data-i18n="webCorsNotice" style="margin: 0;">Nota Web (HTTPS): No navegador em conexões seguras (como GitHub Pages), transmissões sem cabeçalho CORS ou em HTTP inseguro podem ser bloqueadas pelo navegador. Se isso ocorrer, utilize fluxos HTTPS com CORS habilitado ou utilize a versão Desktop Portable sem restrições.</p>
+          <p id="import-web-cors-notice" data-i18n="webCorsNotice" style="margin: 0;">Nota Web (HTTPS): No navegador em conexões seguras (como GitHub Pages), transmissões sem cabeçalho CORS ou em HTTP inseguro podem ser bloqueadas pelo navegador. Se isso ocorrer, utilize fluxos HTTPS com CORS habilitado ou utilize a versão Desktop Portable sem restrições.</p>
         </div>
       </div>
       <div class="modal-footer">
@@ -389,12 +393,6 @@
         </div>
 
         <div class="form-group">
-          <label data-i18n="settingsCorsProxy">Proxy CORS (para URLs que bloqueiam navegadores)</label>
-          <input type="text" id="settings-cors-input" placeholder="https://corsproxy.io/?" class="form-control" />
-          <p class="help-text" data-i18n="settingsCorsHelp">Usado na versão Web para contornar restrições CORS de streams remotos. O app Portable não necessita de proxy.</p>
-        </div>
-
-        <div class="form-group">
           <label data-i18n="settingsPlayerEngine">Motor de Reprodução Padrão</label>
           <select id="settings-player-engine-select" class="form-control">
             <option value="hls" data-i18n="playerEngineHls">Player HLS Nativo (HTML5)</option>
@@ -414,9 +412,23 @@
           <p class="help-text" data-i18n="settingsStreamModeHelp">Define o formato preferido para reprodução de canais ao vivo (HLS segmentado, MPEG-TS contínuo ou URL original).</p>
         </div>
 
+        <details class="advanced-debug-details" id="settings-advanced-details">
+          <summary data-i18n="settingsAdvancedDebug">Avançado / Depuração (Web CORS)</summary>
+          <div class="advanced-debug-body">
+            <div class="form-group">
+              <label data-i18n="settingsCorsProxy">Proxy CORS (para URLs que bloqueiam navegadores)</label>
+              <div style="display: flex; gap: 0.5rem; align-items: center;">
+                <input type="text" id="settings-cors-input" placeholder="http://127.0.0.1:8787/?" class="form-control" style="flex: 1;" />
+                <button type="button" class="btn-secondary" id="btn-use-local-proxy" data-i18n="btnLocalBridge" style="white-space: nowrap; font-size: 0.8125rem; padding: 0.45rem 0.75rem;">Bridge Local</button>
+              </div>
+              <p class="help-text" id="local-proxy-detect-status" data-i18n="settingsCorsHelp">Usado na versão Web para contornar restrições CORS de streams remotos. O app Portable não necessita de proxy.</p>
+            </div>
+          </div>
+        </details>
+
         <div style="border-top: 1px solid var(--border-subtle); padding-top: 1rem; display: flex; flex-direction: column; gap: 0.75rem;">
           <div style="display: flex; justify-content: space-between; align-items: center;">
-            <span style="font-size: 0.8125rem; color: var(--text-secondary);" data-i18n="settingsVersion">Versão 1.0.0 — Padrão Cesar Ovies</span>
+            <span style="font-size: 0.8125rem; color: var(--text-secondary);" data-i18n="settingsVersion">Versão 1.1.0 — Padrão Cesar Ovies</span>
             <button class="btn-secondary" id="btn-check-updates-manual" data-i18n="btnCheckUpdates">
               Verificar Atualizações
             </button>
@@ -458,7 +470,7 @@
         <div style="background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 1rem; text-align: left; font-size: 0.8125rem; color: var(--text-secondary); line-height: 1.6; margin-bottom: 1.25rem;">
           <div><strong>Autor:</strong> Cesar Ovies</div>
           <div><strong>Padrões de Engenharia:</strong> DWM Dark Mode, i18n Reativo (PT/EN/ES), Single-file Portable sem instalador, Auto-Update seguro com SHA-256 e Defender scan.</div>
-          <div style="margin-top: 0.5rem;"><strong>Versão:</strong> 1.0.0</div>
+          <div style="margin-top: 0.5rem;"><strong>Versão:</strong> 1.1.0</div>
         </div>
 
         <div style="display: flex; justify-content: center; gap: 0.75rem; flex-wrap: wrap;">
@@ -553,11 +565,16 @@
           </div>
         </div>
 
-        <!-- Proxy CORS específico do perfil (se aplicável) -->
-        <div class="form-group" style="margin-top: 0.75rem;">
-          <label data-i18n="settingsCorsProxy">Proxy CORS</label>
-          <input type="text" id="input-edit-cors-proxy" placeholder="https://corsproxy.io/?" class="form-control" />
-        </div>
+        <!-- Seção Avançada / Proxy CORS específico do perfil -->
+        <details class="advanced-debug-details" id="edit-profile-advanced-details" style="margin-top: 0.75rem;">
+          <summary data-i18n="settingsAdvancedDebug">Avançado / Depuração (Web CORS)</summary>
+          <div class="advanced-debug-body">
+            <div class="form-group">
+              <label data-i18n="settingsCorsProxy">Proxy CORS</label>
+              <input type="text" id="input-edit-cors-proxy" placeholder="http://127.0.0.1:8787/?" class="form-control" />
+            </div>
+          </div>
+        </details>
 
         <div id="edit-profile-status" style="font-size: 0.8125rem; margin-top: 0.5rem; color: var(--accent-blue);"></div>
       </div>
@@ -698,7 +715,7 @@
 
   <!-- Registro do Service Worker e Módulos -->
   <script type="module" src="assets/site-footer.js"></script>
-  <script type="module" src="js/app.js?v=1.0.1"></script>
+  <script type="module" src="js/app.js?v=1.1.0"></script>
   <script>
     if ('serviceWorker' in navigator && (window.location.protocol === 'https:' || window.location.hostname === 'localhost')) {
       navigator.serviceWorker.register('./sw.js').then((reg) => {
