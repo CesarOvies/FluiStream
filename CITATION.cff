@@ -3,9 +3,8 @@ message: "If you use this software, please cite it using the metadata below."
 authors:
   - family-names: "Ovies"
     given-names: "Cesar"
-title: "FluiStream — Modern M3U, EPG & Xtream Codes Player"
-version: 1.0.0
-date-released: 2026-11-11
+title: "FluiStream — Native Multiplatform M3U, EPG & Xtream Codes Player (Desktop & Android)"
+version: 1.1.0
+date-released: 2026-11-12
 url: "https://github.com/CesarOvies/FluiStream"
 license: MIT
-

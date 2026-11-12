@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="320dp"
+    android:height="180dp"
+    android:viewportWidth="320"
+    android:viewportHeight="180">
+
+    <!-- GitHub Dark Banner Background -->
+    <path
+        android:fillColor="#0D1117"
+        android:pathData="M0,0h320v180h-320z" />
+    <path
+        android:fillColor="#161B22"
+        android:pathData="M12,12 L308,12 A12,12 0,0 1,320 24 L320,156 A12,12 0,0 1,308 168 L12,168 A12,12 0,0 1,0 156 L0,24 A12,12 0,0 1,12 12 Z"
+        android:strokeColor="#30363D"
+        android:strokeWidth="2" />
+
+    <!-- Accent Glow Bars -->
+    <path
+        android:fillColor="#238636"
+        android:pathData="M0,174h160v6h-160z" />
+    <path
+        android:fillColor="#388BFD"
+        android:pathData="M160,174h160v6h-160z" />
+
+    <!-- Left Emblem (FluiStream TV + Play) -->
+    <path
+        android:pathData="M78,44 L66,28"
+        android:strokeColor="#8B949E"
+        android:strokeLineCap="round"
+        android:strokeWidth="4" />
+    <path
+        android:fillColor="#238636"
+        android:pathData="M66,28m-3.5,0a3.5,3.5 0,1 1,7 0a3.5,3.5 0,1 1,-7 0" />
+    <path
+        android:pathData="M114,44 L126,28"
+        android:strokeColor="#8B949E"
+        android:strokeLineCap="round"
+        android:strokeWidth="4" />
+    <path
+        android:fillColor="#388BFD"
+        android:pathData="M126,28m-3.5,0a3.5,3.5 0,1 1,7 0a3.5,3.5 0,1 1,-7 0" />
+
+    <path
+        android:fillColor="#090D13"
+        android:pathData="M50,44 L142,44 A10,10 0,0 1,152 54 L152,118 A10,10 0,0 1,142 128 L50,128 A10,10 0,0 1,40 118 L40,54 A10,10 0,0 1,50 44 Z"
+        android:strokeColor="#30363D"
+        android:strokeWidth="3.5" />
+
+    <path
+        android:fillColor="#238636"
+        android:pathData="M56,68 C78,59 95,82 122,70 C127,68 131,72 129,76 C126,86 110,94 88,83 C72,74 63,79 56,79 Z" />
+    <path
+        android:fillColor="#388BFD"
+        android:pathData="M56,89 C77,89 89,108 116,97 C121,95 125,99 123,104 C118,113 100,120 79,108 C66,101 60,102 56,101 Z" />
+    <path
+        android:fillColor="#F0F6FC"
+        android:pathData="M86,74 L112,88 L86,102 Z" />
+
+    <path
+        android:pathData="M96,128 L96,138 M80,138 L112,138"
+        android:strokeColor="#30363D"
+        android:strokeLineCap="round"
+        android:strokeWidth="4" />
+
+    <!-- Right Stylized Wordmark Bars ("FS" + Stream Lines) -->
+    <path
+        android:fillColor="#F0F6FC"
+        android:pathData="M180,62 L245,62 L245,73 L193,73 L193,85 L236,85 L236,96 L193,96 L193,118 L180,118 Z" />
+    <path
+        android:fillColor="#388BFD"
+        android:pathData="M258,62 L288,62 L288,73 L258,73 Z" />
+    <path
+        android:fillColor="#238636"
+        android:pathData="M258,85 L280,85 L280,96 L258,96 Z" />
+    <path
+        android:fillColor="#8B949E"
+        android:pathData="M258,107 L288,107 L288,118 L258,118 Z" />
+</vector>

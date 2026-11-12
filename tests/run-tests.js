@@ -8,17 +8,18 @@ import { M3UParser, ItemType } from '../src/web/js/m3u-parser.js';
 import { EPGParser } from '../src/web/js/epg-parser.js';
 import { XtreamApi } from '../src/web/js/xtream-api.js';
 import { translations, SupportedLanguages } from '../src/web/js/localization.js';
-import { parseCleanVersion, isNewerVersion } from '../src/web/js/version.js';
+import { APP_VERSION, parseCleanVersion, isNewerVersion } from '../src/web/js/version.js';
 import { VideoPlayerController } from '../src/web/js/player.js';
 import { StorageService } from '../src/web/js/storage.js';
+import { applyCorsProxy } from '../src/web/js/network.js';
 
 let totalTests = 0;
 let passedTests = 0;
 
-function test(name, fn) {
+async function test(name, fn) {
   totalTests++;
   try {
-    fn();
+    await fn();
     passedTests++;
     console.log(`  ✓ ${name}`);
   } catch (err) {
@@ -30,14 +31,14 @@ function test(name, fn) {
 
 console.log('\n--- 1. Testes do M3UParser ---');
 
-test('Deve extrair url-tvg / x-tvg-url do cabeçalho #EXTM3U', () => {
+await test('Deve extrair url-tvg / x-tvg-url do cabeçalho #EXTM3U', () => {
   const m3u = `#EXTM3U x-tvg-url="http://meuepg.com/epg.xml"\n#EXTINF:-1 tvg-name="Canal",Canal\nhttp://stream.com/live.m3u8`;
   const result = M3UParser.parse(m3u);
   assert.equal(result.epgUrl, 'http://meuepg.com/epg.xml');
   assert.equal(result.items.length, 1);
 });
 
-test('Deve classificar canais ao vivo corretamente', () => {
+await test('Deve classificar canais ao vivo corretamente', () => {
   const m3u = `#EXTM3U\n#EXTINF:-1 tvg-id="noticias1" group-title="TV Aberta",Canal Teste 1\nhttp://stream.com/canal1.m3u8`;
   const result = M3UParser.parse(m3u);
   assert.equal(result.items[0].type, ItemType.LIVE);
@@ -45,13 +46,13 @@ test('Deve classificar canais ao vivo corretamente', () => {
   assert.equal(result.items[0].name, 'Canal Teste 1');
 });
 
-test('Deve classificar filmes VOD corretamente', () => {
+await test('Deve classificar filmes VOD corretamente', () => {
   const m3u = `#EXTM3U\n#EXTINF:7200 tvg-id="filme1" group-title="Filmes Ação",Filme Demonstração Ação\nhttp://stream.com/movie/user/pass/123.mp4`;
   const result = M3UParser.parse(m3u);
   assert.equal(result.items[0].type, ItemType.MOVIE);
 });
 
-test('Deve classificar séries e extrair temporada e episódio', () => {
+await test('Deve classificar séries e extrair temporada e episódio', () => {
   const m3u = `#EXTM3U\n#EXTINF:-1 group-title="Séries Drama",Série Exemplo - S02E05 - Episódio Teste\nhttp://stream.com/series/user/pass/456.mp4`;
   const result = M3UParser.parse(m3u);
   assert.equal(result.items[0].type, ItemType.SERIES);
@@ -62,13 +63,13 @@ test('Deve classificar séries e extrair temporada e episódio', () => {
 
 console.log('\n--- 2. Testes do EPGParser (XMLTV) ---');
 
-test('Deve converter data XMLTV com fuso horário corretamente', () => {
+await test('Deve converter data XMLTV com fuso horário corretamente', () => {
   const parsed = EPGParser.parseXmltvDate('20261111220000 -0300');
   assert.ok(parsed instanceof Date);
   assert.equal(parsed.getUTCHours(), 1); // 22h -0300 = 01h UTC do dia seguinte
 });
 
-test('Deve parsear canais e programas e calcular programa atual', () => {
+await test('Deve parsear canais e programas e calcular programa atual', () => {
   const now = new Date();
   const startStr = `${now.getUTCFullYear()}${String(now.getUTCMonth()+1).padStart(2,'0')}${String(now.getUTCDate()).padStart(2,'0')}000000 +0000`;
   const stopStr = `${now.getUTCFullYear()}${String(now.getUTCMonth()+1).padStart(2,'0')}${String(now.getUTCDate()+1).padStart(2,'0')}235959 +0000`;
@@ -96,7 +97,7 @@ test('Deve parsear canais e programas e calcular programa atual', () => {
 
 console.log('\n--- 3. Testes do XtreamApi ---');
 
-test('Deve normalizar URL e gerar endpoints corretos do player_api e get.php', () => {
+await test('Deve normalizar URL e gerar endpoints corretos do player_api e get.php', () => {
   const xtream = new XtreamApi('http://myiptv.com:8080///', 'teste', 'senha123');
   assert.equal(xtream.serverUrl, 'http://myiptv.com:8080');
   assert.equal(xtream.getM3uUrl(), 'http://myiptv.com:8080/get.php?username=teste&password=senha123&type=m3u_plus&output=m3u8');
@@ -106,18 +107,35 @@ test('Deve normalizar URL e gerar endpoints corretos do player_api e get.php', (
 
 console.log('\n--- 4. Testes de Internacionalização (i18n - 3 Idiomas) ---');
 
-test('Todos os 3 idiomas (pt-BR, en-US, es) devem possuir o mesmo conjunto de chaves', () => {
+await test('Todos os 3 idiomas (pt-BR, en-US, es) devem possuir o mesmo conjunto de chaves', () => {
+  assert.deepEqual(Object.values(SupportedLanguages).sort(), ['en-US', 'es', 'pt-BR']);
+
   const ptKeys = Object.keys(translations['pt-BR']).sort();
   const enKeys = Object.keys(translations['en-US']).sort();
   const esKeys = Object.keys(translations['es']).sort();
 
   assert.deepEqual(ptKeys, enKeys, 'Chaves pt-BR e en-US devem ser idênticas');
   assert.deepEqual(ptKeys, esKeys, 'Chaves pt-BR e es devem ser idênticas');
+
+  for (const lang of ['pt-BR', 'en-US', 'es']) {
+    for (const key of ptKeys) {
+      assert.equal(typeof translations[lang][key], 'string', `${lang}.${key} deve ser string`);
+      assert.ok(translations[lang][key].length > 0, `${lang}.${key} não pode estar vazio`);
+    }
+    assert.ok(translations[lang].settingsVersion.includes(APP_VERSION), `${lang}.settingsVersion deve refletir v${APP_VERSION}`);
+    assert.ok('settingsAdvancedDebug' in translations[lang], `${lang} deve conter chave settingsAdvancedDebug`);
+  }
 });
 
 console.log('\n--- 5. Testes do Auto-Update & Versioning ---');
 
-test('Deve fazer parse limpo de versão semântica', () => {
+await test('APP_VERSION deve ser 1.1.0 e seguir comparação semântica', () => {
+  assert.equal(APP_VERSION, '1.1.0');
+  assert.equal(isNewerVersion('v1.2.0', APP_VERSION), true);
+  assert.equal(isNewerVersion('v1.1.0', APP_VERSION), false);
+});
+
+await test('Deve fazer parse limpo de versão semântica', () => {
   const v1 = parseCleanVersion('v1.2.3');
   assert.deepEqual(v1, { major: 1, minor: 2, patch: 3 });
 
@@ -125,7 +143,7 @@ test('Deve fazer parse limpo de versão semântica', () => {
   assert.deepEqual(v2, { major: 2, minor: 0, patch: 0 });
 });
 
-test('Deve detectar corretamente se há versão mais recente no Git', () => {
+await test('Deve detectar corretamente se há versão mais recente no Git', () => {
   assert.equal(isNewerVersion('v1.0.1', '1.0.0'), true);
   assert.equal(isNewerVersion('v1.1.0', '1.0.9'), true);
   assert.equal(isNewerVersion('v2.0.0', '1.9.9'), true);
@@ -135,7 +153,7 @@ test('Deve detectar corretamente se há versão mais recente no Git', () => {
 
 console.log('\n--- 6. Testes de Otimização e Categorização Pré-load ---');
 
-test('Deve agrupar e paginar 10.000 itens de filmes/séries em < 20ms sem travar a interface', () => {
+await test('Deve agrupar e paginar 10.000 itens de filmes/séries em < 20ms sem travar a interface', () => {
   const largeItemList = [];
   const genres = ['Ação', 'Comédia', 'Drama', 'Ficção', 'Terror'];
   for (let i = 0; i < 10000; i++) {
@@ -172,7 +190,7 @@ test('Deve agrupar e paginar 10.000 itens de filmes/séries em < 20ms sem travar
 
 console.log('\n--- 7. Testes de Resolução Multi-Apelidos no EPG (EPG-AutoAdjusted) ---');
 
-test('Deve resolver "HBO + PLUS FHD" para o id "hboplus.br" via índice de apelidos multi-display-name', () => {
+await test('Deve resolver "HBO + PLUS FHD" para o id "hboplus.br" via índice de apelidos multi-display-name', () => {
   const xml = `<?xml version="1.0" encoding="UTF-8"?>
   <tv>
     <channel id="hbo.br">
@@ -206,7 +224,7 @@ test('Deve resolver "HBO + PLUS FHD" para o id "hboplus.br" via índice de apeli
 
 console.log('\n--- 8. Testes de Agrupamento de Séries por Nome e Temporada ---');
 
-test('Deve agrupar episódios soltos em entidade de série única com temporadas organizadas', () => {
+await test('Deve agrupar episódios soltos em entidade de série única com temporadas organizadas', () => {
   const rawEpisodes = [
     { id: '1', name: '13 Reasons Why S01E01', seriesTitle: '13 Reasons Why', season: 1, episode: 1, type: ItemType.SERIES, group: 'Series | Netflix' },
     { id: '2', name: '13 Reasons Why S01E02', seriesTitle: '13 Reasons Why', season: 1, episode: 2, type: ItemType.SERIES, group: 'Series | Netflix' },
@@ -246,7 +264,7 @@ test('Deve agrupar episódios soltos em entidade de série única com temporadas
 
 console.log('\n--- 9. Testes de Gerenciamento e Edição de Perfis ---');
 
-test('Deve criar, atualizar/editar e persistir atributos de um perfil existente', () => {
+await test('Deve criar, atualizar/editar e persistir atributos de um perfil existente', () => {
   const store = {};
   globalThis.localStorage = {
     getItem: (k) => store[k] || null,
@@ -292,7 +310,7 @@ test('Deve criar, atualizar/editar e persistir atributos de um perfil existente'
 
 console.log('\n--- 10. Testes de Faixas de Áudio e Legendas do Player ---');
 
-test('Deve extrair faixas de áudio e legendas e notificar callback', () => {
+await test('Deve extrair faixas de áudio e legendas e notificar callback', () => {
   const mockVideo = {
     addEventListener: () => {},
     removeEventListener: () => {},
@@ -339,6 +357,143 @@ test('Deve extrair faixas de áudio e legendas e notificar callback', () => {
   // Desativar legendas
   controller.setSubtitleTrack(-1);
   assert.equal(controller.currentSubtitleTrack, -1);
+});
+
+console.log('\n--- 11. Testes do Formatador de Proxy CORS ---');
+
+await test('Deve aplicar Proxy CORS corretamente respeitando ? e /', () => {
+  const url = 'http://stream.servidor.com:8080/live/user/pass/123.m3u8';
+  const encoded = encodeURIComponent(url);
+
+  // Proxy com ? (ex: corsproxy.io)
+  assert.equal(applyCorsProxy('https://corsproxy.io/?', url), `https://corsproxy.io/?${encoded}`);
+
+  // Proxy com ?url= (ex: allorigins)
+  assert.equal(applyCorsProxy('https://api.allorigins.win/raw?url=', url), `https://api.allorigins.win/raw?url=${encoded}`);
+
+  // Proxy com / final
+  assert.equal(applyCorsProxy('https://meuproxy.com/', url), `https://meuproxy.com/${encoded}`);
+
+  // Proxy sem / final
+  assert.equal(applyCorsProxy('https://meuproxy.com', url), `https://meuproxy.com/${encoded}`);
+
+  // Proxy vazio ou nulo (retorna URL original)
+  assert.equal(applyCorsProxy('', url), url);
+  assert.equal(applyCorsProxy(null, url), url);
+
+  // URLs especiais (blob, data)
+  assert.equal(applyCorsProxy('https://corsproxy.io/?', 'blob:http://localhost/abc'), 'blob:http://localhost/abc');
+});
+
+console.log('\n--- 12. Testes de Delegação da Ponte Nativa Android (window.androidBridge) ---');
+
+await test('Deve delegar playStream, setAspectRatio e stop para window.androidBridge e ocultar <video>', async () => {
+  const prevWindow = globalThis.window;
+  const calls = { playStream: [], stopStream: 0, setAspectRatio: [] };
+  const states = [];
+
+  globalThis.window = {
+    addEventListener: () => {},
+    androidBridge: {
+      playStream(url, title, itemType, streamMode) {
+        calls.playStream.push({ url, title, itemType, streamMode });
+      },
+      stopStream() {
+        calls.stopStream++;
+      },
+      setAspectRatio(ratio) {
+        calls.setAspectRatio.push(ratio);
+      }
+    }
+  };
+
+  try {
+    const mockVideo = {
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      pause: () => {},
+      removeAttribute: () => {},
+      load: () => {},
+      play: () => Promise.resolve(),
+      style: { display: 'block' },
+      classList: { add: () => {}, remove: () => {} }
+    };
+    const mockContainer = {
+      classList: { add: () => {}, remove: () => {} }
+    };
+
+    const controller = new VideoPlayerController(mockVideo, mockContainer);
+    controller.onStateChange = (state) => states.push(state);
+
+    const item = {
+      name: 'Canal HD',
+      type: 'live',
+      url: 'http://iptv.example.com:8080/user/pass/42'
+    };
+
+    await controller.playStream(item, '', 'ts', 'hls');
+
+    assert.equal(mockVideo.style.display, 'none', 'Deve ocultar <video> HTML5 no Android');
+    assert.equal(calls.playStream.length, 1);
+    assert.deepEqual(calls.playStream[0], {
+      url: 'http://iptv.example.com:8080/live/user/pass/42.ts',
+      title: 'Canal HD',
+      itemType: 'live',
+      streamMode: 'ts'
+    });
+    assert.equal(mockVideo.src, undefined, 'Não deve atribuir src ao <video> quando delegado ao Android');
+    assert.deepEqual(states, ['loading', 'playing']);
+
+    controller.setAspectRatio('16:9');
+    assert.deepEqual(calls.setAspectRatio, ['16:9']);
+
+    controller.stop();
+    assert.equal(calls.stopStream, 1);
+    assert.equal(mockVideo.style.display, 'none', 'Deve manter <video> oculto ao parar no Android');
+    assert.equal(controller.isStopped, true);
+    assert.equal(states[states.length - 1], 'idle');
+  } finally {
+    if (prevWindow === undefined) {
+      delete globalThis.window;
+    } else {
+      globalThis.window = prevWindow;
+    }
+  }
+});
+
+await test('Deve restaurar display block no <video> quando window.androidBridge não está presente', async () => {
+  const prevWindow = globalThis.window;
+  globalThis.window = { addEventListener: () => {} };
+
+  try {
+    const mockVideo = {
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      pause: () => {},
+      removeAttribute: () => {},
+      load: () => {},
+      play: () => Promise.resolve(),
+      style: { display: 'none' },
+      classList: { add: () => {}, remove: () => {} }
+    };
+    const mockContainer = {
+      classList: { add: () => {}, remove: () => {} }
+    };
+
+    const controller = new VideoPlayerController(mockVideo, mockContainer);
+    await controller.playStream({ name: 'VOD', type: 'movie', url: 'http://cdn.example.com/movie.mp4' }, '', 'auto', 'hls');
+    assert.equal(mockVideo.style.display, 'block');
+    assert.equal(mockVideo.src, 'http://cdn.example.com/movie.mp4');
+
+    controller.stop();
+    assert.equal(mockVideo.style.display, 'block');
+  } finally {
+    if (prevWindow === undefined) {
+      delete globalThis.window;
+    } else {
+      globalThis.window = prevWindow;
+    }
+  }
 });
 
 console.log(`\n========================================`);

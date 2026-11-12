@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- TV Antennas -->
+    <path
+        android:pathData="M43,31 L36,21"
+        android:strokeColor="#8B949E"
+        android:strokeLineCap="round"
+        android:strokeWidth="2.4" />
+    <path
+        android:fillColor="#10B981"
+        android:pathData="M36,21m-2,0a2,2 0,1 1,4 0a2,2 0,1 1,-4 0" />
+    <path
+        android:pathData="M65,31 L72,21"
+        android:strokeColor="#8B949E"
+        android:strokeLineCap="round"
+        android:strokeWidth="2.4" />
+    <path
+        android:fillColor="#388BFD"
+        android:pathData="M72,21m-2,0a2,2 0,1 1,4 0a2,2 0,1 1,-4 0" />
+
+    <!-- TV Screen Frame -->
+    <path
+        android:fillColor="#090D13"
+        android:pathData="M28,31 L80,31 A6,6 0,0 1,86 37 L86,71 A6,6 0,0 1,80 77 L28,77 A6,6 0,0 1,22 71 L22,37 A6,6 0,0 1,28 31 Z"
+        android:strokeColor="#30363D"
+        android:strokeWidth="2.2" />
+
+    <!-- Top Fluid Wave (Emerald) -->
+    <path
+        android:fillColor="#10B981"
+        android:pathData="M33,43 C46,38 56,51 70,44 C73,43 75,45 74,48 C72,53 63,58 51,51 C42,46 37,49 33,49 Z" />
+
+    <!-- Bottom Fluid Wave (Blue) -->
+    <path
+        android:fillColor="#388BFD"
+        android:pathData="M33,54 C45,54 52,65 66,59 C69,58 71,60 70,63 C67,68 57,72 45,65 C38,61 35,62 33,61 Z" />
+
+    <!-- Central Play Triangle -->
+    <path
+        android:fillColor="#F0F6FC"
+        android:pathData="M48,47 L63,55 L48,63 Z" />
+
+    <!-- TV Stand -->
+    <path
+        android:pathData="M54,77 L54,82 M46,82 L62,82"
+        android:strokeColor="#30363D"
+        android:strokeLineCap="round"
+        android:strokeWidth="2.6" />
+</vector>

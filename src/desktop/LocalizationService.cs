@@ -37,7 +37,14 @@ public static class LocalizationService
         ["BtnUpdate"] = ("Atualizar e Reiniciar", "Update & Restart", "Actualizar y Reiniciar"),
         ["BtnCancel"] = ("Lembrar Depois", "Remind Me Later", "Recordar Más Tarde"),
         ["ErrorWebView2Title"] = ("Componente WebView2 Necessário", "WebView2 Runtime Required", "Componente WebView2 Requerido"),
-        ["ErrorWebView2Body"] = ("O Microsoft Edge WebView2 Runtime é necessário para executar o FluiStream.", "Microsoft Edge WebView2 Runtime is required to run FluiStream.", "El Microsoft Edge WebView2 Runtime es necesario para ejecutar FluiStream.")
+        ["ErrorWebView2Body"] = ("O Microsoft Edge WebView2 Runtime é necessário para executar o FluiStream.", "Microsoft Edge WebView2 Runtime is required to run FluiStream.", "El Microsoft Edge WebView2 Runtime es necesario para ejecutar FluiStream."),
+        ["UpdateDownloading"] = ("Baixando atualização: {0}%", "Downloading update: {0}%", "Descargando actualización: {0}%"),
+        ["UpdateHashVerifying"] = ("Verificando integridade SHA-256...", "Verifying SHA-256 integrity...", "Verificando integridad SHA-256..."),
+        ["UpdateHashMismatch"] = ("Falha na verificação de segurança SHA-256. Atualização abortada.", "SHA-256 security verification failed. Update aborted.", "Error en la verificación de seguridad SHA-256. Actualización cancelada."),
+        ["UpdateHashMissing"] = ("Hash SHA-256 não encontrado em SHA256SUMS.txt para este pacote.", "SHA-256 hash not found in SHA256SUMS.txt for this package.", "Hash SHA-256 no encontrado en SHA256SUMS.txt para este paquete."),
+        ["UpdateHashFetchError"] = ("Não foi possível baixar SHA256SUMS.txt para validar a atualização.", "Unable to download SHA256SUMS.txt to validate update.", "No se pudo descargar SHA256SUMS.txt para validar la actualización."),
+        ["UpdateApplying"] = ("Substituindo arquivos e reiniciando aplicação...", "Replacing files and restarting application...", "Reemplazando archivos y reiniciando la aplicación..."),
+        ["UpdateError"] = ("Erro ao atualizar: {0}", "Update error: {0}", "Error al actualizar: {0}")
     };
 
     public static string Get(string key)

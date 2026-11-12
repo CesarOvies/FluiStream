@@ -38,14 +38,24 @@ class FluiStreamApp {
     this.init();
   }
 
+  isNativeApp() {
+    return typeof window !== 'undefined' && Boolean(window.chrome?.webview || window.androidBridge);
+  }
+
   async init() {
     this.bindDomElements();
+    if (this.isNativeApp() && this.dom.importWebCorsNotice) {
+      this.dom.importWebCorsNotice.classList.add('hidden');
+    }
     this.initPlayer();
     this.initI18n();
     this.bindEvents();
     await this.loadSavedState();
     this.render();
     this.checkAppUpdates();
+    if (!this.isNativeApp()) {
+      this.detectLocalProxy();
+    }
   }
 
   bindDomElements() {
@@ -109,7 +119,10 @@ class FluiStreamApp {
       streamModeSelect: document.getElementById('select-stream-mode'),
       playerEngineSelect: document.getElementById('select-player-engine'),
       langSelect: document.getElementById('settings-lang-select'),
+      settingsAdvancedDetails: document.getElementById('settings-advanced-details'),
       corsInput: document.getElementById('settings-cors-input'),
+      btnUseLocalProxy: document.getElementById('btn-use-local-proxy'),
+      localProxyDetectStatus: document.getElementById('local-proxy-detect-status'),
       settingsStreamModeSelect: document.getElementById('settings-stream-mode-select'),
       settingsPlayerEngineSelect: document.getElementById('settings-player-engine-select'),
       btnSaveSettings: document.getElementById('btn-save-settings'),
@@ -139,8 +152,10 @@ class FluiStreamApp {
       inputEditExternalEpg: document.getElementById('input-edit-external-epg'),
       selectEditStreamMode: document.getElementById('select-edit-stream-mode'),
       selectEditPlayerEngine: document.getElementById('select-edit-player-engine'),
+      editProfileAdvancedDetails: document.getElementById('edit-profile-advanced-details'),
       inputEditCorsProxy: document.getElementById('input-edit-cors-proxy'),
       editProfileStatus: document.getElementById('edit-profile-status'),
+      importWebCorsNotice: document.getElementById('import-web-cors-notice'),
       // Informações da Conta (Tela 6)
       btnOpenAccount: document.getElementById('btn-open-account'),
       modalAccount: document.getElementById('modal-account'),
@@ -195,7 +210,9 @@ class FluiStreamApp {
       playerLoadingText: document.getElementById('player-loading-text'),
       playerErrorOverlay: document.getElementById('player-error-overlay'),
       playerErrorMsg: document.getElementById('player-error-msg'),
-      btnPlayerRetry: document.getElementById('btn-player-retry')
+      playerErrorHint: document.getElementById('player-error-hint'),
+      btnPlayerRetry: document.getElementById('btn-player-retry'),
+      btnPlayerOpenSettings: document.getElementById('btn-player-open-settings')
     };
   }
 
@@ -257,6 +274,12 @@ class FluiStreamApp {
     if (this.dom.btnPlayerRetry) {
       this.dom.btnPlayerRetry.addEventListener('click', () => {
         if (this.currentPlayingItem) this.playChannel(this.currentPlayingItem);
+      });
+    }
+    if (this.dom.btnPlayerOpenSettings) {
+      this.dom.btnPlayerOpenSettings.addEventListener('click', () => {
+        if (this.dom.btnOpenSettings) this.dom.btnOpenSettings.click();
+        if (this.dom.settingsAdvancedDetails) this.dom.settingsAdvancedDetails.open = true;
       });
     }
 
@@ -363,11 +386,18 @@ class FluiStreamApp {
 
     // Botões de navegação inicial
     if (this.dom.btnBrandHome) {
-      this.dom.btnBrandHome.addEventListener('click', () => {
+      const goHome = () => {
         this.selectedGroup = null;
         this.searchQuery = '';
         if (this.dom.searchInput) this.dom.searchInput.value = '';
         this.render();
+      };
+      this.dom.btnBrandHome.addEventListener('click', goHome);
+      this.dom.btnBrandHome.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          goHome();
+        }
       });
     }
 
@@ -429,7 +459,7 @@ class FluiStreamApp {
       this.dom.btnLoadMore.addEventListener('click', () => this.appendChannelBatch(this.PAGE_SIZE));
     }
 
-    // Delegação de eventos de clique nos canais, séries e favoritos
+    // Delegação de eventos de clique e teclado/D-Pad nos canais, séries e favoritos
     if (this.dom.channelList) {
       this.dom.channelList.addEventListener('click', (e) => {
         const favBtn = e.target.closest('.btn-fav');
@@ -456,15 +486,31 @@ class FluiStreamApp {
           if (item) this.playChannel(item);
         }
       });
+      this.dom.channelList.addEventListener('keydown', (e) => {
+        if (e.key !== 'Enter' && e.key !== ' ') return;
+        const card = e.target.closest('.channel-card');
+        if (card && !e.target.closest('.btn-fav')) {
+          e.preventDefault();
+          card.click();
+        }
+      });
     }
 
-    // Delegação de eventos de clique nos cartões de categoria
+    // Delegação de eventos de clique e teclado/D-Pad nos cartões de categoria
     if (this.dom.categoryOverviewGrid) {
       this.dom.categoryOverviewGrid.addEventListener('click', (e) => {
         const card = e.target.closest('.category-card');
         if (card) {
           const group = card.getAttribute('data-group');
           this.selectCategory(group);
+        }
+      });
+      this.dom.categoryOverviewGrid.addEventListener('keydown', (e) => {
+        if (e.key !== 'Enter' && e.key !== ' ') return;
+        const card = e.target.closest('.category-card');
+        if (card) {
+          e.preventDefault();
+          card.click();
         }
       });
     }
@@ -477,6 +523,7 @@ class FluiStreamApp {
       this.dom.btnOpenSettings.addEventListener('click', () => {
         const cfg = storage.getSettings();
         if (this.dom.corsInput) this.dom.corsInput.value = cfg.corsProxy || '';
+        if (this.dom.settingsAdvancedDetails) this.dom.settingsAdvancedDetails.open = false;
         if (this.dom.settingsStreamModeSelect) this.dom.settingsStreamModeSelect.value = cfg.streamMode || 'auto';
         if (this.dom.settingsPlayerEngineSelect) {
           const isDesktop = Boolean(window.chrome?.webview);
@@ -488,6 +535,25 @@ class FluiStreamApp {
           this.dom.settingsPlayerEngineSelect.value = (!isDesktop && cfg.playerEngine === 'vlc') ? 'hls' : (cfg.playerEngine || 'hls');
         }
         this.openModal(this.dom.modalSettings);
+        if (!this.isNativeApp()) {
+          this.detectLocalProxy();
+        }
+      });
+    }
+
+    if (this.dom.settingsAdvancedDetails) {
+      this.dom.settingsAdvancedDetails.addEventListener('toggle', () => {
+        if (this.dom.settingsAdvancedDetails.open && !this.isNativeApp()) {
+          this.detectLocalProxy();
+        }
+      });
+    }
+
+    if (this.dom.btnUseLocalProxy) {
+      this.dom.btnUseLocalProxy.addEventListener('click', () => {
+        if (this.dom.corsInput) {
+          this.dom.corsInput.value = 'http://127.0.0.1:8787/?';
+        }
       });
     }
 
@@ -656,26 +722,29 @@ class FluiStreamApp {
       });
     }
 
-    // Atalhos de teclado
+    // Atalhos de teclado (preserva navegação D-Pad no Android TV e dentro de modais)
     window.addEventListener('keydown', (e) => {
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA') return;
+      const isModalOpen = Boolean(document.querySelector('.modal-backdrop:not(.hidden)'));
+      const isAndroid = typeof window !== 'undefined' && Boolean(window.androidBridge);
       if (e.key === ' ' || e.code === 'Space') {
+        if (isModalOpen || e.target.closest('button, a, summary, [tabindex="0"]')) return;
         e.preventDefault();
         this.player.togglePlay();
       } else if (e.key === 'm' || e.key === 'M') {
         this.player.toggleMute();
       } else if (e.key === 'f' || e.key === 'F') {
         this.player.toggleFullscreen();
-      } else if (e.key === 'ArrowUp') {
+      } else if (!isAndroid && !isModalOpen && e.key === 'ArrowUp') {
         e.preventDefault();
         this.navigateChannel(-1);
-      } else if (e.key === 'ArrowDown') {
+      } else if (!isAndroid && !isModalOpen && e.key === 'ArrowDown') {
         e.preventDefault();
         this.navigateChannel(1);
-      } else if (e.key === 'ArrowLeft') {
+      } else if (!isAndroid && !isModalOpen && e.key === 'ArrowLeft') {
         e.preventDefault();
         this.seekRelative(-10);
-      } else if (e.key === 'ArrowRight') {
+      } else if (!isAndroid && !isModalOpen && e.key === 'ArrowRight') {
         e.preventDefault();
         this.seekRelative(10);
       }
@@ -1135,11 +1204,22 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
   handlePlayerState(state, details = null) {
     if (!this.dom.playerLoadingOverlay || !this.dom.playerErrorOverlay) return;
 
+    const hideCorsErrorHint = () => {
+      if (this.dom.playerErrorHint) {
+        this.dom.playerErrorHint.textContent = '';
+        this.dom.playerErrorHint.classList.add('hidden');
+      }
+      if (this.dom.btnPlayerOpenSettings) {
+        this.dom.btnPlayerOpenSettings.classList.add('hidden');
+      }
+    };
+
     switch (state) {
       case 'loading':
       case 'buffering':
         this.dom.playerLoadingOverlay.classList.remove('hidden');
         this.dom.playerErrorOverlay.classList.add('hidden');
+        hideCorsErrorHint();
         if (this.dom.playerLoadingText) {
           this.dom.playerLoadingText.textContent = state === 'buffering' ? 'Buffering...' : i18n.get('playerLoading');
         }
@@ -1147,6 +1227,7 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
       case 'playing':
         this.dom.playerLoadingOverlay.classList.add('hidden');
         this.dom.playerErrorOverlay.classList.add('hidden');
+        hideCorsErrorHint();
         this.updatePlayPauseUi(true);
         break;
       case 'paused':
@@ -1154,6 +1235,7 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
       case 'ready':
         this.dom.playerLoadingOverlay.classList.add('hidden');
         this.dom.playerErrorOverlay.classList.add('hidden');
+        hideCorsErrorHint();
         this.updatePlayPauseUi(false);
         break;
       case 'error':
@@ -1163,6 +1245,17 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
         if (this.dom.playerErrorMsg) {
           const detailStr = details?.details || details?.type || '';
           this.dom.playerErrorMsg.textContent = `${i18n.get('playerErrorPlayback')} ${detailStr}`;
+        }
+        if (!this.isNativeApp() && details?.isCorsOrMixedContent) {
+          if (this.dom.playerErrorHint) {
+            this.dom.playerErrorHint.textContent = i18n.get('playerErrorCorsHint');
+            this.dom.playerErrorHint.classList.remove('hidden');
+          }
+          if (this.dom.btnPlayerOpenSettings) {
+            this.dom.btnPlayerOpenSettings.classList.remove('hidden');
+          }
+        } else {
+          hideCorsErrorHint();
         }
         break;
     }
@@ -1282,7 +1375,7 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
     const countLabelKey = isVod ? 'categoryCountVod' : 'categoryCountChannels';
 
     let html = `
-      <div class="category-card" data-group="all">
+      <div class="category-card" data-group="all" tabindex="0" role="button">
         <div class="category-card-top">
           <span class="category-card-title">${i18n.get('categoryExploreAll')}</span>
           <div class="category-card-icon">
@@ -1298,7 +1391,7 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
 
     sortedGroups.forEach(([groupName, count]) => {
       html += `
-        <div class="category-card" data-group="${this.escapeHtml(groupName)}">
+        <div class="category-card" data-group="${this.escapeHtml(groupName)}" tabindex="0" role="button">
           <div class="category-card-top">
             <span class="category-card-title">${this.escapeHtml(groupName)}</span>
             <div class="category-card-icon">
@@ -1452,7 +1545,7 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
       const epText = i18n.get('episodesCount', { count: ser.totalEpisodes });
 
       html += `
-        <div class="channel-card" data-id="${ser.id}" style="cursor: pointer;">
+        <div class="channel-card" data-id="${ser.id}" tabindex="0" role="button" style="cursor: pointer;">
           <div class="channel-card-inner">
             <div class="channel-logo-wrap" style="aspect-ratio: 2 / 3; height: auto;">
               <img src="${logoUrl}" alt="${this.escapeHtml(ser.seriesTitle)}" loading="lazy" onerror="this.src='data:image/svg+xml;utf8,<svg xmlns=\\'http://www.w3.org/2000/svg\\' width=\\'48\\' height=\\'48\\' viewBox=\\'0 0 24 24\\' fill=\\'none\\' stroke=\\'%23555\\' stroke-width=\\'1.5\\'><rect x=\\'2\\' y=\\'7\\' width=\\'20\\' height=\\'15\\' rx=\\'2\\'/><polyline points=\\'17 2 12 7 7 2\\'/></svg>'" />
@@ -1512,7 +1605,7 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
       }
 
       html += `
-        <div class="channel-card ${isPlaying ? 'playing' : ''}" data-id="${item.id}">
+        <div class="channel-card ${isPlaying ? 'playing' : ''}" data-id="${item.id}" tabindex="0" role="button">
           <div class="channel-card-inner">
             <div class="channel-logo-wrap">
               <img src="${logoUrl}" alt="${this.escapeHtml(item.name)}" loading="lazy" onerror="this.src='data:image/svg+xml;utf8,<svg xmlns=\\'http://www.w3.org/2000/svg\\' width=\\'48\\' height=\\'48\\' viewBox=\\'0 0 24 24\\' fill=\\'none\\' stroke=\\'%23555\\' stroke-width=\\'1.5\\'><rect x=\\'2\\' y=\\'7\\' width=\\'20\\' height=\\'15\\' rx=\\'2\\'/><polyline points=\\'17 2 12 7 7 2\\'/></svg>'" />
@@ -1634,7 +1727,7 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
       const thumb = ep.logo || this.activeSeries.logo || 'assets/logo.svg';
 
       html += `
-        <div class="episode-item-row" data-ep-id="${ep.id}">
+        <div class="episode-item-row" data-ep-id="${ep.id}" tabindex="0" role="button">
           <div class="episode-thumb-box">
             <img src="${thumb}" alt="${this.escapeHtml(epTitle)}" loading="lazy" />
           </div>
@@ -1651,12 +1744,19 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
 
     this.dom.seriesEpisodesContainer.innerHTML = html;
     this.dom.seriesEpisodesContainer.querySelectorAll('.episode-item-row').forEach(row => {
-      row.addEventListener('click', () => {
+      const playEpisode = () => {
         const id = row.getAttribute('data-ep-id');
         const episode = episodes.find(x => x.id === id);
         if (episode) {
           this.closeModal(this.dom.modalSeries);
           this.playChannel(episode);
+        }
+      };
+      row.addEventListener('click', playEpisode);
+      row.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          playEpisode();
         }
       });
     });
@@ -1868,6 +1968,7 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
     if (this.dom.inputEditExternalEpg) this.dom.inputEditExternalEpg.value = prof.epgUrl || '';
     if (this.dom.selectEditStreamMode) this.dom.selectEditStreamMode.value = prof.streamMode || 'auto';
     if (this.dom.selectEditPlayerEngine) this.dom.selectEditPlayerEngine.value = prof.playerEngine || 'hls';
+    if (this.dom.editProfileAdvancedDetails) this.dom.editProfileAdvancedDetails.open = false;
     if (this.dom.inputEditCorsProxy) this.dom.inputEditCorsProxy.value = prof.corsProxy || '';
     if (this.dom.editProfileStatus) this.dom.editProfileStatus.textContent = '';
 
@@ -2083,6 +2184,32 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;')
       .replace(/'/g, '&#039;');
+  }
+
+  async detectLocalProxy() {
+    if (this.isNativeApp()) return;
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 1200);
+      const res = await fetch('http://127.0.0.1:8787/health', { signal: controller.signal });
+      clearTimeout(timer);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.status === 'ok') {
+          if (this.dom.localProxyDetectStatus) {
+            this.dom.localProxyDetectStatus.innerHTML = `<span style="color: var(--accent-green); font-weight: 600;">${i18n.get('localBridgeActive')}</span>`;
+          }
+          const cfg = storage.getSettings();
+          if (!cfg.corsProxy) {
+            cfg.corsProxy = 'http://127.0.0.1:8787/?';
+            storage.saveSettings(cfg);
+            if (this.dom.corsInput) this.dom.corsInput.value = cfg.corsProxy;
+          }
+        }
+      }
+    } catch {
+      // Local bridge offline
+    }
   }
 }
 

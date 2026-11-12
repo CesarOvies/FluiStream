@@ -495,6 +495,7 @@ public partial class MainForm : Form
             TextAlign = ContentAlignment.MiddleCenter,
             Location = new Point(20, 180),
             Size = new Size(460, 24),
+            AutoEllipsis = true,
             Font = new Font("Segoe UI", 9, FontStyle.Regular)
         };
 
@@ -542,19 +543,19 @@ public partial class MainForm : Form
             btnUpdate.Enabled = false;
             btnCancel.Enabled = false;
             progressBar.Visible = true;
-            lblStatus.Text = "Baixando atualização: 0%...";
+            lblStatus.Text = string.Format(LocalizationService.Get("UpdateDownloading"), 0);
 
             string tempZip = Path.Combine(Path.GetTempPath(), "FluiStream_Update.zip");
             var progress = new Progress<int>(pct =>
             {
                 progressBar.Value = pct;
-                lblStatus.Text = $"Baixando atualização: {pct}%";
+                lblStatus.Text = string.Format(LocalizationService.Get("UpdateDownloading"), pct);
             });
 
             try
             {
                 await UpdateService.DownloadUpdateAsync(downloadUrl, tempZip, progress);
-                lblStatus.Text = "Substituindo arquivos e reiniciando aplicação...";
+                lblStatus.Text = LocalizationService.Get("UpdateApplying");
                 await Task.Delay(400);
                 UpdateService.ApplyUpdateAndRestart(tempZip);
             }
@@ -563,7 +564,7 @@ public partial class MainForm : Form
                 btnUpdate.Enabled = true;
                 btnCancel.Enabled = true;
                 progressBar.Visible = false;
-                lblStatus.Text = $"Erro ao atualizar: {ex.Message}";
+                lblStatus.Text = string.Format(LocalizationService.Get("UpdateError"), ex.Message);
             }
         };
 

@@ -1,0 +1,104 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/root_container"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/gh_bg_primary">
+
+    <!-- WebView hosting src/web UI via WebViewAssetLoader -->
+    <WebView
+        android:id="@+id/web_view"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@color/gh_bg_primary"
+        android:focusable="true"
+        android:focusableInTouchMode="true" />
+
+    <!-- Native Media3 ExoPlayer Fullscreen Overlay -->
+    <FrameLayout
+        android:id="@+id/player_overlay_container"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="#000000"
+        android:visibility="gone">
+
+        <androidx.media3.ui.PlayerView
+            android:id="@+id/exo_player_view"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:keepScreenOn="true"
+            app:resize_mode="fit"
+            app:show_buffering="when_playing"
+            app:use_controller="true" />
+
+        <!-- Top Native HUD (Title, Aspect Ratio, Close) -->
+        <LinearLayout
+            android:id="@+id/player_top_hud"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_gravity="top"
+            android:background="#CC0D1117"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="16dp"
+            android:paddingTop="10dp"
+            android:paddingEnd="16dp"
+            android:paddingBottom="10dp">
+
+            <TextView
+                android:id="@+id/player_title_text"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:textColor="@color/gh_text_primary"
+                android:textSize="16sp"
+                android:textStyle="bold" />
+
+            <Button
+                android:id="@+id/btn_player_aspect"
+                android:layout_width="wrap_content"
+                android:layout_height="38dp"
+                android:layout_marginEnd="10dp"
+                android:background="@drawable/tv_button_bg"
+                android:focusable="true"
+                android:minWidth="0dp"
+                android:paddingStart="12dp"
+                android:paddingEnd="12dp"
+                android:text="@string/player_btn_aspect"
+                android:textAllCaps="false"
+                android:textColor="@color/gh_text_primary"
+                android:textSize="13sp" />
+
+            <Button
+                android:id="@+id/btn_player_close"
+                android:layout_width="wrap_content"
+                android:layout_height="38dp"
+                android:background="@drawable/tv_button_bg"
+                android:focusable="true"
+                android:minWidth="0dp"
+                android:paddingStart="12dp"
+                android:paddingEnd="12dp"
+                android:text="@string/player_btn_close"
+                android:textAllCaps="false"
+                android:textColor="@color/gh_text_primary"
+                android:textSize="13sp" />
+        </LinearLayout>
+
+        <!-- Error Banner inside Player Overlay -->
+        <TextView
+            android:id="@+id/player_error_text"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:background="@drawable/tv_button_bg"
+            android:padding="16dp"
+            android:text="@string/player_error_playback"
+            android:textColor="@color/gh_error"
+            android:textSize="15sp"
+            android:visibility="gone" />
+    </FrameLayout>
+
+</FrameLayout>
