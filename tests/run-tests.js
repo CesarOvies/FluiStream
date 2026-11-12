@@ -916,6 +916,7 @@ await test('Mute icon, volume bar, pause central, botões de cabeçalho e Format
   assert.match(html, /id="btn-player-center-toggle"/);
   assert.match(html, /data-i18n="navAccount"/);
   assert.match(html, /data-i18n="navAboutShort"/);
+  assert.equal(html.includes('id="btn-open-import"'), false);
   assert.equal(html.includes('id="settings-stream-mode-select"'), false);
   assert.match(css, /--vol-pct/);
   assert.match(css, /\.player-center-toggle\s*\{/);

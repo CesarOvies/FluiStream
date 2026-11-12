@@ -119,7 +119,6 @@ class FluiStreamApp {
       btnOpenProfiles: document.getElementById('btn-open-profiles'),
       headerProfileName: document.getElementById('header-profile-name'),
       btnOpenAccount: document.getElementById('btn-open-account'),
-      btnOpenImport: document.getElementById('btn-open-import'),
       btnOpenSettings: document.getElementById('btn-open-settings'),
       btnOpenAbout: document.getElementById('btn-open-about'),
 
@@ -1196,7 +1195,6 @@ class FluiStreamApp {
     }
 
     // Import / Profiles / Account / Edit / Series / About Modals
-    if (this.dom.btnOpenImport) this.dom.btnOpenImport.addEventListener('click', () => this.openModal(this.dom.modalImport));
     if (this.dom.btnEmptyImport) this.dom.btnEmptyImport.addEventListener('click', () => this.openModal(this.dom.modalImport));
     if (this.dom.btnCloseImport) this.dom.btnCloseImport.addEventListener('click', () => this.closeModal(this.dom.modalImport));
     if (this.dom.btnOpenAbout) this.dom.btnOpenAbout.addEventListener('click', () => this.openModal(this.dom.modalAbout));
