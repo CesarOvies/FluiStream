@@ -29,10 +29,12 @@ class FluiStreamApp {
     };
     this.epg = new EPGParser();
     this.multiScreen = new MultiScreenController();
+    this.multiScreen.onSlotStateChange = (idx, state, detail) => this.handleMultiScreenSlotState(idx, state, detail);
     this.multiScreenLayout = '2x2';
     this.multiScreenSlots = [null, null, null, null];
     this.activeMultiSlot = 0;
     this.pendingSlotIndex = 0;
+    this._activeMsRenderSig = '';
 
     this.selectedGroup = null;
     this.sidebarDrillMode = 'categories';
@@ -653,6 +655,7 @@ class FluiStreamApp {
   navigateToScreen(screenName) {
     if (this.activeScreen === 'multiscreen' && screenName !== 'multiscreen') {
       this.multiScreen.clearAll();
+      this._activeMsRenderSig = '';
     }
     if (['home', 'browse', 'empty'].includes(this.activeScreen) && screenName !== this.activeScreen) {
       this.previousScreen = this.activeScreen;
@@ -2611,96 +2614,209 @@ class FluiStreamApp {
   // =====================================================
   // SCREEN 6: MULTI-SCREEN
   // =====================================================
-  openMultiScreenView() {
-    this.navigateToScreen('multiscreen');
-    const slotCount = (this.multiScreenLayout === '2x2' || this.multiScreenLayout === '1-3') ? 4
-      : (this.multiScreenLayout === '1-2' || this.multiScreenLayout === '2-1') ? 3 : 2;
-
-    if (this.dom.multiscreenNativeNote) {
-      this.dom.multiscreenNativeNote.classList.toggle('hidden', !window.androidBridge);
-    }
-
-    if (!this.dom.multiscreenGrid) return;
-    this.dom.multiscreenGrid.className = `multiscreen-grid layout-${this.multiScreenLayout}`;
-
-    let html = '';
-    for (let i = 0; i < slotCount; i++) {
-      const item = this.multiScreenSlots[i];
-      const activeClass = i === this.activeMultiSlot ? 'slot-active' : '';
-      html += `
-        <div class="multiscreen-slot ${activeClass}" data-slot-index="${i}" tabindex="0">
-          ${item ? `
-            <video id="ms-video-${i}" playsinline autoplay ${i !== this.activeMultiSlot ? 'muted' : ''}></video>
-            <div class="multiscreen-slot-hud">
-              <span class="multiscreen-slot-title">${this.escapeHtml(item.name)}</span>
-              <div style="display:flex; gap:0.35rem;">
-                <button class="btn-icon" data-ms-audio="${i}" title="Audio">${i === this.activeMultiSlot ? '🔊' : '🔇'}</button>
-                <button class="btn-icon" data-ms-pick="${i}" title="Trocar">⇄</button>
-                <button class="btn-icon" data-ms-clear="${i}" title="Limpar">✕</button>
-              </div>
-            </div>
-          ` : `
-            <button class="multiscreen-slot-empty" data-ms-pick="${i}">
-              <span class="multiscreen-slot-plus">+</span>
-              <span>${this.escapeHtml(i18n.get('multiScreenSelectSlot'))}</span>
-            </button>
-          `}
-        </div>
+  _buildMultiScreenSlotInnerHtml(i, item) {
+    if (!item) {
+      return `
+        <button class="multiscreen-slot-empty" data-ms-pick="${i}">
+          <span class="multiscreen-slot-plus">+</span>
+          <span>${this.escapeHtml(i18n.get('multiScreenSelectSlot'))}</span>
+        </button>
       `;
     }
-    this.dom.multiscreenGrid.innerHTML = html;
+    return `
+      <div class="multiscreen-slot-stage" id="ms-stage-${i}">
+        <video id="ms-video-${i}" playsinline autoplay ${i !== this.activeMultiSlot ? 'muted' : ''}></video>
+        <div class="multiscreen-slot-status" id="ms-status-${i}">${this.escapeHtml(i18n.get('playerLoading'))}</div>
+      </div>
+      <div class="multiscreen-slot-hud">
+        <span class="multiscreen-slot-title">${this.escapeHtml(item.name)}</span>
+        <div class="multiscreen-slot-actions">
+          <button class="btn-icon" data-ms-audio="${i}" title="Audio">${i === this.activeMultiSlot ? '🔊' : '🔇'}</button>
+          <button class="btn-icon" data-ms-retry="${i}" title="${this.escapeHtml(i18n.get('playerRetry'))}">↻</button>
+          <button class="btn-icon" data-ms-pick="${i}" title="${this.escapeHtml(i18n.get('multiScreenSelectSlot'))}">⇄</button>
+          <button class="btn-icon" data-ms-clear="${i}" title="${this.escapeHtml(i18n.get('notificationsClear'))}">✕</button>
+        </div>
+      </div>
+    `;
+  }
 
-    const cfg = storage.getSettings();
-    for (let i = 0; i < slotCount; i++) {
-      const item = this.multiScreenSlots[i];
-      const vid = document.getElementById(`ms-video-${i}`);
-      if (item && vid) {
-        this.multiScreen.attachSlot(i, vid, item, cfg.corsProxy, cfg.streamMode);
-      }
-    }
-
-    this.dom.multiscreenGrid.querySelectorAll('[data-ms-pick]').forEach(btn => {
+  _bindMultiScreenSlotEvents(slotEl) {
+    if (!slotEl) return;
+    slotEl.querySelectorAll('[data-ms-pick]').forEach(btn => {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
         this.pendingSlotIndex = parseInt(btn.getAttribute('data-ms-pick'), 10);
         this.openSlotPickerModal();
       });
     });
-    this.dom.multiscreenGrid.querySelectorAll('[data-ms-audio]').forEach(btn => {
+    slotEl.querySelectorAll('[data-ms-audio]').forEach(btn => {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
         const idx = parseInt(btn.getAttribute('data-ms-audio'), 10);
-        this.activeMultiSlot = idx;
-        this.multiScreen.setAudioSlot(idx);
-        this.openMultiScreenView();
+        this.selectMultiScreenAudioSlot(idx);
       });
     });
-    this.dom.multiscreenGrid.querySelectorAll('[data-ms-clear]').forEach(btn => {
+    slotEl.querySelectorAll('[data-ms-retry]').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const idx = parseInt(btn.getAttribute('data-ms-retry'), 10);
+        this.renderMultiScreenSlot(idx, true);
+      });
+    });
+    slotEl.querySelectorAll('[data-ms-clear]').forEach(btn => {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
         const idx = parseInt(btn.getAttribute('data-ms-clear'), 10);
         this.multiScreenSlots[idx] = null;
         this.multiScreen.clearSlot(idx);
-        this.openMultiScreenView();
+        this.renderMultiScreenSlot(idx, true);
       });
     });
+  }
+
+  selectMultiScreenAudioSlot(slotIndex) {
+    this.activeMultiSlot = slotIndex;
+    this.multiScreen.setAudioSlot(slotIndex);
+    if (!this.dom.multiscreenGrid) return;
+    this.dom.multiscreenGrid.querySelectorAll('.multiscreen-slot').forEach(slotEl => {
+      const idx = parseInt(slotEl.getAttribute('data-slot-index'), 10);
+      slotEl.classList.toggle('slot-active', idx === slotIndex);
+      const audioBtn = slotEl.querySelector('[data-ms-audio]');
+      if (audioBtn) audioBtn.textContent = idx === slotIndex ? '🔊' : '🔇';
+    });
+  }
+
+  handleMultiScreenSlotState(slotIndex, state, detail = null) {
+    const statusEl = document.getElementById(`ms-status-${slotIndex}`);
+    if (!statusEl) return;
+    if (state === 'playing' || state === 'idle') {
+      statusEl.classList.add('hidden');
+      statusEl.classList.remove('is-error');
+      statusEl.textContent = '';
+    } else if (state === 'loading') {
+      statusEl.textContent = i18n.get('playerLoading');
+      statusEl.classList.remove('hidden', 'is-error');
+    } else if (state === 'error') {
+      const code = detail?.details ? ` (${detail.details})` : '';
+      statusEl.textContent = `${i18n.get('playerErrorPlayback')}${code}`;
+      statusEl.classList.add('is-error');
+      statusEl.classList.remove('hidden');
+    }
+  }
+
+  renderMultiScreenSlot(slotIndex, attach = true) {
+    if (!this.dom.multiscreenGrid) return;
+    const slotEl = this.dom.multiscreenGrid.querySelector(`.multiscreen-slot[data-slot-index="${slotIndex}"]`);
+    if (!slotEl) return;
+
+    const item = this.multiScreenSlots[slotIndex];
+    slotEl.classList.toggle('slot-active', slotIndex === this.activeMultiSlot);
+    slotEl.innerHTML = this._buildMultiScreenSlotInnerHtml(slotIndex, item);
+    this._bindMultiScreenSlotEvents(slotEl);
+
+    if (attach) {
+      if (item) {
+        const cfg = storage.getSettings();
+        const vid = document.getElementById(`ms-video-${slotIndex}`);
+        const stage = document.getElementById(`ms-stage-${slotIndex}`);
+        if (vid) {
+          this.multiScreen.attachSlot(slotIndex, vid, item, cfg.corsProxy, cfg.streamMode, cfg.playerEngine || 'hls', stage);
+        }
+      } else {
+        this.multiScreen.clearSlot(slotIndex);
+      }
+      this.multiScreen.reportLayout();
+    }
+  }
+
+  openMultiScreenView(forceRebuild = false) {
+    if (this.currentPlayingItem) {
+      this.stopPlayback();
+    }
+
+    this.navigateToScreen('multiscreen');
+    const slotCount = (this.multiScreenLayout === '2x2' || this.multiScreenLayout === '1-3') ? 4
+      : (this.multiScreenLayout === '1-2' || this.multiScreenLayout === '2-1') ? 3 : 2;
+
+    if (this.dom.multiscreenNativeNote) {
+      const showNote = Boolean(window.androidBridge);
+      this.dom.multiscreenNativeNote.classList.toggle('hidden', !showNote);
+    }
+
+    if (!this.dom.multiscreenGrid) return;
+    const sig = `${this.multiScreenLayout}:${slotCount}`;
+    const existingCount = this.dom.multiscreenGrid.querySelectorAll('.multiscreen-slot').length;
+    if (!forceRebuild && this._activeMsRenderSig === sig && existingCount === slotCount) {
+      this.selectMultiScreenAudioSlot(this.activeMultiSlot);
+      this.multiScreen.reportLayout();
+      return;
+    }
+
+    this.multiScreen.clearAll();
+    this._activeMsRenderSig = sig;
+    this.dom.multiscreenGrid.className = `multiscreen-grid layout-${this.multiScreenLayout}`;
+
+    let html = '';
+    for (let i = 0; i < slotCount; i++) {
+      const item = this.multiScreenSlots[i];
+      const activeClass = i === this.activeMultiSlot ? 'slot-active' : '';
+      html += `<div class="multiscreen-slot ${activeClass}" data-slot-index="${i}" tabindex="0">${this._buildMultiScreenSlotInnerHtml(i, item)}</div>`;
+    }
+    this.dom.multiscreenGrid.innerHTML = html;
+
+    this.dom.multiscreenGrid.querySelectorAll('.multiscreen-slot').forEach(slotEl => {
+      this._bindMultiScreenSlotEvents(slotEl);
+    });
+
+    const cfg = storage.getSettings();
+    for (let i = 0; i < slotCount; i++) {
+      const item = this.multiScreenSlots[i];
+      const vid = document.getElementById(`ms-video-${i}`);
+      const stage = document.getElementById(`ms-stage-${i}`);
+      if (item && vid) {
+        this.multiScreen.attachSlot(i, vid, item, cfg.corsProxy, cfg.streamMode, cfg.playerEngine || 'hls', stage);
+      }
+    }
   }
 
   openSlotPickerModal() {
     if (this.dom.inputSlotPickerSearch) this.dom.inputSlotPickerSearch.value = '';
     this.renderSlotPickerResults();
     this.openModal(this.dom.modalSlotPicker);
+    setTimeout(() => this.dom.inputSlotPickerSearch?.focus(), 40);
   }
 
   renderSlotPickerResults() {
     if (!this.dom.slotPickerResults) return;
+    this._ensurePlaylistIndexes();
     const q = (this.dom.inputSlotPickerSearch?.value || '').trim().toLowerCase();
-    const items = this.playlist.items
-      .filter(x => !q || (x.name || '').toLowerCase().includes(q) || (x.group || '').toLowerCase().includes(q))
-      .slice(0, 60);
+    const cfg = storage.getSettings();
+    const hideAdult = Boolean(cfg.parentalPinHash) && !this.parentalUnlocked;
+
+    const liveMatches = [];
+    const otherMatches = [];
+    const list = this.playlist.items || [];
+    for (let i = 0; i < list.length; i++) {
+      const x = list[i];
+      if (!x || !x.url) continue;
+      if (hideAdult && PARENTAL_CATEGORY_RE.test(x.group || '')) continue;
+      if (q && !(x.name || '').toLowerCase().includes(q) && !(x.group || '').toLowerCase().includes(q)) continue;
+      if ((x.type || ItemType.LIVE) === ItemType.LIVE) {
+        liveMatches.push(x);
+      } else {
+        otherMatches.push(x);
+      }
+      if (liveMatches.length >= 60) break;
+    }
+    const items = liveMatches.concat(otherMatches).slice(0, 60);
+
+    if (items.length === 0) {
+      this.dom.slotPickerResults.innerHTML = `<p class="help-text" style="text-align:center; padding:1.5rem;">${this.escapeHtml(i18n.get('notificationsEmpty'))}</p>`;
+      return;
+    }
 
     this.dom.slotPickerResults.innerHTML = items.map(it => `
-      <div class="master-search-row" data-slot-item-id="${this.escapeHtml(it.id)}" tabindex="0" role="button">
+      <div class="master-search-row" data-slot-item-id="${this.escapeHtml(String(it.id))}" tabindex="0" role="button">
         <div style="min-width:0;">
           <strong style="display:block; font-size:0.88rem;">${this.escapeHtml(it.name)}</strong>
           <span class="help-text">${this.escapeHtml(it.group || '')}</span>
@@ -2709,14 +2825,29 @@ class FluiStreamApp {
       </div>
     `).join('');
 
+    const pickItem = (row) => {
+      const targetId = String(row.getAttribute('data-slot-item-id') || '');
+      const item = (this.playlist.items || []).find(x => String(x.id) === targetId);
+      if (item) {
+        const slotIdx = Number.isInteger(this.pendingSlotIndex) ? this.pendingSlotIndex : 0;
+        this.multiScreenSlots[slotIdx] = item;
+        this.activeMultiSlot = slotIdx;
+        this.closeModal(this.dom.modalSlotPicker);
+        if (this.activeScreen !== 'multiscreen' || !this._activeMsRenderSig) {
+          this.openMultiScreenView(true);
+        } else {
+          this.renderMultiScreenSlot(slotIdx, true);
+          this.selectMultiScreenAudioSlot(slotIdx);
+        }
+      }
+    };
+
     this.dom.slotPickerResults.querySelectorAll('[data-slot-item-id]').forEach(row => {
-      row.addEventListener('click', () => {
-        const item = this.playlist.items.find(x => x.id === row.getAttribute('data-slot-item-id'));
-        if (item) {
-          this.multiScreenSlots[this.pendingSlotIndex] = item;
-          this.activeMultiSlot = this.pendingSlotIndex;
-          this.closeModal(this.dom.modalSlotPicker);
-          this.openMultiScreenView();
+      row.addEventListener('click', () => pickItem(row));
+      row.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          pickItem(row);
         }
       });
     });
@@ -2976,6 +3107,7 @@ class FluiStreamApp {
       this.player.setOverlayVisible(false);
       this.player.reportLayout();
     }
+    this.multiScreen?.reportLayout();
   }
 
   closeModal(modal) {
@@ -2995,6 +3127,7 @@ class FluiStreamApp {
       this.player.setOverlayVisible(!stillOpen && this.activeScreen === 'browse' && Boolean(this.currentPlayingItem));
       this.player.reportLayout();
     }
+    this.multiScreen?.reportLayout();
   }
 
   async loadSavedState() {

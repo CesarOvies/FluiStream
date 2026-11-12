@@ -10,6 +10,7 @@ export class VideoPlayerController {
     this.video = videoElement;
     this.container = containerElement;
     this.hls = null;
+    this.mpegtsPlayer = null;
     this.currentItem = null;
     this.aspectRatio = 'auto'; // 'auto' | '16:9' | '4:3' | 'fill'
     this.onChannelChange = null; // callback para trocar canal
@@ -190,6 +191,29 @@ export class VideoPlayerController {
   }
 
   /**
+   * Constrói lista ordenada e deduplicada de URLs candidatas para fallback automático (.m3u8 <-> .ts <-> original).
+   */
+  buildStreamCandidates(url, itemType, streamMode = 'auto') {
+    if (!url || typeof url !== 'string') return [];
+    const primary = this.resolveStreamUrl(url, itemType, streamMode);
+    const list = [primary];
+
+    const isVodFile = url.includes('.mp4') || url.includes('.mkv') || url.includes('.avi') || url.includes('.webm');
+    if (streamMode !== 'direct' && !isVodFile) {
+      const m3u8Url = this.resolveStreamUrl(url, 'live', 'hls');
+      const tsUrl = this.resolveStreamUrl(url, 'live', 'ts');
+      const extras = streamMode === 'ts' ? [url, m3u8Url] : [tsUrl, url, m3u8Url];
+      for (const cand of extras) {
+        if (cand && !list.includes(cand)) list.push(cand);
+      }
+    } else if (!list.includes(url)) {
+      list.push(url);
+    }
+
+    return list;
+  }
+
+  /**
    * Notifica host nativo (WebView2 C#) sobre reprodução VLC se disponível
    */
   notifyNativeVlc(action, data = {}) {
@@ -222,15 +246,13 @@ export class VideoPlayerController {
     this.currentEngine = playerEngine;
     this.notifyState('loading');
 
-    const streamUrl = this.resolveStreamUrl(item.url, item.type, streamMode);
+    const candidates = this.buildStreamCandidates(item.url, item.type, streamMode);
+    const streamUrl = candidates[0] || item.url;
 
     // Ponte Nativa Android (ExoPlayer / Media3 via @JavascriptInterface window.androidBridge)
     const isAndroidApp = typeof window !== 'undefined' && Boolean(window.androidBridge);
     if (isAndroidApp) {
-      if (this.hls) {
-        this.hls.destroy();
-        this.hls = null;
-      }
+      this._destroyHtml5Engines();
       if (this.video) {
         this.video.pause();
         this.video.removeAttribute('src');
@@ -246,11 +268,7 @@ export class VideoPlayerController {
     // Se motor for VLC e estiver rodando no app Desktop
     const isDesktopApp = typeof window !== 'undefined' && Boolean(window.chrome?.webview);
     if (playerEngine === 'vlc' && isDesktopApp) {
-      // Limpar HLS e pausar e ocultar elemento HTML5 para não exibir controles vazios
-      if (this.hls) {
-        this.hls.destroy();
-        this.hls = null;
-      }
+      this._destroyHtml5Engines();
       if (this.video) {
         this.video.pause();
         this.video.removeAttribute('src');
@@ -258,9 +276,10 @@ export class VideoPlayerController {
         this.video.style.display = 'none';
       }
 
-      // Delegar ao LibVLC em C#
+      // Delegar ao LibVLC em C# (inclui URLs fallback caso .m3u8 dê 404)
       this.notifyNativeVlc('PLAY', {
         url: streamUrl,
+        fallbackUrls: candidates.slice(1),
         title: item.name || '',
         itemType: item.type,
         aspectRatio: this.aspectRatio || 'auto'
@@ -283,14 +302,12 @@ export class VideoPlayerController {
 
     const finalUrl = corsProxy ? applyCorsProxy(corsProxy, streamUrl) : streamUrl;
 
-    // Limpar instância HLS anterior
-    if (this.hls) {
-      this.hls.destroy();
-      this.hls = null;
-    }
+    // Limpar instâncias HTML5 anteriores
+    this._destroyHtml5Engines();
 
     const isVideoFile = finalUrl.includes('.mp4') || finalUrl.includes('.mkv') || finalUrl.includes('.avi') || finalUrl.includes('.webm') || item.type === 'movie' || item.type === 'series';
-    const isHlsStream = !isVideoFile && (streamMode === 'hls' || finalUrl.includes('.m3u8') || (streamMode === 'auto' && (item.type === 'live' || finalUrl.includes('/live/'))));
+    const isTsStream = !isVideoFile && (streamMode === 'ts' || /\.ts(?:[?#]|$)/i.test(streamUrl));
+    const isHlsStream = !isVideoFile && !isTsStream && (streamMode === 'hls' || finalUrl.includes('.m3u8') || (streamMode === 'auto' && (item.type === 'live' || finalUrl.includes('/live/'))));
 
     // 1. Suporte a HLS via Hls.js
     if (isHlsStream && typeof window !== 'undefined' && window.Hls && window.Hls.isSupported()) {
@@ -371,8 +388,24 @@ export class VideoPlayerController {
           }
         }
       });
+    } else if (isTsStream && typeof window !== 'undefined' && window.mpegts?.isSupported()) {
+      // 2. Suporte MPEG-TS (.ts) via mpegts.js MSE
+      this.mpegtsPlayer = window.mpegts.createPlayer(
+        { type: 'mpegts', isLive: item.type === 'live', url: finalUrl },
+        { enableWorker: false, enableStashBuffer: true, liveBufferLatencyChasing: false }
+      );
+      this.mpegtsPlayer.attachMediaElement(this.video);
+      this.mpegtsPlayer.load();
+      this.mpegtsPlayer.play().catch(e => {
+        console.warn('MPEG-TS autoplay blocked:', e);
+        this.notifyState('ready');
+      });
+      this.mpegtsPlayer.on(window.mpegts.Events.ERROR, (errType, errDetail) => {
+        console.error('MPEG-TS error:', errType, errDetail);
+        this.notifyState('error', { type: 'MPEGTS_ERROR', details: String(errDetail || errType) });
+      });
     } else {
-      // 2. Reprodução nativa (Safari HLS nativo, MP4, WebM)
+      // 3. Reprodução nativa (Safari HLS nativo, MP4, WebM)
       this.video.src = finalUrl;
       this.video.load();
       this.video.addEventListener('loadedmetadata', () => {
@@ -616,6 +649,22 @@ export class VideoPlayerController {
     }
   }
 
+  _destroyHtml5Engines() {
+    if (this.hls) {
+      try { this.hls.destroy(); } catch {}
+      this.hls = null;
+    }
+    if (this.mpegtsPlayer) {
+      try {
+        this.mpegtsPlayer.pause();
+        this.mpegtsPlayer.unload();
+        this.mpegtsPlayer.detachMediaElement();
+        this.mpegtsPlayer.destroy();
+      } catch {}
+      this.mpegtsPlayer = null;
+    }
+  }
+
   stop() {
     const isAndroidApp = typeof window !== 'undefined' && Boolean(window.androidBridge);
     this.isStopped = true;
@@ -625,10 +674,7 @@ export class VideoPlayerController {
     this.currentAudioTrack = -1;
     this.currentSubtitleTrack = -1;
     this.notifyTracks();
-    if (this.hls) {
-      this.hls.destroy();
-      this.hls = null;
-    }
+    this._destroyHtml5Engines();
     if (this.video) {
       this.video.pause();
       this.video.removeAttribute('src');
@@ -644,64 +690,258 @@ export class VideoPlayerController {
 }
 
 /**
- * Multi-Screen Controller — até 4 slots simultâneos em Web/HLS
- * Em ambientes com engine nativa single-instance (Android ExoPlayer), sinaliza o slot ativo
- * e usa fallback HTML5/<video> quando suportado pela WebView.
+ * Multi-Screen Controller — até 4 slots simultâneos em Desktop LibVLC ou Web (HLS.js + mpegts.js + fallback automático).
  */
 export class MultiScreenController {
   constructor() {
-    this.slots = new Map(); // slotIdx -> { video, hls, item }
+    this.slots = new Map(); // slotIdx -> slot state
     this.activeAudioSlot = 0;
+    this.onSlotStateChange = null;
     this.urlHelper = new VideoPlayerController(null, null);
+    if (typeof window !== 'undefined') {
+      this._onViewportChange = () => this.reportLayout();
+      window.addEventListener('resize', this._onViewportChange);
+      window.addEventListener('scroll', this._onViewportChange, { passive: true });
+    }
   }
 
-  attachSlot(slotIndex, videoElement, item, corsProxy = '', streamMode = 'auto') {
+  _notifySlotState(slotIndex, state, details = null) {
+    if (this.onSlotStateChange) {
+      this.onSlotStateChange(slotIndex, state, details);
+    }
+  }
+
+  _destroySlotEngines(slot) {
+    if (!slot) return;
+    if (slot.hls) {
+      try { slot.hls.destroy(); } catch {}
+      slot.hls = null;
+    }
+    if (slot.mpegtsPlayer) {
+      try {
+        slot.mpegtsPlayer.pause();
+        slot.mpegtsPlayer.unload();
+        slot.mpegtsPlayer.detachMediaElement();
+        slot.mpegtsPlayer.destroy();
+      } catch {}
+      slot.mpegtsPlayer = null;
+    }
+    if (slot.cleanupVideoListeners) {
+      try { slot.cleanupVideoListeners(); } catch {}
+      slot.cleanupVideoListeners = null;
+    }
+  }
+
+  attachSlot(slotIndex, videoElement, item, corsProxy = '', streamMode = 'auto', playerEngine = 'hls', stageElement = null) {
     this.clearSlot(slotIndex);
     if (!videoElement || !item || !item.url) return;
 
-    const streamUrl = this.urlHelper.resolveStreamUrl(item.url, item.type, streamMode);
-    const finalUrl = corsProxy ? applyCorsProxy(corsProxy, streamUrl) : streamUrl;
-    const isVideoFile = finalUrl.includes('.mp4') || finalUrl.includes('.mkv') || finalUrl.includes('.avi') || finalUrl.includes('.webm') || item.type === 'movie' || item.type === 'series';
-    const isHlsStream = !isVideoFile && (streamMode === 'hls' || finalUrl.includes('.m3u8') || (streamMode === 'auto' && (item.type === 'live' || finalUrl.includes('/live/'))));
+    const candidates = this.urlHelper.buildStreamCandidates(item.url, item.type, streamMode);
+    if (candidates.length === 0) return;
 
-    videoElement.muted = slotIndex !== this.activeAudioSlot;
-    let hls = null;
+    const stage = stageElement || videoElement.parentElement;
+    const isDesktopVlc = playerEngine === 'vlc' && typeof window !== 'undefined' && Boolean(window.chrome?.webview?.postMessage);
+    const slot = {
+      slotIndex,
+      video: videoElement,
+      stage,
+      item,
+      corsProxy,
+      streamMode,
+      engine: isDesktopVlc ? 'vlc' : 'html5',
+      candidates,
+      candidateIdx: 0,
+      workerDisabledRetry: false,
+      hls: null,
+      mpegtsPlayer: null,
+      ro: null,
+      cleanupVideoListeners: null
+    };
 
-    if (isHlsStream && typeof window !== 'undefined' && window.Hls && window.Hls.isSupported()) {
-      hls = new window.Hls({
-        enableWorker: true,
-        lowLatencyMode: true,
-        maxBufferLength: 20,
-        maxMaxBufferLength: 40
-      });
-      hls.loadSource(finalUrl);
-      hls.attachMedia(videoElement);
-      hls.on(window.Hls.Events.MANIFEST_PARSED, () => {
-        videoElement.play().catch(() => {});
-      });
-    } else {
-      videoElement.src = finalUrl;
-      videoElement.load();
-      videoElement.play().catch(() => {});
+    if (typeof ResizeObserver !== 'undefined' && stage) {
+      slot.ro = new ResizeObserver(() => this.reportLayout());
+      slot.ro.observe(stage);
     }
 
-    this.slots.set(slotIndex, { video: videoElement, hls, item });
+    this.slots.set(slotIndex, slot);
+    this._notifySlotState(slotIndex, 'loading');
+
+    if (isDesktopVlc) {
+      videoElement.style.display = 'none';
+      this.reportLayout();
+      window.chrome.webview.postMessage({
+        type: 'VLC_PLAYER_COMMAND',
+        action: 'MS_PLAY_SLOT',
+        slotIndex,
+        url: candidates[0],
+        fallbackUrls: candidates.slice(1),
+        muted: slotIndex !== this.activeAudioSlot
+      });
+      if (typeof requestAnimationFrame === 'function') {
+        requestAnimationFrame(() => this.reportLayout());
+      }
+      setTimeout(() => this.reportLayout(), 120);
+      return;
+    }
+
+    videoElement.style.display = 'block';
+    videoElement.muted = slotIndex !== this.activeAudioSlot;
+    this._attachHtml5Candidate(slot);
+  }
+
+  _attachHtml5Candidate(slot) {
+    if (!this.slots.has(slot.slotIndex)) return;
+    this._destroySlotEngines(slot);
+
+    const rawUrl = slot.candidates[slot.candidateIdx];
+    if (!rawUrl) {
+      this._notifySlotState(slot.slotIndex, 'error', { details: 'NO_VALID_STREAM' });
+      return;
+    }
+
+    const finalUrl = slot.corsProxy ? applyCorsProxy(slot.corsProxy, rawUrl) : rawUrl;
+    const videoEl = slot.video;
+    const isVideoFile = /\.(mp4|mkv|avi|webm)(?:[?#]|$)/i.test(finalUrl) || slot.item.type === 'movie' || slot.item.type === 'series';
+    const isExplicitTs = /\.ts(?:[?#]|$)/i.test(rawUrl) || (slot.streamMode === 'ts' && !rawUrl.includes('.m3u8'));
+    const isHls = !isVideoFile && !isExplicitTs && (rawUrl.includes('.m3u8') || slot.streamMode === 'hls' || (slot.streamMode === 'auto' && (slot.item.type === 'live' || rawUrl.includes('/live/'))));
+
+    const advanceOrFail = (reason) => {
+      if (!this.slots.has(slot.slotIndex)) return;
+      if (slot.candidateIdx + 1 < slot.candidates.length) {
+        slot.candidateIdx += 1;
+        this._attachHtml5Candidate(slot);
+      } else {
+        this._destroySlotEngines(slot);
+        this._notifySlotState(slot.slotIndex, 'error', { details: reason || 'STREAM_FAILED' });
+      }
+    };
+
+    const onPlaying = () => this._notifySlotState(slot.slotIndex, 'playing');
+    const onWaiting = () => this._notifySlotState(slot.slotIndex, 'loading');
+    const onVideoError = () => {
+      const code = videoEl.error ? `MEDIA_ERR_${videoEl.error.code}` : 'VIDEO_ERROR';
+      advanceOrFail(code);
+    };
+
+    videoEl.addEventListener('playing', onPlaying);
+    videoEl.addEventListener('waiting', onWaiting);
+    videoEl.addEventListener('error', onVideoError);
+    slot.cleanupVideoListeners = () => {
+      videoEl.removeEventListener('playing', onPlaying);
+      videoEl.removeEventListener('waiting', onWaiting);
+      videoEl.removeEventListener('error', onVideoError);
+    };
+
+    videoEl.muted = slot.slotIndex !== this.activeAudioSlot;
+
+    if (isHls && typeof window !== 'undefined' && window.Hls && window.Hls.isSupported()) {
+      const hls = new window.Hls({
+        enableWorker: !slot.workerDisabledRetry,
+        lowLatencyMode: true,
+        maxBufferLength: 20,
+        maxMaxBufferLength: 40,
+        manifestLoadingTimeOut: 10000,
+        manifestLoadingMaxRetry: 1,
+        fragLoadingTimeOut: 12000,
+        fragLoadingMaxRetry: 1
+      });
+      slot.hls = hls;
+      hls.loadSource(finalUrl);
+      hls.attachMedia(videoEl);
+      hls.on(window.Hls.Events.MANIFEST_PARSED, () => {
+        videoEl.play().catch(() => {});
+      });
+      hls.on(window.Hls.Events.ERROR, (event, data) => {
+        if (!data?.fatal || !this.slots.has(slot.slotIndex)) return;
+        if (data.type === window.Hls.ErrorTypes.MEDIA_ERROR && !slot._mediaRecovered) {
+          slot._mediaRecovered = true;
+          hls.recoverMediaError();
+          return;
+        }
+        if (!slot.workerDisabledRetry && data.details && String(data.details).includes('worker')) {
+          slot.workerDisabledRetry = true;
+          this._attachHtml5Candidate(slot);
+          return;
+        }
+        advanceOrFail(data.details || data.type);
+      });
+    } else if ((isExplicitTs || !isVideoFile) && typeof window !== 'undefined' && window.mpegts?.isSupported()) {
+      const player = window.mpegts.createPlayer(
+        { type: 'mpegts', isLive: slot.item.type === 'live', url: finalUrl },
+        { enableWorker: false, enableStashBuffer: true, liveBufferLatencyChasing: false }
+      );
+      slot.mpegtsPlayer = player;
+      player.attachMediaElement(videoEl);
+      player.load();
+      player.play().catch(() => {});
+      player.on(window.mpegts.Events.ERROR, (errType, errDetail) => {
+        advanceOrFail(String(errDetail || errType || 'MPEGTS_ERROR'));
+      });
+    } else {
+      videoEl.src = finalUrl;
+      videoEl.load();
+      videoEl.play().catch(() => {});
+    }
+  }
+
+  handleNativeSlotState(slotIndex, state, details = null) {
+    if (!this.slots.has(slotIndex)) return;
+    this._notifySlotState(slotIndex, state, details);
+  }
+
+  reportLayout() {
+    if (typeof window === 'undefined' || !window.chrome?.webview?.postMessage) return;
+    const hasOpenModal = typeof document !== 'undefined' && Boolean(
+      document.querySelector('.modal-backdrop:not(.hidden), .modal:not(.hidden), .dialog-overlay:not(.hidden), [data-modal-open="true"]')
+    );
+    const dpr = window.devicePixelRatio || 1;
+    const rects = [];
+    for (const [slotIndex, slot] of this.slots.entries()) {
+      if (slot.engine !== 'vlc' || !slot.stage) continue;
+      const inHiddenAncestor = typeof slot.stage.closest === 'function' && Boolean(slot.stage.closest('.hidden'));
+      const rect = slot.stage.getBoundingClientRect();
+      const visible = !hasOpenModal && !inHiddenAncestor && rect.width > 10 && rect.height > 10 && rect.bottom > 20 && rect.top < window.innerHeight;
+      rects.push({
+        slotIndex,
+        x: Math.round(rect.left * dpr),
+        y: Math.round(rect.top * dpr),
+        width: Math.round(rect.width * dpr),
+        height: Math.round(rect.height * dpr),
+        visible
+      });
+    }
+    if (rects.length > 0) {
+      window.chrome.webview.postMessage({
+        type: 'MULTISCREEN_LAYOUT_UPDATE',
+        slots: rects
+      });
+    }
   }
 
   setAudioSlot(slotIndex) {
     this.activeAudioSlot = slotIndex;
+    let hasNativeVlc = false;
     for (const [idx, slot] of this.slots.entries()) {
       if (slot.video) {
         slot.video.muted = idx !== slotIndex;
       }
+      if (slot.engine === 'vlc') hasNativeVlc = true;
+    }
+    if (hasNativeVlc && typeof window !== 'undefined' && window.chrome?.webview?.postMessage) {
+      window.chrome.webview.postMessage({
+        type: 'VLC_PLAYER_COMMAND',
+        action: 'MS_SET_AUDIO_SLOT',
+        slotIndex
+      });
     }
   }
 
   clearSlot(slotIndex) {
     const slot = this.slots.get(slotIndex);
     if (!slot) return;
-    if (slot.hls) {
-      try { slot.hls.destroy(); } catch {}
+    this._destroySlotEngines(slot);
+    if (slot.ro) {
+      try { slot.ro.disconnect(); } catch {}
     }
     if (slot.video) {
       try {
@@ -710,12 +950,25 @@ export class MultiScreenController {
         slot.video.load();
       } catch {}
     }
+    if (slot.engine === 'vlc' && typeof window !== 'undefined' && window.chrome?.webview?.postMessage) {
+      window.chrome.webview.postMessage({
+        type: 'VLC_PLAYER_COMMAND',
+        action: 'MS_CLEAR_SLOT',
+        slotIndex
+      });
+    }
     this.slots.delete(slotIndex);
   }
 
   clearAll() {
     for (const idx of Array.from(this.slots.keys())) {
       this.clearSlot(idx);
+    }
+    if (typeof window !== 'undefined' && window.chrome?.webview?.postMessage) {
+      window.chrome.webview.postMessage({
+        type: 'VLC_PLAYER_COMMAND',
+        action: 'MS_CLEAR_ALL'
+      });
     }
   }
 }

@@ -35,6 +35,16 @@ public partial class MainForm : Form
     private System.Windows.Forms.Timer? _vlcSingleClickTimer;
     private bool _webNavigationCompleted = false;
     private (string? Version, string DownloadUrl, string? ReleaseNotes)? _pendingHostUpdate;
+    private string[] _vlcFallbackUrls = Array.Empty<string>();
+    private int _vlcFallbackIndex = 0;
+    private string _vlcAspectRatio = "auto";
+    private const int MaxMultiScreenSlots = 4;
+    private readonly LibVLCSharp.Shared.MediaPlayer?[] _msPlayers = new LibVLCSharp.Shared.MediaPlayer?[MaxMultiScreenSlots];
+    private readonly VideoView?[] _msVideoViews = new VideoView?[MaxMultiScreenSlots];
+    private readonly bool[] _msSlotActive = new bool[MaxMultiScreenSlots];
+    private readonly string[][] _msSlotFallbacks = new string[MaxMultiScreenSlots][];
+    private readonly int[] _msSlotFallbackIndex = new int[MaxMultiScreenSlots];
+    private int _msActiveAudioSlot = 0;
 
     [DllImport("dwmapi.dll")]
     private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int attrValue, int attrSize);
@@ -79,12 +89,9 @@ public partial class MainForm : Form
                 "--live-caching=2000",
                 "--disc-caching=2000",
                 "--sout-mux-caching=2000",
-                "--avcodec-hw=dxva2,none",
-                "--avcodec-skiploopfilter=4",
+                "--avcodec-hw=d3d11va,dxva2,none",
                 "--drop-late-frames",
-                "--skip-frames",
-                "--clock-jitter=0",
-                "--clock-synchro=0"
+                "--http-reconnect"
             );
             _vlcPlayer = new LibVLCSharp.Shared.MediaPlayer(_libVLC)
             {
@@ -173,6 +180,15 @@ public partial class MainForm : Form
                 if (!_isVlcActive) return;
                 BeginInvoke(() =>
                 {
+                    if (_vlcFallbackIndex < _vlcFallbackUrls.Length)
+                    {
+                        string nextUrl = _vlcFallbackUrls[_vlcFallbackIndex++];
+                        if (!string.IsNullOrEmpty(nextUrl))
+                        {
+                            StartVlcMedia(nextUrl, _vlcAspectRatio);
+                            return;
+                        }
+                    }
                     _webView.CoreWebView2?.ExecuteScriptAsync("window.fluiStreamApp?.handlePlayerState('error', { details: 'VLC_STREAM_ERROR' });");
                 });
             };
@@ -338,6 +354,24 @@ public partial class MainForm : Form
                                 BeginInvoke(() => ApplyVlcLayout(x, y, w, h, visible));
                             }
                         }
+                        else if (msgType == "MULTISCREEN_LAYOUT_UPDATE")
+                        {
+                            if (doc.RootElement.TryGetProperty("slots", out var slotsEl) && slotsEl.ValueKind == System.Text.Json.JsonValueKind.Array)
+                            {
+                                var updates = new System.Collections.Generic.List<(int slotIndex, int x, int y, int w, int h, bool visible)>();
+                                foreach (var itemEl in slotsEl.EnumerateArray())
+                                {
+                                    int sIdx = itemEl.TryGetProperty("slotIndex", out var idxEl) ? idxEl.GetInt32() : -1;
+                                    int x = itemEl.TryGetProperty("x", out var xEl) ? xEl.GetInt32() : 0;
+                                    int y = itemEl.TryGetProperty("y", out var yEl) ? yEl.GetInt32() : 0;
+                                    int w = itemEl.TryGetProperty("width", out var wEl) ? wEl.GetInt32() : 0;
+                                    int h = itemEl.TryGetProperty("height", out var hEl) ? hEl.GetInt32() : 0;
+                                    bool vis = itemEl.TryGetProperty("visible", out var vEl) && vEl.GetBoolean();
+                                    updates.Add((sIdx, x, y, w, h, vis));
+                                }
+                                BeginInvoke(() => ApplyMultiScreenLayout(updates));
+                            }
+                        }
                         else if (msgType == "VLC_PLAYER_COMMAND")
                         {
                             string action = doc.RootElement.TryGetProperty("action", out var actEl) ? (actEl.GetString() ?? "") : "";
@@ -345,10 +379,57 @@ public partial class MainForm : Form
                             {
                                 string? streamUrl = doc.RootElement.TryGetProperty("url", out var uEl) ? uEl.GetString() : null;
                                 string? ratio = doc.RootElement.TryGetProperty("aspectRatio", out var rEl) ? rEl.GetString() : "auto";
+                                string[]? fallbacks = null;
+                                if (doc.RootElement.TryGetProperty("fallbackUrls", out var fbEl) && fbEl.ValueKind == System.Text.Json.JsonValueKind.Array)
+                                {
+                                    var fbList = new System.Collections.Generic.List<string>();
+                                    foreach (var fe in fbEl.EnumerateArray())
+                                    {
+                                        string? fu = fe.GetString();
+                                        if (!string.IsNullOrEmpty(fu)) fbList.Add(fu);
+                                    }
+                                    fallbacks = fbList.ToArray();
+                                }
                                 if (!string.IsNullOrEmpty(streamUrl))
                                 {
-                                    BeginInvoke(() => PlayVlcStream(streamUrl, ratio));
+                                    BeginInvoke(() => PlayVlcStream(streamUrl, ratio, fallbacks));
                                 }
+                            }
+                            else if (action == "MS_PLAY_SLOT")
+                            {
+                                int sIdx = doc.RootElement.TryGetProperty("slotIndex", out var idxEl) ? idxEl.GetInt32() : -1;
+                                string? streamUrl = doc.RootElement.TryGetProperty("url", out var uEl) ? uEl.GetString() : null;
+                                bool muted = !doc.RootElement.TryGetProperty("muted", out var mEl) || mEl.GetBoolean();
+                                var fbList = new System.Collections.Generic.List<string>();
+                                if (doc.RootElement.TryGetProperty("fallbackUrls", out var fbEl) && fbEl.ValueKind == System.Text.Json.JsonValueKind.Array)
+                                {
+                                    foreach (var fe in fbEl.EnumerateArray())
+                                    {
+                                        string? fu = fe.GetString();
+                                        if (!string.IsNullOrEmpty(fu)) fbList.Add(fu);
+                                    }
+                                }
+                                if (!string.IsNullOrEmpty(streamUrl) && sIdx >= 0 && sIdx < MaxMultiScreenSlots)
+                                {
+                                    BeginInvoke(() => PlayMultiScreenSlot(sIdx, streamUrl, fbList.ToArray(), muted));
+                                }
+                            }
+                            else if (action == "MS_SET_AUDIO_SLOT")
+                            {
+                                int sIdx = doc.RootElement.TryGetProperty("slotIndex", out var idxEl) ? idxEl.GetInt32() : 0;
+                                BeginInvoke(() => SetMultiScreenAudioSlot(sIdx));
+                            }
+                            else if (action == "MS_CLEAR_SLOT")
+                            {
+                                int sIdx = doc.RootElement.TryGetProperty("slotIndex", out var idxEl) ? idxEl.GetInt32() : -1;
+                                if (sIdx >= 0 && sIdx < MaxMultiScreenSlots)
+                                {
+                                    BeginInvoke(() => ClearMultiScreenSlot(sIdx));
+                                }
+                            }
+                            else if (action == "MS_CLEAR_ALL")
+                            {
+                                BeginInvoke(ClearAllMultiScreenSlots);
                             }
                             else if (action == "STOP")
                             {
@@ -630,20 +711,21 @@ public partial class MainForm : Form
         promptForm.ShowDialog(this);
     }
 
-    private void PlayVlcStream(string streamUrl, string? ratio = "auto")
+    private void PlayVlcStream(string streamUrl, string? ratio = "auto", string[]? fallbackUrls = null)
+    {
+        if (_vlcPlayer == null || _libVLC == null || _videoView == null) return;
+        _isVlcActive = true;
+        _vlcAspectRatio = ratio ?? "auto";
+        _vlcFallbackUrls = fallbackUrls ?? Array.Empty<string>();
+        _vlcFallbackIndex = 0;
+        StartVlcMedia(streamUrl, _vlcAspectRatio);
+    }
+
+    private void StartVlcMedia(string streamUrl, string ratio)
     {
         if (_vlcPlayer == null || _libVLC == null || _videoView == null) return;
         try
         {
-            _isVlcActive = true;
-            using var media = new Media(_libVLC, streamUrl, FromType.FromLocation);
-            media.AddOption(":network-caching=2000");
-            media.AddOption(":clock-jitter=0");
-            media.AddOption(":clock-synchro=0");
-            _vlcPlayer.Play(media);
-
-            SetVlcAspectRatio(ratio);
-
             if (_isFullScreen || _isPipMode)
             {
                 _videoView.Dock = DockStyle.Fill;
@@ -656,11 +738,177 @@ public partial class MainForm : Form
                 _videoView.BringToFront();
                 UpdateVideoViewLayout();
             }
+
+            SetVlcAspectRatio(ratio);
+
+            using var media = new Media(_libVLC, streamUrl, FromType.FromLocation);
+            media.AddOption(":network-caching=2000");
+            media.AddOption(":live-caching=2000");
+            media.AddOption(":http-reconnect");
+            _vlcPlayer.Play(media);
         }
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine($"Error playing VLC stream: {ex.Message}");
             _webView.CoreWebView2?.ExecuteScriptAsync("window.fluiStreamApp?.handlePlayerState('error', { details: 'VLC_INIT_FAILED' });");
+        }
+    }
+
+    private void EnsureMultiScreenSlotInitialized(int slotIndex)
+    {
+        if (_libVLC == null || slotIndex < 0 || slotIndex >= MaxMultiScreenSlots) return;
+        if (_msPlayers[slotIndex] != null && _msVideoViews[slotIndex] != null) return;
+
+        var mp = new LibVLCSharp.Shared.MediaPlayer(_libVLC)
+        {
+            EnableMouseInput = false,
+            EnableKeyInput = false
+        };
+        var vv = new VideoView
+        {
+            MediaPlayer = mp,
+            Dock = DockStyle.None,
+            Visible = false,
+            BackColor = Color.Black
+        };
+
+        int idx = slotIndex;
+        vv.MouseClick += (s, e) =>
+        {
+            if (e.Button == MouseButtons.Left && _msSlotActive[idx])
+            {
+                BeginInvoke(() =>
+                {
+                    SetMultiScreenAudioSlot(idx);
+                    _webView.CoreWebView2?.ExecuteScriptAsync($"window.fluiStreamApp?.selectMultiScreenAudioSlot({idx});");
+                });
+            }
+        };
+
+        mp.Playing += (s, e) =>
+        {
+            if (!_msSlotActive[idx]) return;
+            BeginInvoke(() =>
+            {
+                mp.Mute = idx != _msActiveAudioSlot;
+                _webView.CoreWebView2?.ExecuteScriptAsync($"window.fluiStreamApp?.multiScreen?.handleNativeSlotState({idx}, 'playing');");
+            });
+        };
+
+        mp.EncounteredError += (s, e) =>
+        {
+            if (!_msSlotActive[idx]) return;
+            BeginInvoke(() =>
+            {
+                var fallbacks = _msSlotFallbacks[idx];
+                if (fallbacks != null && _msSlotFallbackIndex[idx] < fallbacks.Length)
+                {
+                    string nextUrl = fallbacks[_msSlotFallbackIndex[idx]++];
+                    if (!string.IsNullOrEmpty(nextUrl))
+                    {
+                        StartMultiScreenCandidate(idx, nextUrl);
+                        return;
+                    }
+                }
+                _webView.CoreWebView2?.ExecuteScriptAsync($"window.fluiStreamApp?.multiScreen?.handleNativeSlotState({idx}, 'error', {{ details: 'VLC_STREAM_ERROR' }});");
+            });
+        };
+
+        Controls.Add(vv);
+        _msPlayers[slotIndex] = mp;
+        _msVideoViews[slotIndex] = vv;
+    }
+
+    private void PlayMultiScreenSlot(int slotIndex, string streamUrl, string[]? fallbackUrls, bool muted)
+    {
+        if (slotIndex < 0 || slotIndex >= MaxMultiScreenSlots) return;
+        EnsureMultiScreenSlotInitialized(slotIndex);
+        if (!muted) _msActiveAudioSlot = slotIndex;
+        _msSlotActive[slotIndex] = true;
+        _msSlotFallbacks[slotIndex] = fallbackUrls ?? Array.Empty<string>();
+        _msSlotFallbackIndex[slotIndex] = 0;
+
+        if (_msPlayers[slotIndex] is { } mp)
+        {
+            mp.Mute = slotIndex != _msActiveAudioSlot;
+        }
+        StartMultiScreenCandidate(slotIndex, streamUrl);
+    }
+
+    private void StartMultiScreenCandidate(int slotIndex, string streamUrl)
+    {
+        if (_libVLC == null || slotIndex < 0 || slotIndex >= MaxMultiScreenSlots) return;
+        var mp = _msPlayers[slotIndex];
+        var vv = _msVideoViews[slotIndex];
+        if (mp == null || vv == null) return;
+        try
+        {
+            using var media = new Media(_libVLC, streamUrl, FromType.FromLocation);
+            media.AddOption(":network-caching=2000");
+            media.AddOption(":live-caching=2000");
+            media.AddOption(":http-reconnect");
+            mp.Mute = slotIndex != _msActiveAudioSlot;
+            mp.Play(media);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Error playing multi-screen slot {slotIndex}: {ex.Message}");
+            _webView.CoreWebView2?.ExecuteScriptAsync($"window.fluiStreamApp?.multiScreen?.handleNativeSlotState({slotIndex}, 'error', {{ details: 'VLC_INIT_FAILED' }});");
+        }
+    }
+
+    private void SetMultiScreenAudioSlot(int slotIndex)
+    {
+        _msActiveAudioSlot = slotIndex;
+        for (int i = 0; i < MaxMultiScreenSlots; i++)
+        {
+            if (_msPlayers[i] is { } mp)
+            {
+                mp.Mute = i != slotIndex;
+            }
+        }
+    }
+
+    private void ApplyMultiScreenLayout(System.Collections.Generic.List<(int slotIndex, int x, int y, int w, int h, bool visible)> updates)
+    {
+        foreach (var u in updates)
+        {
+            if (u.slotIndex < 0 || u.slotIndex >= MaxMultiScreenSlots) continue;
+            var vv = _msVideoViews[u.slotIndex];
+            if (vv == null) continue;
+            if (!_msSlotActive[u.slotIndex] || !u.visible || u.w <= 10 || u.h <= 10)
+            {
+                vv.Visible = false;
+                continue;
+            }
+            vv.SetBounds(u.x, u.y, u.w, u.h);
+            vv.Visible = true;
+            vv.BringToFront();
+        }
+    }
+
+    private void ClearMultiScreenSlot(int slotIndex)
+    {
+        if (slotIndex < 0 || slotIndex >= MaxMultiScreenSlots) return;
+        _msSlotActive[slotIndex] = false;
+        _msSlotFallbacks[slotIndex] = Array.Empty<string>();
+        _msSlotFallbackIndex[slotIndex] = 0;
+        try
+        {
+            _msPlayers[slotIndex]?.Stop();
+            if (_msVideoViews[slotIndex] is { } vv)
+            {
+                vv.Visible = false;
+            }
+        }
+        catch { }
+    }
+
+    private void ClearAllMultiScreenSlots()
+    {
+        for (int i = 0; i < MaxMultiScreenSlots; i++)
+        {
+            ClearMultiScreenSlot(i);
         }
     }
 
@@ -1173,6 +1421,12 @@ public partial class MainForm : Form
     {
         try
         {
+            ClearAllMultiScreenSlots();
+            for (int i = 0; i < MaxMultiScreenSlots; i++)
+            {
+                _msPlayers[i]?.Dispose();
+                _msPlayers[i] = null;
+            }
             _vlcPlayer?.Stop();
             _vlcPlayer?.Dispose();
             _libVLC?.Dispose();

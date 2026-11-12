@@ -975,6 +975,41 @@ await test('Modo de Dispositivo aplica TV/Mobile/Desktop e inclui sidebar e head
   assert.match(appJs, /formatLastUpdated\(/);
 });
 
+await test('Multi-Tela suporta fallback HLS/MPEG-TS/LibVLC nativo sem derrubar slots ativos e otimiza flags LibVLC', () => {
+  const helper = new VideoPlayerController(null, null);
+  const cands = helper.buildStreamCandidates('http://myiptv.com/live/user/pass/155.m3u8', ItemType.LIVE, 'auto');
+  assert.deepEqual(cands, [
+    'http://myiptv.com/live/user/pass/155.m3u8',
+    'http://myiptv.com/live/user/pass/155.ts',
+    'http://myiptv.com/live/user/pass/155.m3u8'
+  ].filter((v, i, a) => a.indexOf(v) === i));
+
+  const candsRaw = helper.buildStreamCandidates('http://myiptv.com/user/pass/155', ItemType.LIVE, 'auto');
+  assert.deepEqual(candsRaw, [
+    'http://myiptv.com/live/user/pass/155.m3u8',
+    'http://myiptv.com/live/user/pass/155.ts',
+    'http://myiptv.com/user/pass/155'
+  ]);
+
+  const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+  const html = readFileSync(resolve(rootDir, 'src/web/index.html'), 'utf-8');
+  const playerJs = readFileSync(resolve(rootDir, 'src/web/js/player.js'), 'utf-8');
+  const appJs = readFileSync(resolve(rootDir, 'src/web/js/app.js'), 'utf-8');
+  const mainFormCs = readFileSync(resolve(rootDir, 'src/desktop/MainForm.cs'), 'utf-8');
+
+  assert.match(html, /mpegts\.js/);
+  assert.match(playerJs, /handleNativeSlotState/);
+  assert.match(playerJs, /MS_PLAY_SLOT/);
+  assert.match(appJs, /renderMultiScreenSlot/);
+  assert.match(appJs, /selectMultiScreenAudioSlot/);
+  assert.match(mainFormCs, /PlayMultiScreenSlot/);
+  assert.match(mainFormCs, /MULTISCREEN_LAYOUT_UPDATE/);
+  assert.match(mainFormCs, /--avcodec-hw=d3d11va,dxva2,none/);
+  assert.match(mainFormCs, /--http-reconnect/);
+  assert.equal(mainFormCs.includes('--avcodec-skiploopfilter=4'), false);
+  assert.equal(mainFormCs.includes('--clock-jitter=0'), false);
+});
+
 console.log(`\n========================================`);
 console.log(`Resultados dos Testes: ${passedTests}/${totalTests} passaram.`);
 console.log(`========================================\n`);

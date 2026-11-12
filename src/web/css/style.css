@@ -2343,8 +2343,9 @@ body.desktop-mini-pip .player-wrapper {
   border-radius: 12px;
   overflow: hidden;
   display: flex;
-  align-items: center;
-  justify-content: center;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
 }
 
 .multiscreen-slot.slot-active {
@@ -2352,17 +2353,56 @@ body.desktop-mini-pip .player-wrapper {
   box-shadow: 0 0 18px rgba(245, 158, 11, 0.25);
 }
 
+.multiscreen-slot-stage {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  background: #000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
 .multiscreen-slot video {
   width: 100%;
   height: 100%;
   object-fit: contain;
   background: #000;
+  display: block;
+}
+
+.multiscreen-slot-status {
+  position: absolute;
+  inset: auto 0.75rem;
+  z-index: 2;
+  margin: auto;
+  max-width: 88%;
+  width: fit-content;
+  padding: 0.4rem 0.75rem;
+  border-radius: 8px;
+  background: rgba(6, 16, 30, 0.88);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  color: var(--text-primary);
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-align: center;
+  pointer-events: none;
+}
+
+.multiscreen-slot-status.is-error {
+  border-color: rgba(239, 68, 68, 0.55);
+  color: #FCA5A5;
 }
 
 .multiscreen-slot-empty {
+  width: 100%;
+  height: 100%;
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: center;
   gap: 0.5rem;
   color: var(--text-secondary);
   cursor: pointer;
@@ -2385,16 +2425,22 @@ body.desktop-mini-pip .player-wrapper {
 }
 
 .multiscreen-slot-hud {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  padding: 0.45rem 0.65rem;
-  background: linear-gradient(180deg, transparent 0%, rgba(5, 7, 11, 0.92) 100%);
+  position: relative;
+  flex-shrink: 0;
+  padding: 0.42rem 0.65rem;
+  background: rgba(5, 7, 11, 0.96);
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 0.5rem;
+}
+
+.multiscreen-slot-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-shrink: 0;
 }
 
 .multiscreen-slot-title {
