@@ -13,7 +13,7 @@
   <a href="https://github.com/CesarOvies/FluiStream/releases"><img src="https://img.shields.io/github/v/release/CesarOvies/FluiStream?logo=github&label=Release" alt="Release" /></a>
   <a href="https://cesarovies.github.io/FluiStream/llms.txt"><img src="https://img.shields.io/badge/AI_Context-llms.txt-388BFD?logo=openai&logoColor=white" alt="llms.txt" /></a>
   <img src="https://img.shields.io/badge/.NET-10.0-512BD4?logo=dotnet&logoColor=white" alt=".NET 10.0" />
-  <img src="https://img.shields.io/badge/Platform-Web%20%7C%20Windows%20Portable-slate" alt="Platform" />
+  <img src="https://img.shields.io/badge/Platform-Web%20%7C%20Windows%20%7C%20Linux%20%7C%20macOS-slate" alt="Platform" />
   <img src="https://img.shields.io/badge/i18n-PT%20%7C%20EN%20%7C%20ES-06B6D4" alt="i18n" />
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License" /></a>
 </p>
@@ -118,10 +118,14 @@ flowchart TD
 Acesse diretamente via navegador:
 👉 **[https://cesarovies.github.io/FluiStream/](https://cesarovies.github.io/FluiStream/)**
 
-### Versão Desktop Portable (Windows)
-1. Baixe o arquivo `FluiStream-v1.0.0-win-x64-portable.zip` na aba [Releases](https://github.com/CesarOvies/FluiStream/releases).
-2. Extraia para qualquer pasta (ex: em seu Pendrive ou Documentos).
-3. Execute `FluiStream.exe`. Zero instalação necessária.
+### Versão Desktop Portable (Multiplataforma)
+1. Acesse a aba [Releases](https://github.com/CesarOvies/FluiStream/releases) e baixe o pacote correspondente ao seu sistema:
+   - 🪟 **Windows x64**: `FluiStream-v1.0.0-win-x64-portable.zip` (executável nativo `FluiStream.exe` com LibVLC + WebView2).
+   - 🐧 **Linux x64**: `FluiStream-v1.0.0-linux-x64-portable.tar.gz` ou `.zip` (binário nativo self-contained `FluiStream`).
+   - 🍏 **macOS Apple Silicon**: `FluiStream-v1.0.0-osx-arm64-portable.tar.gz` ou `.zip` (binário nativo self-contained `FluiStream`).
+   - 🌐 **Web Standalone**: `FluiStream-v1.0.0-web-standalone.zip` (pacote estático offline/PWA).
+2. Extraia para qualquer pasta (ex: Documentos ou Pendrive).
+3. Execute o binário. Zero instalador, zero privilégio de Administrador (100% User-Space).
 
 ---
 

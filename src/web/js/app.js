@@ -1986,6 +1986,8 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
       }
     }
   }
+
+  playChannel(item) {
     this.currentPlayingItem = item;
     storage.addRecent(item);
 
