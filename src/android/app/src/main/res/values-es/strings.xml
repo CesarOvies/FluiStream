@@ -12,4 +12,23 @@
     <string name="player_aspect_fill">Rellenar</string>
     <string name="tv_back_exit_hint">Presione Atrás nuevamente para salir de FluiStream</string>
     <string name="webview_unavailable">Se requiere Android System WebView para ejecutar FluiStream.</string>
+    <string name="update_channel_name">Actualizaciones de la App</string>
+    <string name="update_channel_desc">Notificaciones cuando haya una nueva versión de FluiStream disponible</string>
+    <string name="update_available_title">¡Nueva Versión Disponible!</string>
+    <string name="update_available_header">FluiStream v%1$s → v%2$s</string>
+    <string name="update_prompt_message">Hay una nueva versión de FluiStream disponible. ¿Desea descargarla e instalarla ahora?</string>
+    <string name="update_release_notes_fallback">Mejoras de rendimiento, estabilidad de reproducción y ajustes visuales.</string>
+    <string name="update_btn_now">Actualizar Ahora</string>
+    <string name="update_btn_later">Más Tarde</string>
+    <string name="update_btn_cancel">Cancelar</string>
+    <string name="update_btn_authorize">Autorizar</string>
+    <string name="update_permission_title">Permitir Actualizaciones</string>
+    <string name="update_permission_message">Para instalar el nuevo APK de FluiStream, autorice la instalación de aplicaciones desde esta fuente en los ajustes de Android.</string>
+    <string name="update_downloading">Descargando actualización: %1$d%%</string>
+    <string name="update_verifying_hash">Verificando integridad SHA-256…</string>
+    <string name="update_hash_mismatch">Error en la verificación de seguridad SHA-256. Actualización cancelada.</string>
+    <string name="update_hash_missing">Hash SHA-256 no encontrado en SHA256SUMS.txt para este APK.</string>
+    <string name="update_hash_fetch_error">No se pudo descargar SHA256SUMS.txt para validar el APK.</string>
+    <string name="update_launching_installer">Abriendo instalador de Android…</string>
+    <string name="update_error">Error al actualizar: %1$s</string>
 </resources>

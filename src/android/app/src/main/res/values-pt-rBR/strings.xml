@@ -12,4 +12,23 @@
     <string name="player_aspect_fill">Preencher</string>
     <string name="tv_back_exit_hint">Pressione Voltar novamente para sair do FluiStream</string>
     <string name="webview_unavailable">O componente Android System WebView é necessário para executar o FluiStream.</string>
+    <string name="update_channel_name">Atualizações do App</string>
+    <string name="update_channel_desc">Notificações quando uma nova versão do FluiStream estiver disponível</string>
+    <string name="update_available_title">Nova Versão Disponível!</string>
+    <string name="update_available_header">FluiStream v%1$s → v%2$s</string>
+    <string name="update_prompt_message">Uma nova versão do FluiStream está disponível. Deseja baixar e instalar agora?</string>
+    <string name="update_release_notes_fallback">Melhorias de desempenho, estabilidade na reprodução e ajustes visuais.</string>
+    <string name="update_btn_now">Atualizar Agora</string>
+    <string name="update_btn_later">Depois</string>
+    <string name="update_btn_cancel">Cancelar</string>
+    <string name="update_btn_authorize">Autorizar</string>
+    <string name="update_permission_title">Autorizar Atualização</string>
+    <string name="update_permission_message">Para instalar o novo APK do FluiStream, autorize a instalação de apps desta fonte nas configurações do Android.</string>
+    <string name="update_downloading">Baixando atualização: %1$d%%</string>
+    <string name="update_verifying_hash">Verificando integridade SHA-256…</string>
+    <string name="update_hash_mismatch">Falha na verificação de segurança SHA-256. Atualização abortada.</string>
+    <string name="update_hash_missing">Hash SHA-256 não encontrado em SHA256SUMS.txt para este APK.</string>
+    <string name="update_hash_fetch_error">Não foi possível baixar SHA256SUMS.txt para validar o APK.</string>
+    <string name="update_launching_installer">Abrindo instalador do Android…</string>
+    <string name="update_error">Erro ao atualizar: %1$s</string>
 </resources>

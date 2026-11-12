@@ -40,4 +40,65 @@ class NativeBridge(private val activity: MainActivity) {
 
     @JavascriptInterface
     fun getPlatform(): String = "android"
+
+    @JavascriptInterface
+    fun getAppVersion(): String = activity.appUpdateManager.getInstalledVersionName()
+
+    @JavascriptInterface
+    fun notifyUpdateAvailable(
+        latestVersion: String?,
+        title: String?,
+        body: String?,
+        releaseNotes: String?,
+        apkDownloadUrl: String?,
+        apkAssetName: String?,
+        sha256SumsUrl: String?,
+        releaseUrl: String?
+    ) {
+        val url = apkDownloadUrl?.trim().orEmpty()
+        val version = latestVersion?.trim().orEmpty()
+        if (url.isEmpty() || version.isEmpty()) return
+
+        val info = AndroidUpdateInfo(
+            latestVersion = version,
+            title = title?.trim().orEmpty(),
+            body = body?.trim().orEmpty(),
+            releaseNotes = releaseNotes?.trim().orEmpty(),
+            apkDownloadUrl = url,
+            apkAssetName = apkAssetName?.trim().orEmpty(),
+            sha256SumsUrl = sha256SumsUrl?.trim().orEmpty(),
+            releaseUrl = releaseUrl?.trim().orEmpty()
+        )
+        activity.runOnUiThread {
+            activity.appUpdateManager.onUpdateDiscovered(info)
+        }
+    }
+
+    @JavascriptInterface
+    fun requestAppUpdate(
+        latestVersion: String?,
+        releaseNotes: String?,
+        apkDownloadUrl: String?,
+        apkAssetName: String?,
+        sha256SumsUrl: String?,
+        releaseUrl: String?
+    ) {
+        val url = apkDownloadUrl?.trim().orEmpty()
+        val version = latestVersion?.trim().orEmpty()
+        if (url.isEmpty() || version.isEmpty()) return
+
+        val info = AndroidUpdateInfo(
+            latestVersion = version,
+            title = "",
+            body = "",
+            releaseNotes = releaseNotes?.trim().orEmpty(),
+            apkDownloadUrl = url,
+            apkAssetName = apkAssetName?.trim().orEmpty(),
+            sha256SumsUrl = sha256SumsUrl?.trim().orEmpty(),
+            releaseUrl = releaseUrl?.trim().orEmpty()
+        )
+        activity.runOnUiThread {
+            activity.appUpdateManager.requestAppUpdate(info)
+        }
+    }
 }

@@ -8,7 +8,7 @@ import { M3UParser, ItemType } from '../src/web/js/m3u-parser.js';
 import { EPGParser } from '../src/web/js/epg-parser.js';
 import { XtreamApi } from '../src/web/js/xtream-api.js';
 import { translations, SupportedLanguages } from '../src/web/js/localization.js';
-import { APP_VERSION, parseCleanVersion, isNewerVersion } from '../src/web/js/version.js';
+import { APP_VERSION, parseCleanVersion, isNewerVersion, selectReleaseAssets, checkForUpdate } from '../src/web/js/version.js';
 import { VideoPlayerController } from '../src/web/js/player.js';
 import { StorageService } from '../src/web/js/storage.js';
 import { applyCorsProxy } from '../src/web/js/network.js';
@@ -149,6 +149,66 @@ await test('Deve detectar corretamente se há versão mais recente no Git', () =
   assert.equal(isNewerVersion('v2.0.0', '1.9.9'), true);
   assert.equal(isNewerVersion('v1.0.0', '1.0.0'), false);
   assert.equal(isNewerVersion('v0.9.8', '1.0.0'), false);
+});
+
+await test('Deve selecionar assets Windows, Android APK e SHA256SUMS.txt da release', () => {
+  const assets = [
+    { name: 'FluiStream-v1.2.0-linux-x64-portable.zip', browser_download_url: 'https://github.com/CesarOvies/FluiStream/releases/download/v1.2.0/FluiStream-v1.2.0-linux-x64-portable.zip' },
+    { name: 'FluiStream-v1.2.0-win-x64-portable.zip', browser_download_url: 'https://github.com/CesarOvies/FluiStream/releases/download/v1.2.0/FluiStream-v1.2.0-win-x64-portable.zip' },
+    { name: 'FluiStream-v1.2.0-android.apk', browser_download_url: 'https://github.com/CesarOvies/FluiStream/releases/download/v1.2.0/FluiStream-v1.2.0-android.apk' },
+    { name: 'SHA256SUMS.txt', browser_download_url: 'https://github.com/CesarOvies/FluiStream/releases/download/v1.2.0/SHA256SUMS.txt' }
+  ];
+
+  const selected = selectReleaseAssets(assets);
+  assert.equal(selected.winDownloadUrl, 'https://github.com/CesarOvies/FluiStream/releases/download/v1.2.0/FluiStream-v1.2.0-win-x64-portable.zip');
+  assert.equal(selected.apkDownloadUrl, 'https://github.com/CesarOvies/FluiStream/releases/download/v1.2.0/FluiStream-v1.2.0-android.apk');
+  assert.equal(selected.apkAssetName, 'FluiStream-v1.2.0-android.apk');
+  assert.equal(selected.sha256SumsUrl, 'https://github.com/CesarOvies/FluiStream/releases/download/v1.2.0/SHA256SUMS.txt');
+});
+
+await test('checkForUpdate deve usar versão nativa do Android e expor available/hasUpdate + APK', async () => {
+  const prevFetch = globalThis.fetch;
+  const prevWindow = globalThis.window;
+
+  globalThis.window = {
+    androidBridge: {
+      getAppVersion: () => '1.0.0'
+    }
+  };
+  globalThis.fetch = async () => ({
+    ok: true,
+    json: async () => ({
+      tag_name: 'v1.2.0',
+      body: 'Novidades Android',
+      html_url: 'https://github.com/CesarOvies/FluiStream/releases/tag/v1.2.0',
+      assets: [
+        { name: 'FluiStream-v1.2.0-android.apk', browser_download_url: 'https://github.com/CesarOvies/FluiStream/releases/download/v1.2.0/FluiStream-v1.2.0-android.apk' },
+        { name: 'SHA256SUMS.txt', browser_download_url: 'https://github.com/CesarOvies/FluiStream/releases/download/v1.2.0/SHA256SUMS.txt' }
+      ]
+    })
+  });
+
+  try {
+    const info = await checkForUpdate();
+    assert.equal(info.available, true);
+    assert.equal(info.hasUpdate, true);
+    assert.equal(info.currentVersion, '1.0.0');
+    assert.equal(info.latestVersion, '1.2.0');
+    assert.equal(info.apkAssetName, 'FluiStream-v1.2.0-android.apk');
+    assert.ok(info.apkDownloadUrl.endsWith('.apk'));
+    assert.ok(info.sha256SumsUrl.endsWith('SHA256SUMS.txt'));
+
+    const upToDate = await checkForUpdate('1.2.0');
+    assert.equal(upToDate.available, false);
+    assert.equal(upToDate.hasUpdate, false);
+  } finally {
+    globalThis.fetch = prevFetch;
+    if (prevWindow === undefined) {
+      delete globalThis.window;
+    } else {
+      globalThis.window = prevWindow;
+    }
+  }
 });
 
 console.log('\n--- 6. Testes de Otimização e Categorização Pré-load ---');

@@ -37,9 +37,26 @@ class MainActivity : AppCompatActivity() {
     lateinit var videoPlayerManager: VideoPlayerManager
         private set
 
+    lateinit var appUpdateManager: AppUpdateManager
+        private set
+
     private lateinit var tvFocusHelper: TvFocusHelper
     private var fileChooserCallback: ValueCallback<Array<Uri>>? = null
     private var lastBackPressTimeMs: Long = 0L
+
+    private val installPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) {
+        appUpdateManager.onInstallPermissionResult()
+    }
+
+    private val notificationPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            appUpdateManager.postPendingNotificationIfAny()
+        }
+    }
 
     private val fileChooserLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -96,8 +113,27 @@ class MainActivity : AppCompatActivity() {
             onBackRequested = { handleBackNavigation() }
         )
 
+        appUpdateManager = AppUpdateManager(
+            activity = this,
+            requestInstallPermission = { intent -> installPermissionLauncher.launch(intent) },
+            requestNotificationPermission = { permission -> notificationPermissionLauncher.launch(permission) }
+        )
+
         setupWebView()
         setupBackDispatcher()
+        handleIntent(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleIntent(intent)
+    }
+
+    private fun handleIntent(intent: Intent?) {
+        if (intent?.action == AppUpdateManager.ACTION_PROMPT_UPDATE) {
+            appUpdateManager.handleNotificationPromptIntent()
+        }
     }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -253,6 +289,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        appUpdateManager.release()
         videoPlayerManager.release()
         webView.removeJavascriptInterface("androidBridge")
         webView.destroy()
