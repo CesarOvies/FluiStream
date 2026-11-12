@@ -9,6 +9,7 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>app.ico</ApplicationIcon>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <NoWarn>$(NoWarn);MSB3277</NoWarn>
     <AssemblyName>FluiStream</AssemblyName>
     <RootNamespace>FluiStream.Desktop</RootNamespace>
