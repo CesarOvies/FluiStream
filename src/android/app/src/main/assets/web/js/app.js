@@ -779,16 +779,9 @@ class FluiStreamApp {
 
     [this.dom.btnRefreshLive, this.dom.btnRefreshMovies, this.dom.btnRefreshSeries].forEach(btn => {
       if (!btn) return;
-      btn.addEventListener('click', async (e) => {
+      btn.addEventListener('click', (e) => {
         e.stopPropagation();
-        const prof = storage.getActiveProfile();
-        if (!prof || (prof.type !== 'xtream' && prof.type !== 'm3u_url')) return;
-        btn.classList.add('spinning');
-        try {
-          await this.reloadRemoteProfileData(prof, true);
-        } finally {
-          btn.classList.remove('spinning');
-        }
+        this.refreshHomePlaylist(btn);
       });
     });
 
@@ -1420,11 +1413,30 @@ class FluiStreamApp {
   // =====================================================
   // HOME HUB RENDERING (SCREEN 1)
   // =====================================================
+  formatLastUpdated(timestamp) {
+    if (!timestamp) return '--';
+    const lang = i18n.currentLanguage || 'pt-BR';
+    const hour12 = storage.getSettings().timeFormat === '12h';
+    try {
+      return new Intl.DateTimeFormat(lang, {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12
+      }).format(new Date(timestamp));
+    } catch {
+      return new Date(timestamp).toLocaleString();
+    }
+  }
+
   renderHomeHub() {
     const summary = this.playlist.summary || { total: 0, live: 0, movies: 0, series: 0 };
     const favCount = storage.getFavorites().length;
     const prof = storage.getActiveProfile();
-    const updatedDate = prof?.updatedAt ? new Date(prof.updatedAt).toLocaleDateString(i18n.currentLanguage || 'pt-BR') : '--';
+    const updatedDate = this.formatLastUpdated(prof?.updatedAt);
 
     if (this.dom.homeCountLive) this.dom.homeCountLive.textContent = String(summary.live || 0);
     if (this.dom.homeCountMovies) this.dom.homeCountMovies.textContent = String(summary.movies || 0);
@@ -3568,6 +3580,42 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
     this.openProfilesModal();
   }
 
+  async refreshHomePlaylist(clickedBtn = null) {
+    const prof = storage.getActiveProfile();
+    if (!prof || this._isRefreshingPlaylist) return;
+    this._isRefreshingPlaylist = true;
+    const buttons = [this.dom.btnRefreshLive, this.dom.btnRefreshMovies, this.dom.btnRefreshSeries].filter(Boolean);
+    buttons.forEach(b => {
+      b.disabled = true;
+      if (!clickedBtn || b === clickedBtn) b.classList.add('spinning');
+    });
+    const refreshingLabel = i18n.get('homeRefreshing');
+    [this.dom.homeUpdatedLive, this.dom.homeUpdatedMovies, this.dom.homeUpdatedSeries].forEach(el => {
+      if (el) el.textContent = refreshingLabel;
+    });
+
+    try {
+      if (prof.type === 'xtream' || prof.type === 'm3u_url') {
+        await this.reloadRemoteProfileData(prof, false);
+      } else {
+        if (storage.getEpgSources(prof.id).length > 0) {
+          await this.refreshAllEpgSources();
+        }
+        storage.saveProfile({ ...prof, updatedAt: Date.now() });
+        this.renderHomeHub();
+      }
+    } catch (err) {
+      this.addAppNotification('warning', prof.name || 'FluiStream', err?.message || 'Erro ao atualizar lista');
+      this.renderHomeHub();
+    } finally {
+      this._isRefreshingPlaylist = false;
+      buttons.forEach(b => {
+        b.disabled = false;
+        b.classList.remove('spinning');
+      });
+    }
+  }
+
   async reloadRemoteProfileData(prof, silent = false) {
     if (!prof) return;
     if (prof.type === 'xtream') {
@@ -3583,7 +3631,7 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
       const m3uContent = await fetchRemoteText(prof.url || prof.m3uUrl);
       await this.processLoadedM3u(m3uContent, prof.name, null, prof.epgUrl, prof);
     }
-    if (!silent) this.renderHomeHub();
+    if (!silent || this.activeScreen === 'home') this.renderHomeHub();
   }
 
   // =====================================================

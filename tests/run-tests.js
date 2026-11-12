@@ -117,7 +117,7 @@ await test('Todos os 3 idiomas (pt-BR, en-US, es) devem possuir o mesmo conjunto
   const enKeys = Object.keys(translations['en-US']).sort();
   const esKeys = Object.keys(translations['es']).sort();
 
-  assert.equal(ptKeys.length, 243, `Esperado exatamente 243 chaves i18n em pt-BR, obtido ${ptKeys.length}`);
+  assert.equal(ptKeys.length, 244, `Esperado exatamente 244 chaves i18n em pt-BR, obtido ${ptKeys.length}`);
   assert.deepEqual(ptKeys, enKeys, 'Chaves pt-BR e en-US devem ser idênticas');
   assert.deepEqual(ptKeys, esKeys, 'Chaves pt-BR e es devem ser idênticas');
 
@@ -971,6 +971,8 @@ await test('Modo de Dispositivo aplica TV/Mobile/Desktop e inclui sidebar e head
   assert.match(appJs, /data-effective-device-mode/);
   assert.match(appJs, /'\.sidebar-item-row'/);
   assert.match(appJs, /deviceModeHelp/);
+  assert.match(appJs, /refreshHomePlaylist\(/);
+  assert.match(appJs, /formatLastUpdated\(/);
 });
 
 console.log(`\n========================================`);
