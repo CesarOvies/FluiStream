@@ -13,6 +13,7 @@ import { storage } from './storage.js';
 import { VideoPlayerController, MultiScreenController } from './player.js';
 import { fetchRemoteText } from './network.js';
 import { UpdateChecker, getCurrentVersion } from './version.js';
+import { resolveMediaMetadata, resolveTrailerPlayback } from './media-metadata.js';
 
 const PARENTAL_CATEGORY_RE = /(?:adult|xxx|18\+|\+18|porn|erotic|sexy|hentai|nsfw)/i;
 
@@ -55,6 +56,8 @@ class FluiStreamApp {
     this.currentFilteredItems = [];
     this.currentFilteredSeries = [];
     this.activeSeries = null;
+    this.activeMovie = null;
+    this.activeMovieMeta = null;
     this.selectedSeason = 1;
     this.isScrubbing = false;
     this.currentDuration = 0;
@@ -71,6 +74,9 @@ class FluiStreamApp {
 
   async init() {
     this.bindDomElements();
+    if (typeof document !== 'undefined' && window.androidBridge) {
+      document.body.classList.add('is-android-app');
+    }
     if (this.isNativeApp() && this.dom.importWebCorsNotice) {
       this.dom.importWebCorsNotice.classList.add('hidden');
     }
@@ -164,10 +170,12 @@ class FluiStreamApp {
 
       // Split-Pane Browser
       splitSidebar: document.getElementById('split-sidebar'),
+      sidebarBackdrop: document.getElementById('sidebar-backdrop'),
       splitSidebarTitle: document.getElementById('split-sidebar-title'),
       btnSidebarHome: document.getElementById('btn-sidebar-home'),
       btnSidebarClose: document.getElementById('btn-sidebar-close'),
       btnToggleSidebarMobile: document.getElementById('btn-toggle-sidebar-mobile'),
+      btnBackCategories: document.getElementById('btn-back-categories'),
       sidebarCategorySearch: document.getElementById('sidebar-category-search'),
       sidebarItemsToolbar: document.getElementById('sidebar-items-toolbar'),
       btnSidebarClearHistory: document.getElementById('btn-sidebar-clear-history'),
@@ -376,8 +384,9 @@ class FluiStreamApp {
       accCreatedAt: document.getElementById('acc-info-created-at'),
       accMaxCons: document.getElementById('acc-info-max-cons'),
 
-      // Series
+      // Series & Movie Detail
       modalSeries: document.getElementById('modal-series'),
+      seriesModalHeading: document.getElementById('series-modal-heading'),
       btnCloseSeries: document.getElementById('btn-close-series'),
       seriesPoster: document.getElementById('series-modal-poster'),
       seriesTitle: document.getElementById('series-modal-title'),
@@ -385,10 +394,15 @@ class FluiStreamApp {
       seriesStats: document.getElementById('series-modal-stats'),
       seriesDesc: document.getElementById('series-modal-desc'),
       btnSeriesWatchNow: document.getElementById('btn-series-watch-now'),
+      btnMovieTrailer: document.getElementById('btn-movie-trailer'),
+      movieTrailerBox: document.getElementById('movie-trailer-box'),
+      btnCloseMovieTrailer: document.getElementById('btn-close-movie-trailer'),
+      movieTrailerFrameWrap: document.getElementById('movie-trailer-frame-wrap'),
       btnSeriesSeasonSelect: document.getElementById('btn-series-season-select'),
       seasonsPopup: document.getElementById('seasons-popup'),
       btnCloseSeasonsPopup: document.getElementById('btn-close-seasons-popup'),
       seasonsPopupList: document.getElementById('seasons-popup-list'),
+      seriesTabsBar: document.getElementById('series-tabs-bar'),
       seriesEpisodesContainer: document.getElementById('series-episodes-container')
     };
   }
@@ -535,7 +549,7 @@ class FluiStreamApp {
     }
     if (this.activeScreen === 'browse') {
       if (this.dom.splitSidebar?.classList.contains('open-mobile')) {
-        this.dom.splitSidebar.classList.remove('open-mobile');
+        this.setMobileSidebarOpen(false);
         return 'handled';
       }
       if (this.sidebarDrillMode === 'items') {
@@ -603,8 +617,40 @@ class FluiStreamApp {
     const hasCoarse = typeof window.matchMedia === 'function' && window.matchMedia('(hover: none) and (pointer: coarse)').matches;
     const hasNoPointer = typeof window.matchMedia === 'function' && window.matchMedia('(pointer: none)').matches;
     if (isTvUa || hasNoPointer) return 'tv';
-    if (hasCoarse || (('ontouchstart' in window) && window.innerWidth <= 900)) return 'mobile';
+    const hasMobileUa = /android.*mobile|iphone|ipod|blackberry|iemobile|opera mini|mobile/i.test(ua);
+    const minViewportSide = Math.min(window.innerWidth || 0, window.innerHeight || 0);
+    if (hasCoarse || hasMobileUa || (('ontouchstart' in window) && minViewportSide <= 900)) return 'mobile';
     return 'desktop';
+  }
+
+  setMobileSidebarOpen(open) {
+    const isOpen = Boolean(open);
+    this.dom.splitSidebar?.classList.toggle('open-mobile', isOpen);
+    this.dom.sidebarBackdrop?.classList.toggle('hidden', !isOpen);
+    if (this.dom.btnToggleSidebarMobile) {
+      this.dom.btnToggleSidebarMobile.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+    }
+    if (typeof document !== 'undefined') {
+      document.body.classList.toggle('mobile-drawer-open', isOpen);
+    }
+    this.updateNativeOverlayVisibility();
+  }
+
+  updateNativeOverlayVisibility() {
+    if (this.player) {
+      const canShowSingle = this.activeScreen === 'browse' && Boolean(this.currentPlayingItem);
+      this.player.setOverlayVisible(canShowSingle);
+      this.player.reportLayout();
+    }
+    this.multiScreen?.reportLayout();
+  }
+
+  isSingleClickFullscreenMode() {
+    const effective = this.resolveEffectiveDeviceMode();
+    return effective === 'tv'
+      || effective === 'mobile'
+      || (typeof window !== 'undefined' && Boolean(window.androidBridge))
+      || (typeof document !== 'undefined' && document.body.classList.contains('is-android-app'));
   }
 
   applyDeviceMode() {
@@ -652,7 +698,12 @@ class FluiStreamApp {
     }
   }
 
+  goHome() {
+    this.navigateToScreen(this.playlist.items.length > 0 ? 'home' : 'empty');
+  }
+
   navigateToScreen(screenName) {
+    this.setMobileSidebarOpen(false);
     if (this.activeScreen === 'multiscreen' && screenName !== 'multiscreen') {
       this.multiScreen.clearAll();
       this._activeMsRenderSig = '';
@@ -688,10 +739,7 @@ class FluiStreamApp {
     if (screenName === 'epg') this.renderEpgSubscreen();
     if (screenName === 'notifications') this.renderNotifications();
 
-    if (this.player) {
-      this.player.setOverlayVisible(screenName === 'browse' && Boolean(this.currentPlayingItem));
-      this.player.reportLayout();
-    }
+    this.updateNativeOverlayVisibility();
   }
 
   initI18n() {
@@ -705,6 +753,8 @@ class FluiStreamApp {
       if (this.activeScreen === 'notifications') this.renderNotifications();
       if (this.activeSeries && !this.dom.modalSeries?.classList.contains('hidden')) {
         this.openSeriesDetailModal(this.activeSeries);
+      } else if (this.activeMovie && !this.dom.modalSeries?.classList.contains('hidden')) {
+        this.openMovieDetailModal(this.activeMovie);
       }
     });
     i18n.applyToDOM();
@@ -723,7 +773,7 @@ class FluiStreamApp {
       tab.addEventListener('click', () => {
         const view = tab.getAttribute('data-view');
         if (view === 'home') {
-          this.navigateToScreen(this.playlist.items.length > 0 ? 'home' : 'empty');
+          this.goHome();
           return;
         }
         this.openBrowseView(view);
@@ -732,7 +782,7 @@ class FluiStreamApp {
 
     // Brand Home
     if (this.dom.btnBrandHome) {
-      const goHome = () => this.navigateToScreen(this.playlist.items.length > 0 ? 'home' : 'empty');
+      const goHome = () => this.goHome();
       this.dom.btnBrandHome.addEventListener('click', goHome);
       this.dom.btnBrandHome.addEventListener('keydown', (e) => {
         if (e.key === 'Enter' || e.key === ' ') {
@@ -811,31 +861,40 @@ class FluiStreamApp {
     }
 
     // Split-Pane Sidebar & Browser
+    if (this.dom.btnBackCategories) {
+      this.dom.btnBackCategories.addEventListener('click', () => this.goHome());
+    }
     if (this.dom.btnSidebarHome) {
       this.dom.btnSidebarHome.addEventListener('click', () => {
-        this.dom.splitSidebar?.classList.remove('open-mobile');
+        this.setMobileSidebarOpen(false);
         if (this.sidebarDrillMode === 'items') {
           this.closeEnteredCategory();
         } else {
-          this.navigateToScreen('home');
+          this.goHome();
         }
       });
     }
     if (this.dom.btnToggleSidebarMobile) {
       this.dom.btnToggleSidebarMobile.addEventListener('click', () => {
-        this.dom.splitSidebar?.classList.toggle('open-mobile');
+        const isOpen = Boolean(this.dom.splitSidebar?.classList.contains('open-mobile'));
+        this.setMobileSidebarOpen(!isOpen);
+      });
+    }
+    if (this.dom.sidebarBackdrop) {
+      this.dom.sidebarBackdrop.addEventListener('click', () => {
+        this.setMobileSidebarOpen(false);
       });
     }
     if (this.dom.btnSidebarClose) {
       this.dom.btnSidebarClose.addEventListener('click', () => {
         if (this.dom.splitSidebar?.classList.contains('open-mobile')) {
-          this.dom.splitSidebar.classList.remove('open-mobile');
+          this.setMobileSidebarOpen(false);
           return;
         }
         if (this.sidebarDrillMode === 'items') {
           this.closeEnteredCategory();
         } else {
-          this.navigateToScreen('home');
+          this.goHome();
         }
       });
     }
@@ -919,16 +978,30 @@ class FluiStreamApp {
     if (this.dom.btnPlayerPlayPause) this.dom.btnPlayerPlayPause.addEventListener('click', () => this.player.togglePlay());
     if (this.dom.playerCenterHit) {
       let centerClickTimer = null;
-      this.dom.playerCenterHit.addEventListener('click', () => {
+      this.dom.playerCenterHit.addEventListener('click', (e) => {
         if (!this.currentPlayingItem) return;
+        e.stopPropagation();
+        if (this.isSingleClickFullscreenMode()) {
+          clearTimeout(centerClickTimer);
+          this.player.toggleFullscreen();
+          return;
+        }
         clearTimeout(centerClickTimer);
         centerClickTimer = setTimeout(() => {
           this.player.togglePlay();
         }, 180);
       });
-      this.dom.playerCenterHit.addEventListener('dblclick', () => {
-        if (!this.currentPlayingItem) return;
+      this.dom.playerCenterHit.addEventListener('dblclick', (e) => {
+        if (!this.currentPlayingItem || this.isSingleClickFullscreenMode()) return;
+        e.stopPropagation();
         clearTimeout(centerClickTimer);
+        this.player.toggleFullscreen();
+      });
+    }
+    if (this.dom.playerContainer) {
+      this.dom.playerContainer.addEventListener('click', (e) => {
+        if (!this.currentPlayingItem || !this.isSingleClickFullscreenMode()) return;
+        if (e.target.closest('.player-error-overlay, #player-center-hit, button, select, input, a')) return;
         this.player.toggleFullscreen();
       });
     }
@@ -1001,14 +1074,19 @@ class FluiStreamApp {
           if (this._isSeriesGroupingActive()) {
             const series = (this.currentFilteredSeries || []).find(s => s.id === id);
             if (series) {
+              this.setMobileSidebarOpen(false);
               this.openSeriesDetailModal(series);
               return;
             }
           }
           const item = (this.currentFilteredItems || []).find(x => x.id === id);
           if (item) {
-            this.dom.splitSidebar?.classList.remove('open-mobile');
-            this.playChannel(item);
+            this.setMobileSidebarOpen(false);
+            if (item.type === ItemType.MOVIE) {
+              this.openMovieDetailModal(item);
+            } else {
+              this.playChannel(item);
+            }
           }
         }
       });
@@ -1238,6 +1316,12 @@ class FluiStreamApp {
     if (this.dom.btnCloseSeries) this.dom.btnCloseSeries.addEventListener('click', () => this.closeModal(this.dom.modalSeries));
     if (this.dom.btnSeriesWatchNow) {
       this.dom.btnSeriesWatchNow.addEventListener('click', () => {
+        if (this.activeMovie) {
+          const movie = this.activeMovie;
+          this.closeModal(this.dom.modalSeries);
+          this.playChannel(movie);
+          return;
+        }
         if (!this.activeSeries) return;
         const eps = this.activeSeries.seasons[this.selectedSeason || 1] || this.activeSeries.episodes;
         if (eps && eps.length > 0) {
@@ -1245,6 +1329,12 @@ class FluiStreamApp {
           this.playChannel(eps[0]);
         }
       });
+    }
+    if (this.dom.btnMovieTrailer) {
+      this.dom.btnMovieTrailer.addEventListener('click', () => this.playMovieTrailerInline());
+    }
+    if (this.dom.btnCloseMovieTrailer) {
+      this.dom.btnCloseMovieTrailer.addEventListener('click', () => this.closeInlineTrailer());
     }
     if (this.dom.btnSeriesSeasonSelect) {
       this.dom.btnSeriesSeasonSelect.addEventListener('click', () => {
@@ -1255,7 +1345,7 @@ class FluiStreamApp {
       this.dom.btnCloseSeasonsPopup.addEventListener('click', () => this.dom.seasonsPopup?.classList.add('hidden'));
     }
 
-    // Escape closes top modal
+    // Escape closes top modal or mobile drawer
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') {
         if (this.dom.seasonsPopup && !this.dom.seasonsPopup.classList.contains('hidden')) {
@@ -1265,6 +1355,10 @@ class FluiStreamApp {
         const openBackdrops = Array.from(document.querySelectorAll('.modal-backdrop:not(.hidden)'));
         if (openBackdrops.length > 0) {
           this.closeModal(openBackdrops[openBackdrops.length - 1]);
+          return;
+        }
+        if (this.dom.splitSidebar?.classList.contains('open-mobile')) {
+          this.setMobileSidebarOpen(false);
         }
       }
     });
@@ -1341,12 +1435,16 @@ class FluiStreamApp {
       '.sidebar-item-row',
       '.split-sidebar-header button',
       '.category-nav-bar button',
+      '.player-meta-bar button',
+      '.player-meta-bar select',
       '.player-controls-bar button',
       '.player-controls-bar select',
       '#btn-player-center-toggle',
       '.layout-template-card',
       '.profile-card',
       '.episode-item-row',
+      '.series-hero-actions button',
+      '.movie-trailer-header button',
       '.epg-rail-btn',
       '.epg-source-item button',
       '.multiscreen-slot',
@@ -1546,7 +1644,29 @@ class FluiStreamApp {
     if (!groupName || groupName === 'all') return i18n.get('sidebarAll');
     if (groupName === '__favorites__') return i18n.get('sidebarFavourites');
     if (groupName === '__history__') return i18n.get('sidebarHistory');
+    if (groupName === '__fav_live__') return i18n.get('sidebarFavLive');
+    if (groupName === '__fav_movie__') return i18n.get('sidebarFavMovies');
+    if (groupName === '__fav_series__') return i18n.get('sidebarFavSeries');
     return groupName;
+  }
+
+  _resolveRecentItem(recentEntry) {
+    if (!recentEntry) return null;
+    return this.playlist.items.find(p => p.url === recentEntry.url || p.id === recentEntry.id) || recentEntry;
+  }
+
+  getRecentsForView(viewType = this.currentView) {
+    if (viewType === 'favorites') return [];
+    const resolved = storage.getRecents().map(r => this._resolveRecentItem(r)).filter(Boolean);
+    if (viewType === 'history') return resolved;
+    return resolved.filter(item => (item.type || ItemType.LIVE) === viewType);
+  }
+
+  getFavoritesForView(viewType = this.currentView) {
+    const favSet = new Set(storage.getFavorites());
+    const favItems = this.playlist.items.filter(x => favSet.has(x.id));
+    if (viewType === 'favorites' || viewType === 'history') return favItems;
+    return favItems.filter(x => x.type === viewType);
   }
 
   openBrowseView(viewType = ItemType.LIVE, initialGroup = null, enterItems = false) {
@@ -1583,7 +1703,7 @@ class FluiStreamApp {
     if (this.dom.btnSidebarClearHistory) {
       const showSidebarClear = inItemsMode
         && (this.selectedGroup === '__history__' || this.currentView === 'history')
-        && storage.getRecents().length > 0;
+        && this.getRecentsForView(this.currentView).length > 0;
       this.dom.btnSidebarClearHistory.classList.toggle('hidden', !showSidebarClear);
     }
     if (!inItemsMode) this.dom.loadMoreWrap?.classList.add('hidden');
@@ -1601,10 +1721,7 @@ class FluiStreamApp {
 
     this.updateCurrentEpgDisplay();
 
-    if (this.player) {
-      this.player.setOverlayVisible(this.activeScreen === 'browse' && playing);
-      this.player.reportLayout();
-    }
+    this.updateNativeOverlayVisibility();
   }
 
   closeEnteredCategory() {
@@ -1634,13 +1751,14 @@ class FluiStreamApp {
   }
 
   getBaseItemsForCurrentView() {
+    if (this.selectedGroup === '__fav_live__') return this.getFavoritesForView(ItemType.LIVE);
+    if (this.selectedGroup === '__fav_movie__') return this.getFavoritesForView(ItemType.MOVIE);
+    if (this.selectedGroup === '__fav_series__') return this.getFavoritesForView(ItemType.SERIES);
     if (this.selectedGroup === '__favorites__' || this.currentView === 'favorites') {
-      const favIds = storage.getFavorites();
-      return this.playlist.items.filter(x => favIds.includes(x.id));
+      return this.getFavoritesForView(this.currentView);
     }
     if (this.selectedGroup === '__history__' || this.currentView === 'history') {
-      const recents = storage.getRecents();
-      return recents.map(r => this.playlist.items.find(p => p.url === r.url || p.id === r.id) || r);
+      return this.getRecentsForView(this.currentView);
     }
     return this.playlist.items.filter(x => x.type === this.currentView);
   }
@@ -1664,8 +1782,6 @@ class FluiStreamApp {
       sortedGroups = sortedGroups.filter(([name]) => name.toLowerCase().includes(this.sidebarSearchQuery));
     }
 
-    const favCount = storage.getFavorites().length;
-    const historyCount = storage.getRecents().length;
     const cfg = storage.getSettings();
     const hasPin = Boolean(cfg.parentalPinHash) && !this.parentalUnlocked;
 
@@ -1674,16 +1790,42 @@ class FluiStreamApp {
         <span class="sidebar-cat-name">${this.escapeHtml(i18n.get('sidebarAll'))}</span>
         <span class="sidebar-cat-count">${baseItems.length}</span>
       </button>
-      <button class="sidebar-cat-btn ${this.selectedGroup === '__favorites__' ? 'active' : ''}" data-group="__favorites__">
-        <span class="sidebar-cat-name">★ ${this.escapeHtml(i18n.get('sidebarFavourites'))}</span>
-        <span class="sidebar-cat-count">${favCount}</span>
-      </button>
-      <button class="sidebar-cat-btn ${this.selectedGroup === '__history__' ? 'active' : ''}" data-group="__history__">
-        <span class="sidebar-cat-name">🕒 ${this.escapeHtml(i18n.get('sidebarHistory'))}</span>
-        <span class="sidebar-cat-count">${historyCount}</span>
-      </button>
-      <div class="sidebar-divider"></div>
     `;
+
+    if (this.currentView === 'favorites') {
+      const favLiveCount = this.getFavoritesForView(ItemType.LIVE).length;
+      const favMoviesCount = this.getFavoritesForView(ItemType.MOVIE).length;
+      const favSeriesCount = this.getFavoritesForView(ItemType.SERIES).length;
+      html += `
+        <button class="sidebar-cat-btn ${this.selectedGroup === '__fav_live__' ? 'active' : ''}" data-group="__fav_live__">
+          <span class="sidebar-cat-name">★ ${this.escapeHtml(i18n.get('sidebarFavLive'))}</span>
+          <span class="sidebar-cat-count">${favLiveCount}</span>
+        </button>
+        <button class="sidebar-cat-btn ${this.selectedGroup === '__fav_movie__' ? 'active' : ''}" data-group="__fav_movie__">
+          <span class="sidebar-cat-name">★ ${this.escapeHtml(i18n.get('sidebarFavMovies'))}</span>
+          <span class="sidebar-cat-count">${favMoviesCount}</span>
+        </button>
+        <button class="sidebar-cat-btn ${this.selectedGroup === '__fav_series__' ? 'active' : ''}" data-group="__fav_series__">
+          <span class="sidebar-cat-name">★ ${this.escapeHtml(i18n.get('sidebarFavSeries'))}</span>
+          <span class="sidebar-cat-count">${favSeriesCount}</span>
+        </button>
+      `;
+    } else {
+      const favCount = this.getFavoritesForView(this.currentView).length;
+      const historyCount = this.getRecentsForView(this.currentView).length;
+      html += `
+        <button class="sidebar-cat-btn ${this.selectedGroup === '__favorites__' ? 'active' : ''}" data-group="__favorites__">
+          <span class="sidebar-cat-name">★ ${this.escapeHtml(i18n.get('sidebarFavourites'))}</span>
+          <span class="sidebar-cat-count">${favCount}</span>
+        </button>
+        <button class="sidebar-cat-btn ${this.selectedGroup === '__history__' ? 'active' : ''}" data-group="__history__">
+          <span class="sidebar-cat-name">🕒 ${this.escapeHtml(i18n.get('sidebarHistory'))}</span>
+          <span class="sidebar-cat-count">${historyCount}</span>
+        </button>
+      `;
+    }
+
+    html += `<div class="sidebar-divider"></div>`;
 
     sortedGroups.forEach(([groupName, count]) => {
       const active = this.selectedGroup === groupName ? 'active' : '';
@@ -1721,7 +1863,10 @@ class FluiStreamApp {
       this.selectedGroup &&
       this.selectedGroup !== 'all' &&
       this.selectedGroup !== '__favorites__' &&
-      this.selectedGroup !== '__history__'
+      this.selectedGroup !== '__history__' &&
+      this.selectedGroup !== '__fav_live__' &&
+      this.selectedGroup !== '__fav_movie__' &&
+      this.selectedGroup !== '__fav_series__'
     ) {
       items = items.filter(x => (x.group || 'Geral') === this.selectedGroup);
     }
@@ -3103,15 +3248,14 @@ class FluiStreamApp {
     const firstFocusable = modal.querySelector('button, input, select, [tabindex="0"]');
     if (firstFocusable) firstFocusable.focus();
 
-    if (this.player) {
-      this.player.setOverlayVisible(false);
-      this.player.reportLayout();
-    }
-    this.multiScreen?.reportLayout();
+    this.updateNativeOverlayVisibility();
   }
 
   closeModal(modal) {
     if (!modal) return;
+    if (modal === this.dom.modalSeries) {
+      this.closeInlineTrailer();
+    }
     modal.classList.add('hidden');
     modal.removeAttribute('data-modal-open');
 
@@ -3123,11 +3267,7 @@ class FluiStreamApp {
       }
     }
 
-    if (this.player) {
-      this.player.setOverlayVisible(!stillOpen && this.activeScreen === 'browse' && Boolean(this.currentPlayingItem));
-      this.player.reportLayout();
-    }
-    this.multiScreen?.reportLayout();
+    this.updateNativeOverlayVisibility();
   }
 
   async loadSavedState() {
@@ -3770,11 +3910,32 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
   // =====================================================
   // SERIES MODAL & PLAYBACK
   // =====================================================
-  openSeriesDetailModal(series) {
+  closeInlineTrailer() {
+    if (this.dom.movieTrailerFrameWrap) this.dom.movieTrailerFrameWrap.innerHTML = '';
+    this.dom.movieTrailerBox?.classList.add('hidden');
+  }
+
+  _buildActiveXtreamApi() {
+    const prof = storage.getActiveProfile();
+    if (!prof || prof.type !== 'xtream' || !prof.xtream) return null;
+    const cfg = storage.getSettings();
+    return new XtreamApi(prof.xtream.server, prof.xtream.user, prof.xtream.pass, cfg.corsProxy || '');
+  }
+
+  async openSeriesDetailModal(series) {
     if (!series) return;
     this.activeSeries = series;
+    this.activeMovie = null;
+    this.activeMovieMeta = null;
+    this.closeInlineTrailer();
     const seasonKeys = Object.keys(series.seasons).map(k => parseInt(k, 10)).sort((a, b) => a - b);
     this.selectedSeason = seasonKeys[0] || 1;
+
+    if (this.dom.seriesModalHeading) this.dom.seriesModalHeading.textContent = i18n.get('seriesInformation');
+    this.dom.btnMovieTrailer?.classList.add('hidden');
+    this.dom.btnSeriesSeasonSelect?.classList.remove('hidden');
+    this.dom.seriesTabsBar?.classList.remove('hidden');
+    this.dom.seriesEpisodesContainer?.classList.remove('hidden');
 
     if (this.dom.seriesPoster) this.dom.seriesPoster.src = series.logo || 'assets/logo.svg';
     if (this.dom.seriesTitle) this.dom.seriesTitle.textContent = series.seriesTitle;
@@ -3788,6 +3949,86 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
     this.updateSeasonButton();
     this.renderSeasonEpisodes(this.selectedSeason);
     this.openModal(this.dom.modalSeries);
+
+    const meta = await resolveMediaMetadata(series, { kind: 'series' });
+    if (this.activeSeries?.id !== series.id || this.dom.modalSeries?.classList.contains('hidden')) return;
+    if (meta.synopsis && this.dom.seriesDesc) this.dom.seriesDesc.textContent = meta.synopsis;
+    if (meta.poster) {
+      series.logo = meta.poster;
+      if (this.dom.seriesPoster) this.dom.seriesPoster.src = meta.poster;
+    }
+    if (meta.genre && this.dom.seriesGenre) this.dom.seriesGenre.textContent = meta.genre;
+  }
+
+  async playMovieTrailerInline() {
+    if (!this.activeMovie || !this.dom.movieTrailerBox || !this.dom.movieTrailerFrameWrap) return;
+    const isVisible = !this.dom.movieTrailerBox.classList.contains('hidden');
+    if (isVisible) {
+      this.closeInlineTrailer();
+      return;
+    }
+
+    this.dom.movieTrailerBox.classList.remove('hidden');
+    this.dom.movieTrailerFrameWrap.innerHTML = `<div class="help-text">${this.escapeHtml(i18n.get('loading') || 'Carregando...')}</div>`;
+
+    const movieRef = this.activeMovie;
+    const playback = await resolveTrailerPlayback(movieRef, this.activeMovieMeta);
+    if (this.activeMovie?.id !== movieRef.id || this.dom.movieTrailerBox.classList.contains('hidden')) return;
+
+    if (playback.type === 'video' && playback.src) {
+      this.dom.movieTrailerFrameWrap.innerHTML = `<video class="movie-trailer-video" src="${this.escapeHtml(playback.src)}" controls autoplay playsinline></video>`;
+    } else if (playback.type === 'youtube' && playback.src) {
+      this.dom.movieTrailerFrameWrap.innerHTML = `<iframe class="movie-trailer-iframe" src="${this.escapeHtml(playback.src)}" allow="autoplay; encrypted-media; fullscreen" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe>`;
+    } else {
+      this.dom.movieTrailerFrameWrap.innerHTML = `<div class="help-text" style="padding: 1rem; text-align: center;">${this.escapeHtml(i18n.get('movieTrailerUnavailable'))}</div>`;
+    }
+  }
+
+  async openMovieDetailModal(movie) {
+    if (!movie) return;
+    this.activeSeries = null;
+    this.activeMovie = movie;
+    this.activeMovieMeta = null;
+    this.closeInlineTrailer();
+
+    if (this.dom.seriesModalHeading) this.dom.seriesModalHeading.textContent = i18n.get('movieInformation');
+    this.dom.btnMovieTrailer?.classList.remove('hidden');
+    this.dom.btnSeriesSeasonSelect?.classList.add('hidden');
+    this.dom.seasonsPopup?.classList.add('hidden');
+    this.dom.seriesTabsBar?.classList.add('hidden');
+    this.dom.seriesEpisodesContainer?.classList.add('hidden');
+
+    if (this.dom.seriesPoster) this.dom.seriesPoster.src = movie.logo || 'assets/logo.svg';
+    if (this.dom.seriesTitle) this.dom.seriesTitle.textContent = movie.name || 'Filme';
+    if (this.dom.seriesGenre) this.dom.seriesGenre.textContent = movie.group || 'VOD';
+    if (this.dom.seriesStats) {
+      this.dom.seriesStats.textContent = movie.duration > 0 ? this.formatDuration(movie.duration) : 'VOD';
+    }
+    if (this.dom.seriesDesc) {
+      this.dom.seriesDesc.textContent = movie.desc || movie.plot || i18n.get('movieNoSynopsis');
+    }
+
+    this.openModal(this.dom.modalSeries);
+
+    const meta = await resolveMediaMetadata(movie, {
+      kind: 'movie',
+      xtreamApi: this._buildActiveXtreamApi()
+    });
+    if (this.activeMovie?.id !== movie.id || this.dom.modalSeries?.classList.contains('hidden')) return;
+
+    this.activeMovieMeta = meta;
+    if (meta.synopsis && this.dom.seriesDesc) this.dom.seriesDesc.textContent = meta.synopsis;
+    if (meta.poster) {
+      movie.logo = meta.poster;
+      if (this.dom.seriesPoster) this.dom.seriesPoster.src = meta.poster;
+    }
+    const parts = [];
+    if (meta.year) parts.push(meta.year);
+    if (meta.duration) parts.push(meta.duration);
+    else if (movie.duration > 0) parts.push(this.formatDuration(movie.duration));
+    if (meta.rating) parts.push(`★ ${meta.rating}`);
+    if (parts.length > 0 && this.dom.seriesStats) this.dom.seriesStats.textContent = parts.join(' • ');
+    if (meta.genre && this.dom.seriesGenre) this.dom.seriesGenre.textContent = meta.genre;
   }
 
   updateSeasonButton() {

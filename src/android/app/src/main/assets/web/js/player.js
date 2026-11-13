@@ -5,6 +5,62 @@
 
 import { applyCorsProxy } from './network.js';
 
+export const BLOCKING_VIDEO_OVERLAY_SELECTOR = [
+  '.modal-backdrop:not(.hidden)',
+  '.modal:not(.hidden)',
+  '.dialog-overlay:not(.hidden)',
+  '[data-modal-open="true"]',
+  '#split-sidebar.open-mobile',
+  '#sidebar-backdrop:not(.hidden)'
+].join(', ');
+
+/**
+ * Calcula retângulo e visibilidade de um stage de vídeo mantendo-o fixado ao fundo,
+ * ocultando overlays nativos quando cobertos por modais, drawer de categorias ou cabeçalho fixo,
+ * exceto em Picture-in-Picture ou tela cheia.
+ */
+export function computeOverlayLayout(stageEl, minDim = 1) {
+  if (!stageEl || typeof document === 'undefined' || typeof window === 'undefined') {
+    return { x: 0, y: 0, width: 0, height: 0, visible: false };
+  }
+  const isFullscreen = Boolean(document.fullscreenElement || document.webkitFullscreenElement);
+  const isPip = Boolean(document.body?.classList?.contains('desktop-mini-pip') || document.pictureInPictureElement);
+  const hasBlockingOverlay = !isFullscreen && !isPip && Boolean(
+    document.querySelector(BLOCKING_VIDEO_OVERLAY_SELECTOR)
+  );
+  const inHiddenAncestor = typeof stageEl.closest === 'function' && Boolean(stageEl.closest('.hidden'));
+  const rect = stageEl.getBoundingClientRect();
+  let underStickyHeader = false;
+  if (!isFullscreen && !isPip) {
+    const header = document.getElementById('app-header');
+    if (header && typeof window.getComputedStyle === 'function') {
+      const pos = window.getComputedStyle(header).position;
+      if (pos === 'sticky' || pos === 'fixed') {
+        const headerRect = header.getBoundingClientRect();
+        if (headerRect.height > 0 && rect.top < headerRect.bottom - 2) {
+          underStickyHeader = true;
+        }
+      }
+    }
+  }
+  const dpr = window.devicePixelRatio || 1;
+  const minThreshold = minDim > 1 ? minDim : 0;
+  const visible = !hasBlockingOverlay
+    && !inHiddenAncestor
+    && !underStickyHeader
+    && rect.width > minThreshold
+    && rect.height > minThreshold
+    && rect.bottom > 20
+    && rect.top < window.innerHeight;
+  return {
+    x: Math.round(rect.left * dpr),
+    y: Math.round(rect.top * dpr),
+    width: Math.round(rect.width * dpr),
+    height: Math.round(rect.height * dpr),
+    visible
+  };
+}
+
 export class VideoPlayerController {
   constructor(videoElement, containerElement) {
     this.video = videoElement;
@@ -92,20 +148,15 @@ export class VideoPlayerController {
 
   reportLayout() {
     if (this.currentEngine !== 'vlc' || typeof window === 'undefined' || !window.chrome?.webview || !this.container) return;
-    const hasOpenModal = typeof document !== 'undefined' && Boolean(
-      document.querySelector('.modal-backdrop:not(.hidden), .modal:not(.hidden), .dialog-overlay:not(.hidden), [data-modal-open="true"]')
-    );
-    const inHiddenAncestor = typeof this.container.closest === 'function' && Boolean(this.container.closest('.hidden'));
-    const rect = this.container.getBoundingClientRect();
-    const dpr = window.devicePixelRatio || 1;
-    const isVisible = !hasOpenModal && !inHiddenAncestor && rect.width > 0 && rect.height > 0 && rect.bottom > 20 && rect.top < window.innerHeight;
+    const layout = computeOverlayLayout(this.container, 1);
+    const isVisible = !this.isStopped && layout.visible;
 
     this.notifyNativeVlc('VLC_LAYOUT_UPDATE', {
       rect: {
-        x: Math.round(rect.left * dpr),
-        y: Math.round(rect.top * dpr),
-        width: Math.round(rect.width * dpr),
-        height: Math.round(rect.height * dpr),
+        x: layout.x,
+        y: layout.y,
+        width: layout.width,
+        height: layout.height,
         visible: isVisible
       }
     });
@@ -113,9 +164,9 @@ export class VideoPlayerController {
   }
 
   setOverlayVisible(visible) {
-    if (this.currentEngine === 'vlc') {
-      this.notifyNativeVlc('SET_VISIBILITY', { visible: Boolean(visible) });
-    }
+    if (this.currentEngine !== 'vlc') return;
+    const allowVisible = Boolean(visible) && !this.isStopped && computeOverlayLayout(this.container, 1).visible;
+    this.notifyNativeVlc('SET_VISIBILITY', { visible: allowVisible });
   }
 
   handleVlcTime(curSec, durSec, pos, isSeekable) {
@@ -891,23 +942,17 @@ export class MultiScreenController {
 
   reportLayout() {
     if (typeof window === 'undefined' || !window.chrome?.webview?.postMessage) return;
-    const hasOpenModal = typeof document !== 'undefined' && Boolean(
-      document.querySelector('.modal-backdrop:not(.hidden), .modal:not(.hidden), .dialog-overlay:not(.hidden), [data-modal-open="true"]')
-    );
-    const dpr = window.devicePixelRatio || 1;
     const rects = [];
     for (const [slotIndex, slot] of this.slots.entries()) {
       if (slot.engine !== 'vlc' || !slot.stage) continue;
-      const inHiddenAncestor = typeof slot.stage.closest === 'function' && Boolean(slot.stage.closest('.hidden'));
-      const rect = slot.stage.getBoundingClientRect();
-      const visible = !hasOpenModal && !inHiddenAncestor && rect.width > 10 && rect.height > 10 && rect.bottom > 20 && rect.top < window.innerHeight;
+      const layout = computeOverlayLayout(slot.stage, 10);
       rects.push({
         slotIndex,
-        x: Math.round(rect.left * dpr),
-        y: Math.round(rect.top * dpr),
-        width: Math.round(rect.width * dpr),
-        height: Math.round(rect.height * dpr),
-        visible
+        x: layout.x,
+        y: layout.y,
+        width: layout.width,
+        height: layout.height,
+        visible: layout.visible
       });
     }
     if (rects.length > 0) {

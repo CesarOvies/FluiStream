@@ -510,6 +510,10 @@ public partial class MainForm : Form
                                         if (_videoView != null && _isVlcActive && !_isFullScreen && !_isPipMode)
                                         {
                                             _videoView.Visible = isVis;
+                                            if (!isVis && _btnCenterPlayOverlay != null)
+                                            {
+                                                _btnCenterPlayOverlay.Visible = false;
+                                            }
                                         }
                                     });
                                 }
@@ -734,8 +738,6 @@ public partial class MainForm : Form
             }
             else
             {
-                _videoView.Visible = true;
-                _videoView.BringToFront();
                 UpdateVideoViewLayout();
             }
 
@@ -1242,6 +1244,7 @@ public partial class MainForm : Form
         if (!visible || width <= 0 || height <= 0)
         {
             _videoView.Visible = false;
+            if (_btnCenterPlayOverlay != null) _btnCenterPlayOverlay.Visible = false;
             return;
         }
 
@@ -1260,18 +1263,29 @@ public partial class MainForm : Form
         if (!_isVlcActive || _videoView == null || _webView.CoreWebView2 == null || _isFullScreen || _isPipMode) return;
         try
         {
-            // Consulta as dimensões exatas da área #player-wrapper no HTML, ajustando para devicePixelRatio
+            // Consulta as dimensões exatas de #player-wrapper respeitando overlays de categorias/modais/cabeçalho fixo
             string script = @"(() => {
                 const el = document.getElementById('player-wrapper');
                 if (!el) return null;
+                const blocked = Boolean(document.querySelector('.modal-backdrop:not(.hidden), .modal:not(.hidden), .dialog-overlay:not(.hidden), [data-modal-open=""true""], #split-sidebar.open-mobile, #sidebar-backdrop:not(.hidden)'));
+                const inHidden = Boolean(el.closest('.hidden'));
                 const rect = el.getBoundingClientRect();
+                const header = document.getElementById('app-header');
+                let underHeader = false;
+                if (header) {
+                    const pos = window.getComputedStyle(header).position;
+                    if (pos === 'sticky' || pos === 'fixed') {
+                        const hr = header.getBoundingClientRect();
+                        if (hr.height > 0 && rect.top < hr.bottom - 2) underHeader = true;
+                    }
+                }
                 const dpr = window.devicePixelRatio || 1;
                 return JSON.stringify({
                     x: Math.round(rect.left * dpr),
                     y: Math.round(rect.top * dpr),
                     width: Math.round(rect.width * dpr),
                     height: Math.round(rect.height * dpr),
-                    visible: rect.width > 0 && rect.height > 0 && rect.bottom > 20 && rect.top < window.innerHeight
+                    visible: !blocked && !inHidden && !underHeader && rect.width > 0 && rect.height > 0 && rect.bottom > 20 && rect.top < window.innerHeight
                 });
             })()";
 

@@ -12,7 +12,8 @@ import { EPGParser } from '../src/web/js/epg-parser.js';
 import { XtreamApi } from '../src/web/js/xtream-api.js';
 import { translations, SupportedLanguages, i18n } from '../src/web/js/localization.js';
 import { APP_VERSION, getCurrentVersion, parseCleanVersion, isNewerVersion, selectReleaseAssets, checkForUpdate } from '../src/web/js/version.js';
-import { VideoPlayerController } from '../src/web/js/player.js';
+import { VideoPlayerController, computeOverlayLayout } from '../src/web/js/player.js';
+import { cleanMediaTitle, parseAdoroCinemaHtml, resolveTrailerPlayback } from '../src/web/js/media-metadata.js';
 import { StorageService } from '../src/web/js/storage.js';
 import { applyCorsProxy } from '../src/web/js/network.js';
 
@@ -117,7 +118,7 @@ await test('Todos os 3 idiomas (pt-BR, en-US, es) devem possuir o mesmo conjunto
   const enKeys = Object.keys(translations['en-US']).sort();
   const esKeys = Object.keys(translations['es']).sort();
 
-  assert.equal(ptKeys.length, 244, `Esperado exatamente 244 chaves i18n em pt-BR, obtido ${ptKeys.length}`);
+  assert.equal(ptKeys.length, 251, `Esperado exatamente 251 chaves i18n em pt-BR, obtido ${ptKeys.length}`);
   assert.deepEqual(ptKeys, enKeys, 'Chaves pt-BR e en-US devem ser idênticas');
   assert.deepEqual(ptKeys, esKeys, 'Chaves pt-BR e es devem ser idênticas');
 
@@ -1044,6 +1045,169 @@ await test('Multi-Tela suporta fallback HLS/MPEG-TS/LibVLC nativo sem derrubar s
   assert.match(mainFormCs, /--http-reconnect/);
   assert.equal(mainFormCs.includes('--avcodec-skiploopfilter=4'), false);
   assert.equal(mainFormCs.includes('--clock-jitter=0'), false);
+});
+
+await test('Layout Mobile Portrait/Landscape e Insets Android evitam barras presas, gaveta cortada e colisão com status bar', () => {
+  const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+  const html = readFileSync(resolve(rootDir, 'src/web/index.html'), 'utf-8');
+  const css = readFileSync(resolve(rootDir, 'src/web/css/style.css'), 'utf-8');
+  const appJs = readFileSync(resolve(rootDir, 'src/web/js/app.js'), 'utf-8');
+  const mainActivityKt = readFileSync(resolve(rootDir, 'src/android/app/src/main/java/com/cesarovies/fluistream/MainActivity.kt'), 'utf-8');
+
+  assert.match(html, /viewport-fit=cover/);
+  assert.match(html, /id="sidebar-backdrop"/);
+  assert.match(html, /aria-controls="split-sidebar"/);
+
+  assert.match(appJs, /setMobileSidebarOpen\(/);
+  assert.match(appJs, /minViewportSide <= 900/);
+  assert.match(appJs, /classList\.add\('is-android-app'\)/);
+
+  assert.match(css, /env\(safe-area-inset-top\)/);
+  assert.match(css, /@media \(max-width: 960px\), \(max-height: 540px\) and \(max-width: 1024px\)/);
+  assert.match(css, /@media \(max-height: 540px\) and \(max-width: 1024px\)/);
+  assert.match(css, /100dvh/);
+  assert.match(css, /body\.is-android-app \.player-wrapper/);
+
+  assert.match(mainActivityKt, /applyTopHudWindowInsets/);
+  assert.match(mainActivityKt, /WindowInsetsCompat\.Type\.displayCutout\(\)/);
+  assert.match(mainActivityKt, /WindowInsetsCompat\.Type\.statusBars\(\)/);
+});
+
+await test('Vídeo permanece fixado no fundo sob categorias/modais/header e só desfixa em PiP/Fullscreen', () => {
+  const __dirname = dirname(fileURLToPath(import.meta.url));
+  const rootDir = resolve(__dirname, '..');
+  const css = readFileSync(resolve(rootDir, 'src/web/css/style.css'), 'utf8');
+  const appJs = readFileSync(resolve(rootDir, 'src/web/js/app.js'), 'utf8');
+  const mainFormCs = readFileSync(resolve(rootDir, 'src/desktop/MainForm.cs'), 'utf8');
+
+  assert.match(css, /\.player-section\s*\{[^}]*z-index:\s*1;/);
+  assert.match(css, /\.player-wrapper\s*\{[^}]*z-index:\s*1;/);
+  assert.match(css, /body\.desktop-mini-pip \.app-header/);
+  assert.match(appJs, /setMobileSidebarOpen\(open\)\s*\{[\s\S]*updateNativeOverlayVisibility\(\)/);
+  assert.match(mainFormCs, /#split-sidebar\.open-mobile, #sidebar-backdrop:not\(\.hidden\)/);
+  assert.match(mainFormCs, /_btnCenterPlayOverlay\.Visible = false/);
+
+  const prevDoc = globalThis.document;
+  const prevWin = globalThis.window;
+  try {
+    let blockingMatch = false;
+    let headerSticky = false;
+    let fullscreenEl = null;
+    let pipActive = false;
+    let wrapperRect = { left: 20, top: 120, bottom: 380, width: 480, height: 260 };
+
+    const fakeHeader = { getBoundingClientRect: () => ({ top: 0, bottom: 56, height: 56 }) };
+    const stageEl = {
+      closest: () => null,
+      getBoundingClientRect: () => wrapperRect
+    };
+
+    globalThis.window = {
+      innerHeight: 720,
+      devicePixelRatio: 1,
+      getComputedStyle: () => ({ position: headerSticky ? 'sticky' : 'static' })
+    };
+    globalThis.document = {
+      get fullscreenElement() { return fullscreenEl; },
+      webkitFullscreenElement: null,
+      pictureInPictureElement: null,
+      body: { classList: { contains: (cls) => cls === 'desktop-mini-pip' && pipActive } },
+      querySelector: () => (blockingMatch ? {} : null),
+      getElementById: (id) => (id === 'app-header' ? fakeHeader : null)
+    };
+
+    assert.equal(computeOverlayLayout(stageEl).visible, true, 'visível quando sem overlays');
+    blockingMatch = true;
+    assert.equal(computeOverlayLayout(stageEl).visible, false, 'oculto quando gaveta de categorias ou modal aberta');
+    fullscreenEl = stageEl;
+    assert.equal(computeOverlayLayout(stageEl).visible, true, 'desfixado/visível quando em fullscreen');
+    fullscreenEl = null;
+    pipActive = true;
+    assert.equal(computeOverlayLayout(stageEl).visible, true, 'desfixado/visível quando em mini-PiP');
+    pipActive = false;
+    blockingMatch = false;
+    headerSticky = true;
+    wrapperRect = { left: 20, top: 30, bottom: 290, width: 480, height: 260 };
+    assert.equal(computeOverlayLayout(stageEl).visible, false, 'oculto quando vídeo rola sob cabeçalho sticky');
+  } finally {
+    globalThis.document = prevDoc;
+    globalThis.window = prevWin;
+  }
+});
+
+await test('Todos os botões Início (header, marca e barra de categorias) navegam para Home/Empty', () => {
+  const __dirname = dirname(fileURLToPath(import.meta.url));
+  const rootDir = resolve(__dirname, '..');
+  const html = readFileSync(resolve(rootDir, 'src/web/index.html'), 'utf8');
+  const appJs = readFileSync(resolve(rootDir, 'src/web/js/app.js'), 'utf8');
+
+  assert.match(html, /id="btn-back-categories"/);
+  assert.match(appJs, /btnBackCategories:\s*document\.getElementById\('btn-back-categories'\)/);
+  assert.match(appJs, /goHome\(\)\s*\{[\s\S]*this\.navigateToScreen\(this\.playlist\.items\.length > 0 \? 'home' : 'empty'\)/);
+  assert.match(appJs, /this\.dom\.btnBackCategories\.addEventListener\('click',\s*\(\)\s*=>\s*this\.goHome\(\)\)/);
+});
+
+await test('Layout fixo (categorias esquerda, player direita, EPG baixo) e 1-clique fullscreen em TV/Android', () => {
+  const __dirname = dirname(fileURLToPath(import.meta.url));
+  const rootDir = resolve(__dirname, '..');
+  const css = readFileSync(resolve(rootDir, 'src/web/css/style.css'), 'utf8');
+  const appJs = readFileSync(resolve(rootDir, 'src/web/js/app.js'), 'utf8');
+
+  assert.match(css, /#btn-toggle-sidebar-mobile,\s*#btn-sidebar-close\s*\{\s*display:\s*none !important;/);
+  assert.doesNotMatch(css, /\.split-pane-shell\s*\{\s*grid-template-columns:\s*1fr;/);
+  assert.match(appJs, /isSingleClickFullscreenMode\(\)/);
+  assert.match(appJs, /if \(this\.isSingleClickFullscreenMode\(\)\)\s*\{[\s\S]*this\.player\.toggleFullscreen\(\);/);
+  assert.match(css, /\.epg-card-title-group\s*\{[\s\S]*flex-wrap:\s*wrap;/);
+  assert.match(css, /\.epg-prog-title\s*\{[^}]*overflow-wrap:\s*break-word;/);
+});
+
+await test('Histórico separado por tipo (live/movie/series) e Favoritos dividido em Ao Vivo/Filmes/Séries sem Histórico', () => {
+  const __dirname = dirname(fileURLToPath(import.meta.url));
+  const rootDir = resolve(__dirname, '..');
+  const appJs = readFileSync(resolve(rootDir, 'src/web/js/app.js'), 'utf8');
+
+  assert.match(appJs, /getRecentsForView\(viewType = this\.currentView\)/);
+  assert.match(appJs, /if \(viewType === 'favorites'\) return \[\];/);
+  assert.match(appJs, /getFavoritesForView\(viewType = this\.currentView\)/);
+  assert.match(appJs, /data-group="__fav_live__"/);
+  assert.match(appJs, /data-group="__fav_movie__"/);
+  assert.match(appJs, /data-group="__fav_series__"/);
+});
+
+await test('Filmes exibem modal com sinopse enriquecida, thumb e trailer embutido no app (ausente em séries)', async () => {
+  const __dirname = dirname(fileURLToPath(import.meta.url));
+  const rootDir = resolve(__dirname, '..');
+  const html = readFileSync(resolve(rootDir, 'src/web/index.html'), 'utf8');
+  const appJs = readFileSync(resolve(rootDir, 'src/web/js/app.js'), 'utf8');
+  const xtreamJs = readFileSync(resolve(rootDir, 'src/web/js/xtream-api.js'), 'utf8');
+
+  assert.match(html, /id="btn-movie-trailer"/);
+  assert.match(html, /id="movie-trailer-box"/);
+  assert.match(xtreamJs, /getVodInfoUrl\(vodId\)/);
+  assert.match(xtreamJs, /async getVodInfo\(vodId\)/);
+  assert.match(appJs, /openMovieDetailModal\(movie\)/);
+  assert.match(appJs, /playMovieTrailerInline\(\)/);
+  assert.match(appJs, /openSeriesDetailModal\(series\)[\s\S]*btnMovieTrailer\?\.classList\.add\('hidden'\)/);
+
+  const cleaned = cleanMediaTitle('A Freira 2 (2023) [FHD] Dual');
+  assert.deepEqual(cleaned, { title: 'A Freira 2', year: '2023' });
+
+  const adoroParsed = parseAdoroCinemaHtml(`
+    <html><head>
+      <meta property="og:image" content="https://img.adorocinema.com/poster.jpg" />
+      <script type="application/ld+json">{"description":"Sinopse oficial obtida do AdoroCinema."}</script>
+    </head></html>
+  `);
+  assert.equal(adoroParsed.poster, 'https://img.adorocinema.com/poster.jpg');
+  assert.equal(adoroParsed.synopsis, 'Sinopse oficial obtida do AdoroCinema.');
+
+  const ytTrailer = await resolveTrailerPlayback({ name: 'Teste', trailer: 'QF-oyCwaArU' }, null);
+  assert.equal(ytTrailer.type, 'youtube');
+  assert.match(ytTrailer.src, /^https:\/\/www\.youtube-nocookie\.com\/embed\/QF-oyCwaArU/);
+
+  const directTrailer = await resolveTrailerPlayback({ name: 'Teste' }, { trailerUrl: 'https://cdn.example.com/trailer.mp4' });
+  assert.equal(directTrailer.type, 'video');
+  assert.equal(directTrailer.src, 'https://cdn.example.com/trailer.mp4');
 });
 
 console.log(`\n========================================`);
