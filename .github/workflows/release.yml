@@ -121,10 +121,27 @@ jobs:
                   f.write(updated)
           PY
 
+      - name: Configure Android Release Signing
+        shell: bash
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "${ANDROID_KEYSTORE_BASE64:-}" ]; then
+            KEYSTORE_FILE="${{ runner.temp }}/fluistream-release.keystore"
+            printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$KEYSTORE_FILE"
+            echo "ANDROID_KEYSTORE_PATH=$KEYSTORE_FILE" >> "$GITHUB_ENV"
+            echo "Configured persistent Android release keystore."
+          else
+            echo "::warning::ANDROID_KEYSTORE_BASE64 secret not set; falling back to ephemeral debug signing (in-place updates will conflict across releases)."
+          fi
+
       - name: Build Release APK
         working-directory: src/android
         env:
           RELEASE_VERSION: ${{ needs.resolve-version.outputs.version }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
           if [ -f gradlew ] && [ -f gradle/wrapper/gradle-wrapper.jar ]; then
             chmod +x gradlew
