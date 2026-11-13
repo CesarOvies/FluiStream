@@ -142,7 +142,7 @@ class MainActivity : AppCompatActivity() {
             .addPathHandler("/assets/", WebViewAssetLoader.AssetsPathHandler(this))
             .build()
 
-        webView.setBackgroundColor(Color.parseColor("#0D1117"))
+        webView.setBackgroundColor(Color.parseColor("#06101E"))
         webView.isFocusable = true
         webView.isFocusableInTouchMode = true
 
@@ -231,10 +231,17 @@ class MainActivity : AppCompatActivity() {
             return true
         }
 
-        // Ask SPA if a modal or category sub-view can be closed via Escape / back button
+        // Ask SPA if a modal, sub-view, or category view can be closed via native back handler / fallback selectors
         webView.evaluateJavascript(
             """
             (function() {
+              try {
+                const nativeResult = (window.fluiStreamApp && typeof window.fluiStreamApp.handleNativeBack === 'function')
+                  ? window.fluiStreamApp.handleNativeBack()
+                  : null;
+                if (nativeResult === true || nativeResult === 'handled') return 'handled';
+                if (nativeResult === false || nativeResult === 'root') return 'root';
+              } catch (_) {}
               const openModal = document.querySelector('.modal-backdrop:not(.hidden), .seasons-popup-backdrop:not(.hidden)');
               if (openModal) {
                 document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));

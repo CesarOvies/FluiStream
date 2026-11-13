@@ -7,12 +7,13 @@ Os arquivos em `src/web/` permanecem como o **Core UI** compartilhado, embutido 
 
 ## 2. Arquitetura Multiplataforma
 1. **Core UI (`src/web/` — HTML5 + CSS + ES Modules)**:
-   - Parser M3U com classificação heurística inteligente (`live`, `movie`, `series`).
-   - Parser EPG XMLTV com índice multi-apelidos e cálculo em tempo real de programas atuais e grade de horários.
-   - Connector Xtream Codes compatível com `player_api.php`, `get.php` e `xmltv.php`.
-   - Controlador de vídeo (`VideoPlayerController`) com delegação nativa automática para `window.androidBridge` no Android e fallback HTML5/Hls.js/VLC no Desktop.
-   - Sistema de internacionalização (i18n) obrigatório em 3 idiomas com paridade estrita de chaves: `pt-BR`, `en-US` e `es`.
-   - Paleta GitHub Dark (`#0D1117`, `#161B22`, `#30363D`, `#238636`, `#388BFD`) com realce `:focus-visible` para D-Pad em TVs.
+   - Parser M3U com classificação heurística inteligente (`live`, `movie`, `series`) e extração de metadados de Catch-up (`catchup`, `catchup-days`, `catchup-source`, `tvg-shift`, `hasCatchup`).
+   - Parser EPG XMLTV com índice multi-apelidos, mesclagem multi-fonte (`mergeXml`), ajuste de timeshift (`-12h` a `+12h`) e cálculo em tempo real de programas atuais e grade de horários.
+   - Connector Xtream Codes compatível com `player_api.php`, `get.php` e `xmltv.php` (incluindo `accountInfo` e `serverInfo`).
+   - Controlador de vídeo (`VideoPlayerController`) e `MultiScreenController` (6 layouts, até 4 slots `<video>` HTML5/HLS em Web/Desktop) com delegação nativa automática para `window.androidBridge` no Android e fallback HTML5/Hls.js/VLC no Desktop.
+   - Interface **Home Hub Bento**, navegação **Split-Pane** com sidebar de categorias/favoritos/histórico, Busca Global (`Master Search`), **Gerenciador de EPG** (fontes, timeline, timeshift), **Controle Parental** com hash SHA-256, **Central de Notificações** e **Settings Hub** com 11 módulos.
+   - Sistema de internacionalização (i18n) obrigatório em 3 idiomas com paridade estrita de chaves (224 chaves): `pt-BR`, `en-US` e `es`.
+   - Paleta **Midnight Amber & Steel** (`#06101E` canvas, `#0F172A` surface, `#1E293B` border, `#F59E0B` amber accent, `#38BDF8` sky accent, `#10B981` emerald CTA) com realce `:focus-visible` (`#F59E0B`) para D-Pad em TVs.
 
 2. **Desktop Portable (`src/desktop/` — .NET 10 / User-Space)**:
    - Binários self-contained Single-File para `win-x64`, `linux-x64`, `linux-arm64` e `osx-arm64`.
@@ -28,7 +29,7 @@ Os arquivos em `src/web/` permanecem como o **Core UI** compartilhado, embutido 
    - `VideoPlayerManager.kt` utiliza **AndroidX Media3 (ExoPlayer)** com módulos HLS, DASH e Progressive/MPEG-TS, além de `network_security_config.xml` permitindo conexões HTTP cleartext em qualquer porta.
 
 ## 3. Modelos de Dados
-- **PlaylistItem**: `{ id, name, group, logo, url, duration, type: 'live' | 'movie' | 'series', seriesTitle, season, episode }`
+- **PlaylistItem**: `{ id, name, group, logo, url, duration, type: 'live' | 'movie' | 'series', seriesTitle, season, episode, catchup, catchupDays, catchupSource, tvgShift, hasCatchup }`
 - **EpgProgram**: `{ title, desc, category, start: Date, stop: Date, progress: number, remainingMinutes: number }`
 - **XtreamCredentials**: `{ serverUrl, username, password, m3uUrl, epgUrl }`
 
