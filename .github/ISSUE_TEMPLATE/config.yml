@@ -1,0 +1,6 @@
+blank_issues_enabled: false
+contact_links:
+  - name: "🔒 Reportar Vulnerabilidade de Segurança / Report a Security Vulnerability"
+    url: "https://github.com/CesarOvies/FluiStream/security/advisories/new"
+    about: "Não abra issues públicas para falhas de segurança. / Do not open public issues for security vulnerabilities."
+

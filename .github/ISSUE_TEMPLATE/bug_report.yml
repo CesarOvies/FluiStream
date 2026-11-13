@@ -1,0 +1,69 @@
+name: "🐛 Bug Report / Relatar Bug"
+description: "Reporte um erro ou comportamento inesperado no FluiStream / Report a bug or unexpected behavior"
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Obrigado por ajudar a melhorar o **FluiStream**! Preencha os campos abaixo para facilitar a investigação.
+        Thank you for helping improve **FluiStream**! Fill out the fields below to help us investigate.
+
+  - type: dropdown
+    id: platform
+    attributes:
+      label: "Plataforma / Platform"
+      description: "Onde o problema ocorre? / Where does the issue occur?"
+      options:
+        - "Windows (win-x64)"
+        - "Linux (linux-x64 / linux-arm64)"
+        - "macOS (osx-arm64)"
+        - "Android / Android TV"
+        - "Web / Browser"
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: "Versão / Version"
+      description: "Ex: v1.1.0"
+      placeholder: "v1.1.0"
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: "Descrição do Problema / Bug Description"
+      description: "O que aconteceu? / What happened?"
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: "Passos para Reproduzir / Steps to Reproduce"
+      placeholder: |
+        1. Abrir o app / Open the app
+        2. Carregar lista M3U / Load M3U playlist
+        3. Clicar em... / Click on...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: "Comportamento Esperado / Expected Behavior"
+      description: "O que deveria ter acontecido? / What should have happened?"
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: "Logs, Capturas de Tela ou Contexto Extra / Logs, Screenshots, or Extra Context"
+      description: "Opcional. Cole mensagens de erro ou anexe imagens. / Optional. Paste error messages or attach screenshots."
+    validations:
+      required: false
+

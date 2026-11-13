@@ -1,0 +1,47 @@
+name: "✨ Feature Request / Pedido de Melhoria"
+description: "Sugira uma nova funcionalidade ou melhoria para o FluiStream / Suggest a new feature or improvement"
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Tem uma ideia para tornar o **FluiStream** melhor? Conte para nós!
+        Have an idea to make **FluiStream** better? Let us know!
+
+  - type: dropdown
+    id: target_platform
+    attributes:
+      label: "Plataforma Alvo / Target Platform"
+      options:
+        - "Todas / All Platforms"
+        - "Desktop Portable (Windows / Linux / macOS)"
+        - "Android / Android TV"
+        - "Web / Core UI"
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: "Qual problema ou necessidade isso resolve? / What problem does this solve?"
+      description: "Descreva a limitação atual ou caso de uso. / Describe the current limitation or use case."
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: "Solução Proposta / Proposed Solution"
+      description: "Como você imagina que isso deveria funcionar? / How do you envision this working?"
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: "Alternativas Consideradas / Alternatives Considered"
+      description: "Opcional. Existem outras formas ou apps que fazem algo parecido? / Optional."
+    validations:
+      required: false
+
