@@ -3,6 +3,36 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
+fun resolveAndroidVersionName(): String {
+    val prop = providers.gradleProperty("versionName").orNull?.trim()
+    val csproj = rootProject.file("../desktop/FluiStream.Desktop.csproj")
+    val fromCsproj = if (prop.isNullOrEmpty() && csproj.exists()) {
+        Regex("<Version>\\s*([^<\\s]+)\\s*</Version>").find(csproj.readText())?.groupValues?.get(1)
+    } else {
+        null
+    }
+    val raw = (prop?.takeIf { it.isNotEmpty() } ?: fromCsproj ?: "1.1.0")
+        .trim()
+        .removePrefix("v")
+        .removePrefix("V")
+    return raw.ifEmpty { "1.1.0" }
+}
+
+fun computeAndroidVersionCode(verName: String): Int {
+    val explicit = providers.gradleProperty("versionCode").orNull?.trim()?.toIntOrNull()
+    if (explicit != null && explicit > 0) return explicit
+
+    val core = verName.substringBefore('-').substringBefore('+')
+    val parts = core.split('.').mapNotNull { it.toIntOrNull() }
+    val major = parts.getOrElse(0) { 1 }.coerceIn(0, 2000)
+    val minor = parts.getOrElse(1) { 0 }.coerceIn(0, 999)
+    val patch = parts.getOrElse(2) { 0 }.coerceIn(0, 999)
+    return maxOf((major * 1_000_000) + (minor * 1_000) + patch, 2)
+}
+
+val resolvedVersionName = resolveAndroidVersionName()
+val resolvedVersionCode = computeAndroidVersionCode(resolvedVersionName)
+
 android {
     namespace = "com.cesarovies.fluistream"
     compileSdk = 34
@@ -11,10 +41,14 @@ android {
         applicationId = "com.cesarovies.fluistream"
         minSdk = 24
         targetSdk = 34
-        versionCode = 2
-        versionName = "1.1.0"
+        versionCode = resolvedVersionCode
+        versionName = resolvedVersionName
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    buildFeatures {
+        buildConfig = true
     }
 
     buildTypes {

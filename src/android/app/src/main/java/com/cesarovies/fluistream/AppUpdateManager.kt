@@ -79,9 +79,9 @@ class AppUpdateManager(
                 @Suppress("DEPRECATION")
                 activity.packageManager.getPackageInfo(activity.packageName, 0)
             }
-            pkgInfo.versionName?.trim().orEmpty().ifEmpty { FALLBACK_VERSION }
+            pkgInfo.versionName?.trim().orEmpty().ifEmpty { BuildConfig.VERSION_NAME }
         } catch (_: Exception) {
-            FALLBACK_VERSION
+            BuildConfig.VERSION_NAME
         }
     }
 
@@ -834,7 +834,6 @@ class AppUpdateManager(
     companion object {
         const val ACTION_PROMPT_UPDATE = "com.cesarovies.fluistream.ACTION_PROMPT_UPDATE"
         private const val GITHUB_REPO = "CesarOvies/FluiStream"
-        private const val FALLBACK_VERSION = "1.1.0"
         private const val CHANNEL_ID = "fluistream_updates"
         private const val UPDATE_NOTIFICATION_ID = 4102
         private const val MAX_REDIRECTS = 5

@@ -91,20 +91,78 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
 
       - name: Sync Web Assets to Android
+        env:
+          RELEASE_VERSION: ${{ needs.resolve-version.outputs.version }}
         run: |
           rm -rf src/android/app/src/main/assets/web
           mkdir -p src/android/app/src/main/assets/web
           cp -r src/web/* src/android/app/src/main/assets/web/
+          python3 - <<'PY'
+          import os, re
+          ver = os.environ["RELEASE_VERSION"].lstrip("vV")
+          patches = [
+              ("src/android/app/src/main/assets/web/js/version.js",
+               r"(export const APP_VERSION = ')[^']+(')",
+               rf"\g<1>{ver}\g<2>"),
+              ("src/android/app/src/main/assets/web/js/localization.js",
+               r"(settingsVersion:\s*'[^']*?)\d+\.\d+\.\d+",
+               rf"\g<1>{ver}"),
+              ("src/android/app/src/main/assets/web/sw.js",
+               r"(const CACHE_NAME = 'fluistream-v)[^']+(')",
+               rf"\g<1>{ver}\g<2>"),
+          ]
+          for rel, pat, repl in patches:
+              with open(rel, "r", encoding="utf-8") as f:
+                  content = f.read()
+              updated, count = re.subn(pat, repl, content)
+              if count < 1:
+                  raise SystemExit(f"Failed to stamp version in {rel}")
+              with open(rel, "w", encoding="utf-8") as f:
+                  f.write(updated)
+          PY
 
       - name: Build Release APK
         working-directory: src/android
+        env:
+          RELEASE_VERSION: ${{ needs.resolve-version.outputs.version }}
         run: |
           if [ -f gradlew ] && [ -f gradle/wrapper/gradle-wrapper.jar ]; then
             chmod +x gradlew
-            ./gradlew assembleRelease --no-daemon
+            ./gradlew assembleRelease --no-daemon -PversionName="$RELEASE_VERSION"
           else
-            gradle assembleRelease --no-daemon
+            gradle assembleRelease --no-daemon -PversionName="$RELEASE_VERSION"
           fi
+
+      - name: Verify APK Version Matches Release
+        env:
+          RELEASE_VERSION: ${{ needs.resolve-version.outputs.version }}
+        run: |
+          python3 - <<'PY'
+          import glob, json, os, re, subprocess, sys
+          expected = os.environ["RELEASE_VERSION"].lstrip("vV")
+          meta_path = "src/android/app/build/outputs/apk/release/output-metadata.json"
+          with open(meta_path, "r", encoding="utf-8") as f:
+              meta = json.load(f)
+          elem = meta["elements"][0]
+          actual = str(elem.get("versionName", ""))
+          code = int(elem.get("versionCode", 0))
+          print(f"APK metadata: versionName={actual} versionCode={code} expected={expected}")
+          if actual != expected:
+              sys.exit(f"APK versionName mismatch: got {actual!r}, expected {expected!r}")
+          if code <= 2:
+              sys.exit(f"APK versionCode must be > 2, got {code}")
+          apks = glob.glob("src/android/app/build/outputs/apk/release/*.apk")
+          if not apks:
+              sys.exit("No release APK found")
+          sdk_root = os.environ.get("ANDROID_HOME") or os.environ.get("ANDROID_SDK_ROOT") or "/usr/local/lib/android/sdk"
+          aapt2_list = sorted(glob.glob(os.path.join(sdk_root, "build-tools", "*", "aapt2")))
+          if aapt2_list:
+              out = subprocess.check_output([aapt2_list[-1], "dump", "badging", apks[0]], text=True)
+              m = re.search(r"^package:\s+.*?versionName='([^']+)'", out, re.MULTILINE)
+              if not m or m.group(1) != expected:
+                  sys.exit(f"APK manifest versionName mismatch via aapt2: {m.group(1) if m else None!r} != {expected!r}")
+              print(f"Verified APK binary manifest via aapt2: versionName={m.group(1)}")
+          PY
 
       - name: Upload Android APK Artifact
         uses: actions/upload-artifact@v4

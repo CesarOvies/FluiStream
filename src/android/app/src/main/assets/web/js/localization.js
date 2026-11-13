@@ -4,6 +4,8 @@
  * Padrão Cesar Ovies Engineering Standards.
  */
 
+import { getCurrentVersion } from './version.js';
+
 export const SupportedLanguages = {
   PT_BR: 'pt-BR',
   EN_US: 'en-US',
@@ -793,6 +795,9 @@ class LocalizationManager {
   get(key, params = {}) {
     const dict = translations[this.currentLanguage] || translations[SupportedLanguages.PT_BR];
     let text = dict[key] || translations[SupportedLanguages.PT_BR][key] || key;
+    if (key === 'settingsVersion') {
+      text = text.replace(/\d+\.\d+\.\d+/, getCurrentVersion());
+    }
     for (const [k, v] of Object.entries(params)) {
       text = text.replace(new RegExp(`\\{${k}\\}`, 'g'), v);
     }
