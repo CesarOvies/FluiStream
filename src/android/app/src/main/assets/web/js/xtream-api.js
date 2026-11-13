@@ -98,6 +98,28 @@ export class XtreamApi {
   }
 
   /**
+   * URL para consulta de metadados e sinopse de filme VOD (action=get_vod_info)
+   */
+  getVodInfoUrl(vodId) {
+    return `${this.baseUrl}/player_api.php?username=${encodeURIComponent(this.username)}&password=${encodeURIComponent(this.password)}&action=get_vod_info&vod_id=${encodeURIComponent(String(vodId))}`;
+  }
+
+  /**
+   * Obtém detalhes, sinopse e trailer de um filme VOD no servidor Xtream
+   */
+  async getVodInfo(vodId) {
+    if (!vodId) return null;
+    try {
+      const directUrl = this.getVodInfoUrl(vodId);
+      const finalUrl = this.corsProxy ? this.applyProxy(directUrl) : directUrl;
+      const data = await fetchRemoteJson(finalUrl);
+      return data && typeof data === 'object' ? data : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
    * Baixa a lista M3U Plus completa gerada pelo servidor Xtream
    */
   async fetchM3uContent() {

@@ -2,7 +2,7 @@
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <meta name="color-scheme" content="dark" />
   <meta name="theme-color" content="#06101E" />
   <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1" />
@@ -269,6 +269,7 @@
     <!-- TELA 2: SPLIT-PANE BROWSER + PLAYER -->
     <div id="main-content-view" class="main-content-view hidden">
       <div class="split-pane-shell">
+        <div class="sidebar-backdrop hidden" id="sidebar-backdrop" aria-hidden="true"></div>
         <!-- Sidebar Esquerda (#05070B) -->
         <aside class="split-sidebar" id="split-sidebar" aria-label="Categorias">
           <div class="split-sidebar-header">
@@ -311,7 +312,7 @@
           <!-- Barra de Navegação / Voltar -->
           <section class="category-nav-bar" id="category-nav-bar">
             <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
-              <button class="btn-icon" id="btn-toggle-sidebar-mobile" title="Categorias">☰</button>
+              <button class="btn-icon" id="btn-toggle-sidebar-mobile" title="Categorias" aria-controls="split-sidebar" aria-expanded="false">☰</button>
               <button class="btn-secondary btn-back-categories" id="btn-back-categories">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
                 <span data-i18n="navHome">Início</span>
@@ -427,7 +428,7 @@
           <!-- EPG Maximizado para Baixo (Visível APENAS para TV ao Vivo; completamente oculto para Filmes e Séries) -->
           <section class="player-epg-card player-epg-maximized hidden" id="player-epg-card">
             <div class="epg-card-header">
-              <div style="display: flex; align-items: center; gap: 0.65rem; min-width: 0; flex: 1;">
+              <div class="epg-card-title-group">
                 <span class="epg-badge-live" id="epg-status-badge" data-i18n="playerLiveBadge">AO VIVO</span>
                 <h4 id="player-current-prog-title" class="epg-prog-title" style="min-width: 0;">Guia de Programação</h4>
                 <span id="player-current-prog-time" class="epg-time-badge hidden"></span>
@@ -1018,7 +1019,7 @@
   <div class="modal-backdrop hidden" id="modal-series">
     <div class="modal-dialog modal-xl series-modal-dialog">
       <div class="modal-header">
-        <h3 data-i18n="seriesInformation">SERIES INFORMATION</h3>
+        <h3 id="series-modal-heading" data-i18n="seriesInformation">SERIES INFORMATION</h3>
         <button class="modal-close-btn" id="btn-close-series">&times;</button>
       </div>
       <div class="modal-body series-modal-body">
@@ -1036,9 +1037,18 @@
             <p id="series-modal-desc" class="series-hero-desc"></p>
             <div class="series-hero-actions">
               <button class="btn-watch-now" id="btn-series-watch-now" data-i18n="btnWatchNow">▶ WATCH NOW</button>
+              <button type="button" class="btn-secondary hidden" id="btn-movie-trailer" data-i18n="btnWatchTrailer">🎬 Ver Trailer</button>
               <button class="btn-season-picker" id="btn-series-season-select">SEASON - 1 ▾</button>
             </div>
           </div>
+        </div>
+
+        <div class="movie-trailer-box hidden" id="movie-trailer-box">
+          <div class="movie-trailer-header">
+            <span data-i18n="btnWatchTrailer">🎬 Ver Trailer</span>
+            <button type="button" class="btn-icon" id="btn-close-movie-trailer" title="Fechar">&times;</button>
+          </div>
+          <div class="movie-trailer-frame-wrap" id="movie-trailer-frame-wrap"></div>
         </div>
 
         <div class="seasons-popup-backdrop hidden" id="seasons-popup">
@@ -1051,7 +1061,7 @@
           </div>
         </div>
 
-        <div class="series-tabs-bar">
+        <div class="series-tabs-bar" id="series-tabs-bar">
           <button class="series-tab-btn active" data-i18n="tabEpisodes">Episodes</button>
         </div>
         <div class="series-episodes-container" id="series-episodes-container"></div>

@@ -23,6 +23,7 @@ import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -84,6 +85,7 @@ class MainActivity : AppCompatActivity() {
         val errorText = findViewById<TextView>(R.id.player_error_text)
         val aspectButton = findViewById<Button>(R.id.btn_player_aspect)
         val closeButton = findViewById<Button>(R.id.btn_player_close)
+        applyTopHudWindowInsets(topHud)
 
         videoPlayerManager = VideoPlayerManager(
             context = this,
@@ -303,6 +305,25 @@ class MainActivity : AppCompatActivity() {
         super.onDestroy()
     }
 
+    private fun applyTopHudWindowInsets(topHud: LinearLayout) {
+        val density = resources.displayMetrics.density
+        val baseSide = (16 * density).toInt()
+        val baseTop = (10 * density).toInt()
+        val baseBottom = (10 * density).toInt()
+        ViewCompat.setOnApplyWindowInsetsListener(topHud) { view, windowInsets ->
+            val bars = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars())
+            val statusIgnoring = windowInsets.getInsetsIgnoringVisibility(WindowInsetsCompat.Type.statusBars())
+            val cutout = windowInsets.getInsetsIgnoringVisibility(WindowInsetsCompat.Type.displayCutout())
+            view.setPadding(
+                baseSide + maxOf(bars.left, cutout.left),
+                baseTop + maxOf(bars.top, statusIgnoring.top, cutout.top),
+                baseSide + maxOf(bars.right, cutout.right),
+                baseBottom
+            )
+            windowInsets
+        }
+    }
+
     private fun configureSystemBars() {
         WindowCompat.setDecorFitsSystemWindows(window, true)
         val controller = WindowInsetsControllerCompat(window, window.decorView)
@@ -314,6 +335,10 @@ class MainActivity : AppCompatActivity() {
                 WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         } else {
             controller.show(WindowInsetsCompat.Type.systemBars())
+        }
+        val topHud = findViewById<LinearLayout?>(R.id.player_top_hud)
+        if (topHud != null) {
+            topHud.post { ViewCompat.requestApplyInsets(topHud) }
         }
     }
 
