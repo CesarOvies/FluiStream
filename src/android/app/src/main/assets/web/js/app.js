@@ -648,7 +648,6 @@ class FluiStreamApp {
   isSingleClickFullscreenMode() {
     const effective = this.resolveEffectiveDeviceMode();
     return effective === 'tv'
-      || effective === 'mobile'
       || (typeof window !== 'undefined' && Boolean(window.androidBridge))
       || (typeof document !== 'undefined' && document.body.classList.contains('is-android-app'));
   }

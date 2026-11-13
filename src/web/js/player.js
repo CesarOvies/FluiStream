@@ -78,17 +78,26 @@ export class VideoPlayerController {
     this.currentAudioTrack = -1;
     this.currentSubtitleTrack = -1;
     this.isStopped = true;
+    this._inNativeFullscreen = false;
+    this._resumeAfterFullscreen = false;
+    this._fullscreenResumeTimer = null;
 
     this.initEvents();
   }
 
   initEvents() {
     if (!this.video) return;
+    this.video.playsInline = true;
+    this.video.setAttribute?.('playsinline', '');
+    this.video.setAttribute?.('webkit-playsinline', '');
 
     // Eventos de estado de carregamento e buffer
     this.video.addEventListener('loadstart', () => { if (!this.isStopped) this.notifyState('loading'); });
     this.video.addEventListener('waiting', () => { if (!this.isStopped) this.notifyState('buffering'); });
-    this.video.addEventListener('playing', () => { if (!this.isStopped) this.notifyState('playing'); });
+    this.video.addEventListener('playing', () => {
+      if (this._inNativeFullscreen) this._resumeAfterFullscreen = true;
+      if (!this.isStopped) this.notifyState('playing');
+    });
     this.video.addEventListener('pause', () => { if (!this.isStopped) this.notifyState('paused'); });
     this.video.addEventListener('canplay', () => { if (!this.isStopped) this.notifyState('ready'); });
     this.video.addEventListener('timeupdate', () => {
@@ -131,6 +140,30 @@ export class VideoPlayerController {
       e.stopPropagation();
       this.toggleFullscreen();
     });
+
+    // iOS Safari pausa o <video> e pode deixar o frame preto ao sair do fullscreen nativo (webkitendfullscreen)
+    this.video.addEventListener('webkitbeginfullscreen', () => {
+      this._inNativeFullscreen = true;
+      this._resumeAfterFullscreen = !this.video.paused && !this.isStopped;
+    });
+    this.video.addEventListener('webkitendfullscreen', () => {
+      this._inNativeFullscreen = false;
+      this._resumePlaybackAfterFullscreenExit();
+    });
+
+    if (typeof document !== 'undefined') {
+      const onFullscreenChange = () => {
+        const isFs = Boolean(document.fullscreenElement || document.webkitFullscreenElement);
+        if (isFs) {
+          this._resumeAfterFullscreen = !this.video.paused && !this.isStopped;
+        } else {
+          this._resumePlaybackAfterFullscreenExit();
+          this.reportLayout();
+        }
+      };
+      document.addEventListener('fullscreenchange', onFullscreenChange);
+      document.addEventListener('webkitfullscreenchange', onFullscreenChange);
+    }
 
     // Observar redimensionamento e scroll para sincronizar layout nativo do VLC
     if (typeof ResizeObserver !== 'undefined' && this.container) {
@@ -633,6 +666,26 @@ export class VideoPlayerController {
         this.notifyNativeVlc('TOGGLE_PIP');
       }
     }
+  }
+
+  _resumePlaybackAfterFullscreenExit() {
+    if (!this.video || this.isStopped || !this.currentItem || !this._resumeAfterFullscreen) return;
+    this._resumeAfterFullscreen = false;
+
+    const tryResume = () => {
+      if (!this.video || this.isStopped || !this.currentItem) return;
+      if (this.hls && this.video.readyState < 2) {
+        try { this.hls.startLoad(); } catch { /* ignore */ }
+      }
+      if (this.video.paused) {
+        this.video.play().catch(() => {});
+      }
+    };
+
+    tryResume();
+    clearTimeout(this._fullscreenResumeTimer);
+    // iOS WebKit pode concluir a transição do AVPlayerViewController alguns ms após webkitendfullscreen
+    this._fullscreenResumeTimer = setTimeout(tryResume, 120);
   }
 
   async toggleFullscreen() {

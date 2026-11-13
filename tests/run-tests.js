@@ -1210,6 +1210,47 @@ await test('Filmes exibem modal com sinopse enriquecida, thumb e trailer embutid
   assert.equal(directTrailer.src, 'https://cdn.example.com/trailer.mp4');
 });
 
+await test('Mobile não entra em fullscreen automático ao dar play/tocar e retoma reprodução ao sair do tela cheia', async () => {
+  const __dirname = dirname(fileURLToPath(import.meta.url));
+  const rootDir = resolve(__dirname, '..');
+  const appJs = readFileSync(resolve(rootDir, 'src/web/js/app.js'), 'utf8');
+  const fnMatch = appJs.match(/isSingleClickFullscreenMode\(\)\s*\{[\s\S]*?\n  \}/);
+  assert.ok(fnMatch, 'isSingleClickFullscreenMode deve existir');
+  assert.doesNotMatch(fnMatch[0], /effective === 'mobile'/);
+
+  const listeners = new Map();
+  let playCalls = 0;
+  const mockVideo = {
+    paused: false,
+    readyState: 4,
+    volume: 1,
+    muted: false,
+    style: {},
+    addEventListener: (ev, cb) => {
+      if (!listeners.has(ev)) listeners.set(ev, []);
+      listeners.get(ev).push(cb);
+    },
+    play: () => {
+      playCalls += 1;
+      mockVideo.paused = false;
+      return Promise.resolve();
+    }
+  };
+  const emit = (ev) => (listeners.get(ev) || []).forEach(cb => cb());
+
+  const { VideoPlayerController } = await import('../src/web/js/player.js');
+  const ctrl = new VideoPlayerController(mockVideo, null);
+  ctrl.currentItem = { id: 'ch-1', name: 'Canal 1', type: 'live' };
+  ctrl.isStopped = false;
+
+  emit('webkitbeginfullscreen');
+  mockVideo.paused = true; // iOS Safari pausa ao sair do fullscreen nativo
+  emit('webkitendfullscreen');
+
+  assert.equal(playCalls >= 1, true, 'Deve chamar video.play() ao sair do fullscreen nativo');
+  clearTimeout(ctrl._fullscreenResumeTimer);
+});
+
 console.log(`\n========================================`);
 console.log(`Resultados dos Testes: ${passedTests}/${totalTests} passaram.`);
 console.log(`========================================\n`);
