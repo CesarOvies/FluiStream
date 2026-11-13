@@ -9,6 +9,16 @@ export class EPGParser {
     this.channels = new Map(); // id -> { id, name, icon }
     this.nameIndex = new Map(); // normalized_alias -> channelId
     this.programmes = new Map(); // channelId -> [{ title, desc, start, stop, category }]
+    this.timeshiftHours = 0;
+  }
+
+  /**
+   * Configura deslocamento de horário (em horas, ex: -12 a +12) aplicado nas consultas
+   */
+  setTimeshift(hours) {
+    const parsed = Number(hours);
+    this.timeshiftHours = Number.isFinite(parsed) ? parsed : 0;
+    return this.timeshiftHours;
   }
 
   /**
@@ -83,7 +93,33 @@ export class EPGParser {
     this.nameIndex.clear();
     this.programmes.clear();
 
-    if (!xmlString || typeof xmlString !== 'string') return this;
+    this._ingestXml(xmlString);
+    this._sortAndDedupeProgrammes();
+
+    return this;
+  }
+
+  /**
+   * Mescla múltiplas fontes XMLTV em uma única grade EPG
+   * @param {string[]|string} xmlStrings Lista de conteúdos XMLTV
+   * @returns {EPGParser} Instância com canais e programas mesclados
+   */
+  mergeXml(xmlStrings) {
+    this.channels.clear();
+    this.nameIndex.clear();
+    this.programmes.clear();
+
+    const list = Array.isArray(xmlStrings) ? xmlStrings : [xmlStrings];
+    for (const xml of list) {
+      this._ingestXml(xml);
+    }
+    this._sortAndDedupeProgrammes();
+
+    return this;
+  }
+
+  _ingestXml(xmlString) {
+    if (!xmlString || typeof xmlString !== 'string') return;
 
     // 1. Parsing de Canais e indexação de todos os <display-name>
     const chRegex = /<channel\s+id=["']([^"']+)["'][^>]*>([\s\S]*?)<\/channel>/gi;
@@ -100,8 +136,17 @@ export class EPGParser {
       while ((nm = nameRegex.exec(body)) !== null) {
         names.push(nm[1].trim());
       }
-      const primaryName = names[0] || id;
-      this.channels.set(id, { id, name: primaryName, names, icon });
+
+      const existing = this.channels.get(id);
+      if (existing) {
+        const mergedNames = Array.from(new Set([...existing.names, ...names]));
+        existing.names = mergedNames;
+        if (!existing.icon && icon) existing.icon = icon;
+        if (existing.name === id && names[0]) existing.name = names[0];
+      } else {
+        const primaryName = names[0] || id;
+        this.channels.set(id, { id, name: primaryName, names, icon });
+      }
 
       // Indexa o ID original e normalizado
       this.nameIndex.set(id.toLowerCase(), id);
@@ -158,13 +203,22 @@ export class EPGParser {
         stop
       });
     }
+  }
 
-    // Ordenar programas de cada canal por horário de início
-    for (const [_, progs] of this.programmes.entries()) {
+  _sortAndDedupeProgrammes() {
+    for (const [channelId, progs] of this.programmes.entries()) {
       progs.sort((a, b) => a.start.getTime() - b.start.getTime());
+      const seen = new Set();
+      const deduped = [];
+      for (const p of progs) {
+        const key = `${p.start.getTime()}|${p.stop.getTime()}|${p.title}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          deduped.push(p);
+        }
+      }
+      this.programmes.set(channelId, deduped);
     }
-
-    return this;
   }
 
   /**
@@ -217,7 +271,14 @@ export class EPGParser {
   getChannelPrograms(tvgId, channelName = '') {
     const matchedId = this.resolveChannelId(tvgId, channelName);
     if (matchedId && this.programmes.has(matchedId)) {
-      return this.programmes.get(matchedId);
+      const progs = this.programmes.get(matchedId);
+      if (!this.timeshiftHours) return progs;
+      const shiftMs = this.timeshiftHours * 3600000;
+      return progs.map(p => ({
+        ...p,
+        start: new Date(p.start.getTime() + shiftMs),
+        stop: new Date(p.stop.getTime() + shiftMs)
+      }));
     }
     return [];
   }

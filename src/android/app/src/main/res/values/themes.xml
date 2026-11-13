@@ -1,15 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <style name="Theme.FluiStream.Dark" parent="Theme.Material3.Dark.NoActionBar">
-        <item name="colorPrimary">@color/gh_accent_blue</item>
-        <item name="colorOnPrimary">@color/gh_text_primary</item>
-        <item name="colorSecondary">@color/gh_accent_green</item>
-        <item name="colorOnSecondary">@color/gh_text_primary</item>
-        <item name="colorSurface">@color/gh_bg_surface</item>
-        <item name="colorOnSurface">@color/gh_text_primary</item>
-        <item name="android:colorBackground">@color/gh_bg_primary</item>
-        <item name="android:windowBackground">@color/gh_bg_primary</item>
-        <item name="android:statusBarColor">@color/gh_bg_primary</item>
-        <item name="android:navigationBarColor">@color/gh_bg_primary</item>
+        <item name="colorPrimary">@color/accent_amber</item>
+        <item name="colorOnPrimary">@color/bg_primary</item>
+        <item name="colorSecondary">@color/accent_blue</item>
+        <item name="colorOnSecondary">@color/bg_primary</item>
+        <item name="colorTertiary">@color/accent_green</item>
+        <item name="colorOnTertiary">@color/bg_primary</item>
+        <item name="colorSurface">@color/bg_surface</item>
+        <item name="colorOnSurface">@color/text_primary</item>
+        <item name="colorOutline">@color/border</item>
+        <item name="colorError">@color/error</item>
+        <item name="android:colorBackground">@color/bg_primary</item>
+        <item name="android:windowBackground">@color/bg_primary</item>
+        <item name="android:statusBarColor">@color/bg_primary</item>
+        <item name="android:navigationBarColor">@color/bg_primary</item>
     </style>
 </resources>

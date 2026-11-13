@@ -2,7 +2,7 @@
  * FluiStream — Service Worker (Offline UI Cache & Auto-Update)
  */
 
-const CACHE_NAME = 'fluistream-ui-v4';
+const CACHE_NAME = 'fluistream-v2.0.0';
 const ASSETS_TO_CACHE = [
   './',
   './index.html',

@@ -7,7 +7,7 @@ export const APP_VERSION = '1.1.0';
 export const GITHUB_REPO = 'CesarOvies/FluiStream';
 export const VERSION_INFO = { version: APP_VERSION, repo: GITHUB_REPO };
 export const UpdateChecker = {
-  checkForUpdates: (currentVer = APP_VERSION) => checkForUpdate(currentVer)
+  checkForUpdates: (currentVer) => checkForUpdate(currentVer)
 };
 
 export function parseCleanVersion(raw) {
@@ -33,7 +33,47 @@ export function isNewerVersion(latestTag, currentVer = APP_VERSION) {
   return false;
 }
 
-export async function checkForUpdate(currentVer = APP_VERSION) {
+export function selectReleaseAssets(assets) {
+  let winDownloadUrl = null;
+  let apkDownloadUrl = null;
+  let apkAssetName = null;
+  let sha256SumsUrl = null;
+
+  if (!Array.isArray(assets)) {
+    return { winDownloadUrl, apkDownloadUrl, apkAssetName, sha256SumsUrl };
+  }
+
+  for (const a of assets) {
+    const name = a?.name || '';
+    const url = a?.browser_download_url || null;
+    if (!name || !url) continue;
+
+    if (name.toUpperCase() === 'SHA256SUMS.TXT') {
+      sha256SumsUrl = url;
+    } else if (!winDownloadUrl && name.endsWith('.zip') && name.includes('win-x64')) {
+      winDownloadUrl = url;
+    } else if (name.toLowerCase().endsWith('.apk')) {
+      if (!apkDownloadUrl || name.toLowerCase().includes('android')) {
+        apkDownloadUrl = url;
+        apkAssetName = name;
+      }
+    }
+  }
+
+  return { winDownloadUrl, apkDownloadUrl, apkAssetName, sha256SumsUrl };
+}
+
+export async function checkForUpdate(currentVer) {
+  let resolvedCurrentVer = currentVer;
+  if (!resolvedCurrentVer) {
+    try {
+      const nativeVer = typeof window !== 'undefined' && window.androidBridge?.getAppVersion?.();
+      resolvedCurrentVer = (typeof nativeVer === 'string' && nativeVer.trim()) ? nativeVer.trim() : APP_VERSION;
+    } catch {
+      resolvedCurrentVer = APP_VERSION;
+    }
+  }
+
   try {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 10000);
@@ -46,29 +86,28 @@ export async function checkForUpdate(currentVer = APP_VERSION) {
     });
     clearTimeout(timeoutId);
 
-    if (!response.ok) return { available: false };
+    if (!response.ok) return { available: false, hasUpdate: false };
 
     const data = await response.json();
     const latestTag = data.tag_name || '';
-    const available = isNewerVersion(latestTag, currentVer);
-
-    let winDownloadUrl = null;
-    if (data.assets && Array.isArray(data.assets)) {
-      const asset = data.assets.find(a => a.name && a.name.endsWith('.zip') && a.name.includes('win-x64'));
-      if (asset) winDownloadUrl = asset.browser_download_url;
-    }
+    const available = isNewerVersion(latestTag, resolvedCurrentVer);
+    const { winDownloadUrl, apkDownloadUrl, apkAssetName, sha256SumsUrl } = selectReleaseAssets(data.assets);
 
     return {
       available,
-      currentVersion: currentVer,
+      hasUpdate: available,
+      currentVersion: resolvedCurrentVer,
       latestVersion: latestTag.replace(/^[vV]/, ''),
       releaseNotes: data.body || '',
       releaseUrl: data.html_url || `https://github.com/${GITHUB_REPO}/releases/latest`,
-      downloadUrl: winDownloadUrl
+      downloadUrl: winDownloadUrl,
+      apkDownloadUrl,
+      apkAssetName,
+      sha256SumsUrl
     };
   } catch (err) {
     // Falha silenciosa em offline ou bloqueio de rede
-    return { available: false, error: err.message };
+    return { available: false, hasUpdate: false, error: err.message };
   }
 }
 

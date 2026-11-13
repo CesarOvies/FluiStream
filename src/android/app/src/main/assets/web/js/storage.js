@@ -96,10 +96,56 @@ export class StorageService {
     if (!profile || !profile.id) return;
     const profiles = this.getProfiles();
     const idx = profiles.findIndex(p => p.id === profile.id);
+    const existing = idx >= 0 ? profiles[idx] : null;
+    const normalized = { ...profile };
+
+    if (normalized.type === 'xtream') {
+      const server = (normalized.serverUrl !== existing?.serverUrl ? normalized.serverUrl : undefined)
+        ?? (normalized.url !== existing?.url ? normalized.url : undefined)
+        ?? (normalized.xtreamServer !== existing?.xtreamServer ? normalized.xtreamServer : undefined)
+        ?? normalized.serverUrl
+        ?? normalized.url
+        ?? normalized.xtreamServer
+        ?? normalized.accountInfo?.serverUrl
+        ?? '';
+      const user = (normalized.username !== existing?.username ? normalized.username : undefined)
+        ?? (normalized.xtreamUser !== existing?.xtreamUser ? normalized.xtreamUser : undefined)
+        ?? normalized.username
+        ?? normalized.xtreamUser
+        ?? normalized.accountInfo?.username
+        ?? '';
+      const pass = (normalized.password !== existing?.password ? normalized.password : undefined)
+        ?? (normalized.xtreamPass !== existing?.xtreamPass ? normalized.xtreamPass : undefined)
+        ?? normalized.password
+        ?? normalized.xtreamPass
+        ?? normalized.accountInfo?.password
+        ?? '';
+
+      normalized.url = server;
+      normalized.serverUrl = server;
+      normalized.xtreamServer = server;
+      normalized.username = user;
+      normalized.xtreamUser = user;
+      normalized.password = pass;
+      normalized.xtreamPass = pass;
+
+      if (normalized.accountInfo || server || user) {
+        normalized.accountInfo = {
+          ...(normalized.accountInfo || {}),
+          username: user || normalized.accountInfo?.username || '',
+          serverUrl: server || normalized.accountInfo?.serverUrl || ''
+        };
+      }
+    }
+
+    if (normalized.epgUrl === undefined && normalized.externalEpgUrl !== undefined) {
+      normalized.epgUrl = normalized.externalEpgUrl;
+    }
+
     if (idx >= 0) {
-      profiles[idx] = { ...profiles[idx], ...profile, updatedAt: Date.now() };
+      profiles[idx] = { ...existing, ...normalized, updatedAt: Date.now() };
     } else {
-      profiles.push({ ...profile, createdAt: profile.createdAt || Date.now(), updatedAt: Date.now() });
+      profiles.push({ ...normalized, createdAt: normalized.createdAt || Date.now(), updatedAt: Date.now() });
     }
     this.saveProfiles(profiles);
     if (!this.getActiveProfileId() || profiles.length === 1) {
@@ -267,11 +313,19 @@ export class StorageService {
   }
 
   // --- RECENTES ---
+  getHistoryLimit() {
+    const raw = parseInt(this.getSettings()?.historyLimit, 10);
+    return Number.isFinite(raw) ? Math.max(1, Math.min(500, raw)) : 30;
+  }
+
   getRecents() {
     try {
       const activeId = this.getActiveProfileId() || 'default';
       const data = localStorage.getItem(`fluistream_recents_${activeId}`) || localStorage.getItem('fluistream_recents');
-      return data ? JSON.parse(data) : [];
+      const list = data ? JSON.parse(data) : [];
+      if (!Array.isArray(list)) return [];
+      const limit = this.getHistoryLimit();
+      return list.slice(0, limit);
     } catch {
       return [];
     }
@@ -281,7 +335,11 @@ export class StorageService {
     if (!item || !item.url) return;
     try {
       const activeId = this.getActiveProfileId() || 'default';
-      let recents = this.getRecents();
+      const limit = this.getHistoryLimit();
+      const raw = localStorage.getItem(`fluistream_recents_${activeId}`) || localStorage.getItem('fluistream_recents');
+      let recents = [];
+      try { recents = raw ? JSON.parse(raw) : []; } catch { recents = []; }
+      if (!Array.isArray(recents)) recents = [];
       recents = recents.filter(x => x.url !== item.url);
       recents.unshift({
         id: item.id,
@@ -292,46 +350,207 @@ export class StorageService {
         url: item.url,
         playedAt: Date.now()
       });
-      if (recents.length > 30) recents = recents.slice(0, 30);
+      if (recents.length > limit) recents = recents.slice(0, limit);
       localStorage.setItem(`fluistream_recents_${activeId}`, JSON.stringify(recents));
     } catch {
       // Ignore
     }
   }
 
+  clearRecents(includeProgress = true) {
+    try {
+      const activeId = this.getActiveProfileId() || 'default';
+      localStorage.removeItem(`fluistream_recents_${activeId}`);
+      localStorage.removeItem('fluistream_recents_default');
+      localStorage.removeItem('fluistream_recents');
+      if (typeof localStorage !== 'undefined') {
+        const keys = [];
+        if (typeof localStorage.length === 'number' && typeof localStorage.key === 'function') {
+          for (let i = 0; i < localStorage.length; i++) {
+            const k = localStorage.key(i);
+            if (k && (k.startsWith('fluistream_recents') || (includeProgress && k.startsWith('fluistream_watch_progress_')))) {
+              keys.push(k);
+            }
+          }
+        } else {
+          for (const k of Object.keys(localStorage)) {
+            if (k.startsWith('fluistream_recents') || (includeProgress && k.startsWith('fluistream_watch_progress_'))) {
+              keys.push(k);
+            }
+          }
+        }
+        for (const k of keys) localStorage.removeItem(k);
+      }
+    } catch {
+      // Ignore
+    }
+  }
+
+  // --- FONTES EPG (MULTI-SOURCE POR PERFIL) ---
+  getEpgSources(profileId = null) {
+    try {
+      const targetId = profileId || this.getActiveProfileId() || 'default';
+      const data = localStorage.getItem(`fluistream_epg_sources_${targetId}`);
+      return data ? JSON.parse(data) : [];
+    } catch {
+      return [];
+    }
+  }
+
+  saveEpgSources(sources, profileId = null) {
+    try {
+      const targetId = profileId || this.getActiveProfileId() || 'default';
+      localStorage.setItem(`fluistream_epg_sources_${targetId}`, JSON.stringify(Array.isArray(sources) ? sources : []));
+    } catch {
+      // Ignore
+    }
+  }
+
+  // --- NOTIFICAÇÕES ---
+  getNotifications() {
+    try {
+      const data = localStorage.getItem('fluistream_notifications');
+      return data ? JSON.parse(data) : [];
+    } catch {
+      return [];
+    }
+  }
+
+  addNotification(n) {
+    if (!n || typeof n !== 'object') return null;
+    try {
+      const list = this.getNotifications();
+      const entry = {
+        id: n.id || `notif_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+        type: n.type || 'info',
+        title: n.title || '',
+        message: n.message || '',
+        read: Boolean(n.read),
+        createdAt: n.createdAt || Date.now(),
+        ...n
+      };
+      list.unshift(entry);
+      if (list.length > 50) list.length = 50;
+      localStorage.setItem('fluistream_notifications', JSON.stringify(list));
+      return entry;
+    } catch {
+      return null;
+    }
+  }
+
+  clearNotifications() {
+    try {
+      localStorage.removeItem('fluistream_notifications');
+    } catch {
+      // Ignore
+    }
+  }
+
+  // --- PROGRESSO DE REPRODUÇÃO (CONTINUAR ASSISTINDO) ---
+  getWatchProgress(itemId) {
+    if (!itemId) return null;
+    try {
+      const data = localStorage.getItem(`fluistream_watch_progress_${itemId}`);
+      return data ? JSON.parse(data) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  saveWatchProgress(itemId, posSec, durSec) {
+    if (!itemId) return null;
+    try {
+      const pos = Math.max(0, Number(posSec) || 0);
+      const dur = Math.max(0, Number(durSec) || 0);
+      const percent = dur > 0 ? Math.min(100, Math.round((pos / dur) * 100)) : 0;
+      const entry = {
+        itemId,
+        posSec: pos,
+        durSec: dur,
+        percent,
+        updatedAt: Date.now()
+      };
+      localStorage.setItem(`fluistream_watch_progress_${itemId}`, JSON.stringify(entry));
+      return entry;
+    } catch {
+      return null;
+    }
+  }
+
   // --- CONFIGURAÇÕES DO PERFIL / APLICAÇÃO ---
   getSettings() {
+    const defaults = {
+      corsProxy: '',
+      volume: 0.8,
+      aspectRatio: 'auto',
+      streamMode: 'auto',
+      playerEngine: 'vlc',
+      preferEmbeddedEpg: true,
+      timeFormat: '24h',
+      deviceMode: 'auto',
+      autoRefresh: false,
+      autoPlayNext: true,
+      epgTimeshift: 0,
+      historyLimit: 30,
+      parentalPinHash: ''
+    };
     try {
       const activeProfile = this.getActiveProfile();
       const globalData = localStorage.getItem('fluistream_settings');
       const globalCfg = globalData ? JSON.parse(globalData) : {};
+      const parsedLimit = parseInt(globalCfg.historyLimit, 10);
 
       return {
-        corsProxy: activeProfile?.corsProxy ?? globalCfg.corsProxy ?? '',
-        volume: globalCfg.volume ?? 0.8,
-        aspectRatio: globalCfg.aspectRatio ?? 'auto',
-        streamMode: activeProfile?.streamMode ?? globalCfg.streamMode ?? 'auto',
-        playerEngine: activeProfile?.playerEngine ?? globalCfg.playerEngine ?? 'vlc',
-        preferEmbeddedEpg: activeProfile?.preferEmbeddedEpg ?? globalCfg.preferEmbeddedEpg ?? true
+        corsProxy: activeProfile?.corsProxy ?? globalCfg.corsProxy ?? defaults.corsProxy,
+        volume: globalCfg.volume ?? defaults.volume,
+        aspectRatio: globalCfg.aspectRatio ?? defaults.aspectRatio,
+        streamMode: activeProfile?.streamMode ?? globalCfg.streamMode ?? defaults.streamMode,
+        playerEngine: activeProfile?.playerEngine ?? globalCfg.playerEngine ?? defaults.playerEngine,
+        preferEmbeddedEpg: activeProfile?.preferEmbeddedEpg ?? globalCfg.preferEmbeddedEpg ?? defaults.preferEmbeddedEpg,
+        timeFormat: globalCfg.timeFormat ?? defaults.timeFormat,
+        deviceMode: globalCfg.deviceMode ?? defaults.deviceMode,
+        autoRefresh: globalCfg.autoRefresh ?? defaults.autoRefresh,
+        autoPlayNext: globalCfg.autoPlayNext ?? defaults.autoPlayNext,
+        epgTimeshift: globalCfg.epgTimeshift ?? defaults.epgTimeshift,
+        historyLimit: Number.isFinite(parsedLimit) ? Math.max(1, Math.min(500, parsedLimit)) : defaults.historyLimit,
+        parentalPinHash: globalCfg.parentalPinHash ?? defaults.parentalPinHash
       };
     } catch {
-      return { corsProxy: '', volume: 0.8, aspectRatio: 'auto', streamMode: 'auto', playerEngine: 'vlc', preferEmbeddedEpg: true };
+      return defaults;
     }
   }
 
   saveSettings(settings) {
     try {
-      localStorage.setItem('fluistream_settings', JSON.stringify(settings));
+      const merged = { ...this.getSettings(), ...(settings || {}) };
+      if (merged.historyLimit !== undefined) {
+        const n = parseInt(merged.historyLimit, 10);
+        merged.historyLimit = Number.isFinite(n) ? Math.max(1, Math.min(500, n)) : 30;
+      }
+      localStorage.setItem('fluistream_settings', JSON.stringify(merged));
+      if (settings?.historyLimit !== undefined) {
+        const activeId = this.getActiveProfileId() || 'default';
+        const raw = localStorage.getItem(`fluistream_recents_${activeId}`);
+        if (raw) {
+          try {
+            const list = JSON.parse(raw);
+            if (Array.isArray(list) && list.length > merged.historyLimit) {
+              localStorage.setItem(`fluistream_recents_${activeId}`, JSON.stringify(list.slice(0, merged.historyLimit)));
+            }
+          } catch {}
+        }
+      }
       // Se há perfil ativo, sincroniza configurações individuais do perfil
       const activeProfile = this.getActiveProfile();
       if (activeProfile) {
-        if (settings.streamMode) activeProfile.streamMode = settings.streamMode;
-        if (settings.playerEngine) activeProfile.playerEngine = settings.playerEngine;
-        if (settings.corsProxy !== undefined) activeProfile.corsProxy = settings.corsProxy;
+        if (settings?.streamMode) activeProfile.streamMode = settings.streamMode;
+        if (settings?.playerEngine) activeProfile.playerEngine = settings.playerEngine;
+        if (settings?.corsProxy !== undefined) activeProfile.corsProxy = settings.corsProxy;
         this.saveProfile(activeProfile);
       }
+      return merged;
     } catch {
-      // Ignore
+      return null;
     }
   }
 
@@ -343,11 +562,46 @@ export class StorageService {
       tx.objectStore(STORE_PLAYLIST).clear();
       tx.objectStore(STORE_EPG).clear();
     }
+
+    const profileIds = this.getProfiles().map(p => p.id).filter(Boolean);
+    const activeId = this.getActiveProfileId();
+    if (activeId && !profileIds.includes(activeId)) profileIds.push(activeId);
+    profileIds.push('default', 'active');
+
+    for (const id of profileIds) {
+      localStorage.removeItem(`fluistream_favorites_${id}`);
+      localStorage.removeItem(`fluistream_recents_${id}`);
+      localStorage.removeItem(`fluistream_playlist_meta_${id}`);
+      localStorage.removeItem(`fluistream_epg_sources_${id}`);
+    }
+
     localStorage.removeItem('fluistream_profiles');
     localStorage.removeItem('fluistream_active_profile_id');
     localStorage.removeItem('fluistream_favorites');
     localStorage.removeItem('fluistream_recents');
     localStorage.removeItem('fluistream_playlist_meta');
+    localStorage.removeItem('fluistream_settings');
+    localStorage.removeItem('fluistream_notifications');
+
+    if (typeof localStorage !== 'undefined' && typeof localStorage.length === 'number' && typeof localStorage.key === 'function') {
+      const dynamicPrefixes = [
+        'fluistream_favorites_',
+        'fluistream_recents_',
+        'fluistream_playlist_meta_',
+        'fluistream_epg_sources_',
+        'fluistream_watch_progress_'
+      ];
+      const toRemove = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && dynamicPrefixes.some(prefix => key.startsWith(prefix))) {
+          toRemove.push(key);
+        }
+      }
+      for (const key of toRemove) {
+        localStorage.removeItem(key);
+      }
+    }
   }
 }
 

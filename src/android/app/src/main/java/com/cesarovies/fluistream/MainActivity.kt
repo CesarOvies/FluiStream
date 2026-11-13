@@ -37,9 +37,26 @@ class MainActivity : AppCompatActivity() {
     lateinit var videoPlayerManager: VideoPlayerManager
         private set
 
+    lateinit var appUpdateManager: AppUpdateManager
+        private set
+
     private lateinit var tvFocusHelper: TvFocusHelper
     private var fileChooserCallback: ValueCallback<Array<Uri>>? = null
     private var lastBackPressTimeMs: Long = 0L
+
+    private val installPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) {
+        appUpdateManager.onInstallPermissionResult()
+    }
+
+    private val notificationPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            appUpdateManager.postPendingNotificationIfAny()
+        }
+    }
 
     private val fileChooserLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -96,8 +113,27 @@ class MainActivity : AppCompatActivity() {
             onBackRequested = { handleBackNavigation() }
         )
 
+        appUpdateManager = AppUpdateManager(
+            activity = this,
+            requestInstallPermission = { intent -> installPermissionLauncher.launch(intent) },
+            requestNotificationPermission = { permission -> notificationPermissionLauncher.launch(permission) }
+        )
+
         setupWebView()
         setupBackDispatcher()
+        handleIntent(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleIntent(intent)
+    }
+
+    private fun handleIntent(intent: Intent?) {
+        if (intent?.action == AppUpdateManager.ACTION_PROMPT_UPDATE) {
+            appUpdateManager.handleNotificationPromptIntent()
+        }
     }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -106,7 +142,7 @@ class MainActivity : AppCompatActivity() {
             .addPathHandler("/assets/", WebViewAssetLoader.AssetsPathHandler(this))
             .build()
 
-        webView.setBackgroundColor(Color.parseColor("#0D1117"))
+        webView.setBackgroundColor(Color.parseColor("#06101E"))
         webView.isFocusable = true
         webView.isFocusableInTouchMode = true
 
@@ -195,10 +231,17 @@ class MainActivity : AppCompatActivity() {
             return true
         }
 
-        // Ask SPA if a modal or category sub-view can be closed via Escape / back button
+        // Ask SPA if a modal, sub-view, or category view can be closed via native back handler / fallback selectors
         webView.evaluateJavascript(
             """
             (function() {
+              try {
+                const nativeResult = (window.fluiStreamApp && typeof window.fluiStreamApp.handleNativeBack === 'function')
+                  ? window.fluiStreamApp.handleNativeBack()
+                  : null;
+                if (nativeResult === true || nativeResult === 'handled') return 'handled';
+                if (nativeResult === false || nativeResult === 'root') return 'root';
+              } catch (_) {}
               const openModal = document.querySelector('.modal-backdrop:not(.hidden), .seasons-popup-backdrop:not(.hidden)');
               if (openModal) {
                 document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
@@ -253,6 +296,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        appUpdateManager.release()
         videoPlayerManager.release()
         webView.removeJavascriptInterface("androidBridge")
         webView.destroy()

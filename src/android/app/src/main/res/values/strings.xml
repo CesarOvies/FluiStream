@@ -12,4 +12,23 @@
     <string name="player_aspect_fill">Fill</string>
     <string name="tv_back_exit_hint">Press Back again to exit FluiStream</string>
     <string name="webview_unavailable">Android System WebView is required to run FluiStream.</string>
+    <string name="update_channel_name">App Updates</string>
+    <string name="update_channel_desc">Notifications when a new FluiStream version is available</string>
+    <string name="update_available_title">New Update Available!</string>
+    <string name="update_available_header">FluiStream v%1$s → v%2$s</string>
+    <string name="update_prompt_message">A new version of FluiStream is available. Do you want to download and install it now?</string>
+    <string name="update_release_notes_fallback">Performance improvements, playback stability fixes, and visual updates.</string>
+    <string name="update_btn_now">Update Now</string>
+    <string name="update_btn_later">Later</string>
+    <string name="update_btn_cancel">Cancel</string>
+    <string name="update_btn_authorize">Authorize</string>
+    <string name="update_permission_title">Allow App Updates</string>
+    <string name="update_permission_message">To install the new FluiStream APK, authorize installing apps from this source in Android settings.</string>
+    <string name="update_downloading">Downloading update: %1$d%%</string>
+    <string name="update_verifying_hash">Verifying SHA-256 integrity…</string>
+    <string name="update_hash_mismatch">SHA-256 security verification failed. Update aborted.</string>
+    <string name="update_hash_missing">SHA-256 hash not found in SHA256SUMS.txt for this APK.</string>
+    <string name="update_hash_fetch_error">Unable to download SHA256SUMS.txt to verify the APK.</string>
+    <string name="update_launching_installer">Opening Android package installer…</string>
+    <string name="update_error">Update failed: %1$s</string>
 </resources>
