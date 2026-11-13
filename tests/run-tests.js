@@ -10,8 +10,8 @@ import { fileURLToPath } from 'node:url';
 import { M3UParser, ItemType } from '../src/web/js/m3u-parser.js';
 import { EPGParser } from '../src/web/js/epg-parser.js';
 import { XtreamApi } from '../src/web/js/xtream-api.js';
-import { translations, SupportedLanguages } from '../src/web/js/localization.js';
-import { APP_VERSION, parseCleanVersion, isNewerVersion, selectReleaseAssets, checkForUpdate } from '../src/web/js/version.js';
+import { translations, SupportedLanguages, i18n } from '../src/web/js/localization.js';
+import { APP_VERSION, getCurrentVersion, parseCleanVersion, isNewerVersion, selectReleaseAssets, checkForUpdate } from '../src/web/js/version.js';
 import { VideoPlayerController } from '../src/web/js/player.js';
 import { StorageService } from '../src/web/js/storage.js';
 import { applyCorsProxy } from '../src/web/js/network.js';
@@ -226,6 +226,13 @@ await test('checkForUpdate deve usar versão nativa do Android e expor available
     const upToDate = await checkForUpdate('1.2.0');
     assert.equal(upToDate.available, false);
     assert.equal(upToDate.hasUpdate, false);
+
+    globalThis.window.androidBridge.getAppVersion = () => 'v1.2.0';
+    assert.equal(getCurrentVersion(), '1.2.0');
+    assert.ok(i18n.get('settingsVersion').includes('1.2.0'));
+    const nativeUpToDate = await checkForUpdate();
+    assert.equal(nativeUpToDate.available, false);
+    assert.equal(nativeUpToDate.currentVersion, '1.2.0');
   } finally {
     globalThis.fetch = prevFetch;
     if (prevWindow === undefined) {
@@ -233,6 +240,35 @@ await test('checkForUpdate deve usar versão nativa do Android e expor available
     } else {
       globalThis.window = prevWindow;
     }
+  }
+});
+
+await test('Build Android e workflow de release devem sincronizar versionName/versionCode e assets web com a versão distribuída', () => {
+  const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+  const gradleKts = readFileSync(resolve(rootDir, 'src/android/app/build.gradle.kts'), 'utf-8');
+  const releaseYml = readFileSync(resolve(rootDir, '.github/workflows/release.yml'), 'utf-8');
+  const updateMgrKt = readFileSync(resolve(rootDir, 'src/android/app/src/main/java/com/cesarovies/fluistream/AppUpdateManager.kt'), 'utf-8');
+  const playerMgrKt = readFileSync(resolve(rootDir, 'src/android/app/src/main/java/com/cesarovies/fluistream/VideoPlayerManager.kt'), 'utf-8');
+
+  assert.match(gradleKts, /providers\.gradleProperty\("versionName"\)/);
+  assert.match(gradleKts, /versionCode\s*=\s*resolvedVersionCode/);
+  assert.match(gradleKts, /versionName\s*=\s*resolvedVersionName/);
+  assert.match(gradleKts, /buildConfig\s*=\s*true/);
+  assert.equal(/\bversionCode\s*=\s*2\b/.test(gradleKts), false);
+  assert.equal(/\bversionName\s*=\s*"1\.1\.0"/.test(gradleKts), false);
+
+  assert.match(updateMgrKt, /BuildConfig\.VERSION_NAME/);
+  assert.equal(updateMgrKt.includes('FALLBACK_VERSION'), false);
+  assert.match(playerMgrKt, /BuildConfig\.VERSION_NAME/);
+
+  assert.match(releaseYml, /-PversionName="\$RELEASE_VERSION"/);
+  assert.match(releaseYml, /output-metadata\.json/);
+  assert.match(releaseYml, /Verify APK Version Matches Release/);
+
+  for (const rel of ['js/version.js', 'js/localization.js', 'js/app.js']) {
+    const webFile = readFileSync(resolve(rootDir, 'src/web', rel), 'utf-8');
+    const androidAsset = readFileSync(resolve(rootDir, 'src/android/app/src/main/assets/web', rel), 'utf-8');
+    assert.equal(androidAsset, webFile, `Asset Android ${rel} deve estar sincronizado com src/web/${rel}`);
   }
 });
 

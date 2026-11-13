@@ -143,7 +143,7 @@ class VideoPlayerManager(
         if (exoPlayer != null) return
 
         val httpDataSourceFactory = DefaultHttpDataSource.Factory()
-            .setUserAgent("FluiStream/1.1.0 (Android)")
+            .setUserAgent("FluiStream/${BuildConfig.VERSION_NAME} (Android)")
             .setAllowCrossProtocolRedirects(true)
             .setConnectTimeoutMs(15_000)
             .setReadTimeoutMs(15_000)

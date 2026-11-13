@@ -63,16 +63,22 @@ export function selectReleaseAssets(assets) {
   return { winDownloadUrl, apkDownloadUrl, apkAssetName, sha256SumsUrl };
 }
 
-export async function checkForUpdate(currentVer) {
-  let resolvedCurrentVer = currentVer;
-  if (!resolvedCurrentVer) {
-    try {
-      const nativeVer = typeof window !== 'undefined' && window.androidBridge?.getAppVersion?.();
-      resolvedCurrentVer = (typeof nativeVer === 'string' && nativeVer.trim()) ? nativeVer.trim() : APP_VERSION;
-    } catch {
-      resolvedCurrentVer = APP_VERSION;
+export function getCurrentVersion() {
+  try {
+    const nativeVer = typeof window !== 'undefined' && window.androidBridge?.getAppVersion?.();
+    if (typeof nativeVer === 'string' && nativeVer.trim()) {
+      return nativeVer.trim().replace(/^[vV]/, '');
     }
+  } catch {
+    // Ignore bridge access errors
   }
+  return APP_VERSION;
+}
+
+export async function checkForUpdate(currentVer) {
+  const resolvedCurrentVer = (typeof currentVer === 'string' && currentVer.trim())
+    ? currentVer.trim().replace(/^[vV]/, '')
+    : getCurrentVersion();
 
   try {
     const controller = new AbortController();

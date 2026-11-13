@@ -12,7 +12,7 @@ import { XtreamApi } from './xtream-api.js';
 import { storage } from './storage.js';
 import { VideoPlayerController, MultiScreenController } from './player.js';
 import { fetchRemoteText } from './network.js';
-import { UpdateChecker, APP_VERSION } from './version.js';
+import { UpdateChecker, getCurrentVersion } from './version.js';
 
 const PARENTAL_CATEGORY_RE = /(?:adult|xxx|18\+|\+18|porn|erotic|sexy|hentai|nsfw)/i;
 
@@ -2869,7 +2869,7 @@ class FluiStreamApp {
     const existingIdx = list.findIndex(n => n.meta?.kind === 'app_update' && n.meta?.updateVersion === ver);
     const body = i18n.get('updateNotificationBody', {
       latest: ver,
-      current: info.currentVersion || APP_VERSION
+      current: info.currentVersion || getCurrentVersion()
     });
 
     const meta = {
@@ -2899,7 +2899,7 @@ class FluiStreamApp {
   notifyHostUpdateAvailable(latestVersion, downloadUrl, releaseNotes = '') {
     this.addUpdateNotification({
       latestVersion,
-      currentVersion: i18n.get('settingsVersion')?.match(/\d+\.\d+\.\d+/)?.[0] || '',
+      currentVersion: i18n.get('settingsVersion')?.match(/\d+\.\d+\.\d+/)?.[0] || getCurrentVersion(),
       downloadUrl,
       releaseNotes
     });
