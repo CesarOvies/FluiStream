@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -51,6 +53,31 @@ android {
         buildConfig = true
     }
 
+    signingConfigs {
+        val ksPropsFile = rootProject.file("keystore.properties")
+        val ksProps = Properties().apply {
+            if (ksPropsFile.exists()) {
+                ksPropsFile.inputStream().use { load(it) }
+            }
+        }
+        val storePath = (System.getenv("ANDROID_KEYSTORE_PATH") ?: ksProps.getProperty("storeFile"))?.trim()
+        val storePass = (System.getenv("ANDROID_KEYSTORE_PASSWORD") ?: ksProps.getProperty("storePassword"))?.trim()
+        val alias = (System.getenv("ANDROID_KEY_ALIAS") ?: ksProps.getProperty("keyAlias"))?.trim()
+        val keyPass = (System.getenv("ANDROID_KEY_PASSWORD") ?: ksProps.getProperty("keyPassword"))?.trim()
+        val resolvedStoreFile = storePath?.takeIf { it.isNotEmpty() }?.let { rootProject.file(it) }
+
+        if (resolvedStoreFile != null && resolvedStoreFile.exists() &&
+            !storePass.isNullOrEmpty() && !alias.isNullOrEmpty() && !keyPass.isNullOrEmpty()
+        ) {
+            create("release") {
+                storeFile = resolvedStoreFile
+                storePassword = storePass
+                keyAlias = alias
+                keyPassword = keyPass
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
@@ -59,8 +86,8 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            // Fallback to debug signing for reproducible CI builds unless release keystore is configured
-            signingConfig = signingConfigs.getByName("debug")
+            // Use persistent release keystore when configured; fallback to debug for local/PR CI builds
+            signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("debug")
         }
     }
 

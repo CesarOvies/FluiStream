@@ -34,3 +34,8 @@ EBWebView/
 
 # Tool & session cache
 .github/context-mode/
+
+# Android signing secrets
+*.keystore
+*.jks
+keystore.properties
