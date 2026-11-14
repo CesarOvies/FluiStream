@@ -75,6 +75,8 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
 
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        @Suppress("DEPRECATION")
+        window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
         configureSystemBars()
 
         webView = findViewById(R.id.web_view)
