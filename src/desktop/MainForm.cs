@@ -1,7 +1,13 @@
 using System;
+using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
+using System.Net;
+using System.Net.Http;
 using System.Runtime.InteropServices;
+using System.Text;
+using System.Text.RegularExpressions;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using LibVLCSharp.Shared;
@@ -33,6 +39,9 @@ public partial class MainForm : Form
     private Button? _btnCenterPlayOverlay;
     private System.Windows.Forms.Timer? _fullscreenTimer;
     private System.Windows.Forms.Timer? _vlcSingleClickTimer;
+    private Point _lastVlcCursorPos = Point.Empty;
+    private long _lastVlcActivityTick = 0;
+    private bool _vlcFullscreenHudVisible = true;
     private bool _webNavigationCompleted = false;
     private (string? Version, string DownloadUrl, string? ReleaseNotes)? _pendingHostUpdate;
     private string[] _vlcFallbackUrls = Array.Empty<string>();
@@ -45,6 +54,24 @@ public partial class MainForm : Form
     private readonly string[][] _msSlotFallbacks = new string[MaxMultiScreenSlots][];
     private readonly int[] _msSlotFallbackIndex = new int[MaxMultiScreenSlots];
     private int _msActiveAudioSlot = 0;
+    private Button? _btnVlcTools;
+    private Panel? _pnlVlcToolsMenu;
+    private ComboBox? _cmbVlcAspect;
+    private ComboBox? _cmbVlcAudio;
+    private ComboBox? _cmbVlcSubtitles;
+    private TrackBar? _trkVlcVolume;
+    private Button? _btnVlcMute;
+    private bool _suppressVlcTrackEvents = false;
+    private HttpListener? _localProxyListener;
+    private string _localProxyBaseUrl = "";
+    private static readonly HttpClient _proxyHttpClient = CreateProxyHttpClient();
+
+    private sealed class VlcTrackOption
+    {
+        public int Id { get; init; }
+        public string Name { get; init; } = "";
+        public override string ToString() => Name;
+    }
 
     [DllImport("dwmapi.dll")]
     private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int attrValue, int attrSize);
@@ -119,6 +146,10 @@ public partial class MainForm : Form
 
             _videoView.MouseClick += (s, e) =>
             {
+                if (_pnlVlcToolsMenu != null && _pnlVlcToolsMenu.Visible)
+                {
+                    _pnlVlcToolsMenu.Visible = false;
+                }
                 if (e.Button == MouseButtons.Left && _isVlcActive)
                 {
                     _vlcSingleClickTimer?.Stop();
@@ -141,10 +172,14 @@ public partial class MainForm : Form
 
             _videoView.MouseMove += (s, e) =>
             {
-                if (_isFullScreen || _isPipMode)
+                if (!_isFullScreen && !_isPipMode) return;
+                var cur = Cursor.Position;
+                if (Math.Abs(cur.X - _lastVlcCursorPos.X) < 3 && Math.Abs(cur.Y - _lastVlcCursorPos.Y) < 3)
                 {
-                    ShowExitFullscreenButton();
+                    return;
                 }
+                _lastVlcCursorPos = cur;
+                ShowExitFullscreenButton();
             };
 
             _vlcPlayer.Playing += (s, e) =>
@@ -286,6 +321,40 @@ public partial class MainForm : Form
 
             // Registrar Host Object nativo de alta performance para requisições IPTV sem restrições de CORS
             _webView.CoreWebView2.AddHostObjectToScript("nativeBridge", new NativeBridge());
+
+            // Inicia proxy HTTP user-space local (127.0.0.1) e injeta headers IPTV no WebView2
+            StartLocalStreamProxy();
+            if (!string.IsNullOrEmpty(_localProxyBaseUrl))
+            {
+                await _webView.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(
+                    $"window.__fluiLocalProxyUrl = {System.Text.Json.JsonSerializer.Serialize(_localProxyBaseUrl)};"
+                );
+            }
+
+            _webView.CoreWebView2.AddWebResourceRequestedFilter("*", CoreWebView2WebResourceContext.All);
+            _webView.CoreWebView2.WebResourceRequested += (_, reqArgs) =>
+            {
+                try
+                {
+                    string uri = reqArgs.Request.Uri ?? "";
+                    if ((uri.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || uri.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+                        && !uri.Contains("app.fluistream.local", StringComparison.OrdinalIgnoreCase)
+                        && !uri.Contains("127.0.0.1", StringComparison.OrdinalIgnoreCase)
+                        && !uri.Contains("localhost", StringComparison.OrdinalIgnoreCase)
+                        && !uri.Contains("jsdelivr.net", StringComparison.OrdinalIgnoreCase)
+                        && !uri.Contains("googleapis.com", StringComparison.OrdinalIgnoreCase)
+                        && !uri.Contains("gstatic.com", StringComparison.OrdinalIgnoreCase))
+                    {
+                        reqArgs.Request.Headers.SetHeader("User-Agent", "IPTVSmartersPro/3.1.5 (Linux;Android 11) VLC/3.0.20");
+                        reqArgs.Request.Headers.RemoveHeader("Origin");
+                        reqArgs.Request.Headers.RemoveHeader("Referer");
+                    }
+                }
+                catch
+                {
+                    // Ignore header restriction on internal requests
+                }
+            };
             _webView.CoreWebView2.NavigationCompleted += (_, navArgs) =>
             {
                 if (navArgs.IsSuccess)
@@ -446,14 +515,23 @@ public partial class MainForm : Form
                             else if (action == "SET_ASPECT_RATIO")
                             {
                                 string? ratio = doc.RootElement.TryGetProperty("ratio", out var rEl) ? rEl.GetString() : "auto";
-                                BeginInvoke(() => SetVlcAspectRatio(ratio));
+                                BeginInvoke(() =>
+                                {
+                                    _vlcAspectRatio = ratio ?? "auto";
+                                    SetVlcAspectRatio(ratio);
+                                    SyncVlcToolsControls();
+                                });
                             }
                             else if (action == "SET_VOLUME")
                             {
                                 if (doc.RootElement.TryGetProperty("volume", out var vEl))
                                 {
                                     float vol = (float)vEl.GetDouble();
-                                    BeginInvoke(() => { if (_vlcPlayer != null) _vlcPlayer.Volume = (int)Math.Clamp(vol * 100, 0, 100); });
+                                    BeginInvoke(() =>
+                                    {
+                                        if (_vlcPlayer != null) _vlcPlayer.Volume = (int)Math.Clamp(vol * 100, 0, 100);
+                                        SyncVlcToolsControls();
+                                    });
                                 }
                             }
                             else if (action == "SET_MUTE")
@@ -461,7 +539,11 @@ public partial class MainForm : Form
                                 if (doc.RootElement.TryGetProperty("muted", out var mEl))
                                 {
                                     bool muted = mEl.GetBoolean();
-                                    BeginInvoke(() => { if (_vlcPlayer != null) _vlcPlayer.Mute = muted; });
+                                    BeginInvoke(() =>
+                                    {
+                                        if (_vlcPlayer != null) _vlcPlayer.Mute = muted;
+                                        SyncVlcToolsControls();
+                                    });
                                 }
                             }
                             else if (action == "TOGGLE_PAUSE")
@@ -514,9 +596,28 @@ public partial class MainForm : Form
                                             {
                                                 _btnCenterPlayOverlay.Visible = false;
                                             }
+                                            RepositionVlcOverlays();
                                         }
                                     });
                                 }
+                            }
+                            else if (action == "TOGGLE_TOOLS_MENU")
+                            {
+                                BeginInvoke(ToggleVlcToolsMenu);
+                            }
+                            else if (action == "ENSURE_LOCAL_PROXY" || action == "SET_PLAYER_ENGINE")
+                            {
+                                BeginInvoke(() =>
+                                {
+                                    StartLocalStreamProxy();
+                                    if (!string.IsNullOrEmpty(_localProxyBaseUrl))
+                                    {
+                                        string serializedUrl = System.Text.Json.JsonSerializer.Serialize(_localProxyBaseUrl);
+                                        _webView.CoreWebView2?.ExecuteScriptAsync(
+                                            $"window.__fluiLocalProxyUrl = {serializedUrl}; window.fluiStreamApp?.handleLocalProxyStatus({{ active: true, url: {serializedUrl} }});"
+                                        );
+                                    }
+                                });
                             }
                         }
                         else if (msgType == "NATIVE_FETCH")
@@ -734,7 +835,7 @@ public partial class MainForm : Form
             {
                 _videoView.Dock = DockStyle.Fill;
                 _videoView.Visible = true;
-                _videoView.BringToFront();
+                EnsureVlcOverlayZOrder();
             }
             else
             {
@@ -742,6 +843,9 @@ public partial class MainForm : Form
             }
 
             SetVlcAspectRatio(ratio);
+            EnsureVlcToolsOverlayCreated();
+            SyncVlcToolsControls();
+            RepositionVlcOverlays();
 
             using var media = new Media(_libVLC, streamUrl, FromType.FromLocation);
             media.AddOption(":network-caching=2000");
@@ -930,7 +1034,11 @@ public partial class MainForm : Form
             }
             _vlcPlayer.Stop();
             _videoView.Visible = false;
+            _fullscreenTimer?.Stop();
+            _vlcFullscreenHudVisible = false;
             UpdateCenterPlayOverlay(false);
+            if (_btnVlcTools != null) _btnVlcTools.Visible = false;
+            if (_pnlVlcToolsMenu != null) _pnlVlcToolsMenu.Visible = false;
         }
         catch
         {
@@ -987,21 +1095,26 @@ public partial class MainForm : Form
             int currentAudio = _vlcPlayer.AudioTrack;
             int currentSpu = _vlcPlayer.Spu;
 
-            var audioList = new System.Collections.Generic.List<object>();
+            var audioOpts = new List<VlcTrackOption>();
+            var audioList = new List<object>();
             if (audioDescs != null)
             {
                 foreach (var t in audioDescs)
                 {
                     audioList.Add(new { id = t.Id, name = t.Name });
+                    audioOpts.Add(new VlcTrackOption { Id = t.Id, Name = string.IsNullOrWhiteSpace(t.Name) ? LocalizationService.Get("VlcAudioDefault") : t.Name });
                 }
             }
 
-            var spuList = new System.Collections.Generic.List<object>();
+            var spuOpts = new List<VlcTrackOption>();
+            var spuList = new List<object>();
             if (spuDescs != null)
             {
                 foreach (var s in spuDescs)
                 {
                     spuList.Add(new { id = s.Id, name = s.Name });
+                    string label = s.Id == -1 ? LocalizationService.Get("VlcSubtitleNone") : (string.IsNullOrWhiteSpace(s.Name) ? $"#{s.Id}" : s.Name);
+                    spuOpts.Add(new VlcTrackOption { Id = s.Id, Name = label });
                 }
             }
 
@@ -1016,6 +1129,7 @@ public partial class MainForm : Form
             string json = System.Text.Json.JsonSerializer.Serialize(payload);
             BeginInvoke(() =>
             {
+                UpdateNativeTrackSelectors(audioOpts, currentAudio, spuOpts, currentSpu);
                 _webView.CoreWebView2?.ExecuteScriptAsync($"window.fluiStreamApp?.handleNativeTracks({json});");
             });
         }
@@ -1064,16 +1178,22 @@ public partial class MainForm : Form
             {
                 _videoView.Dock = DockStyle.Fill;
                 _videoView.Visible = true;
-                _videoView.BringToFront();
+                EnsureVlcOverlayZOrder();
             }
             ResumeLayout(true);
 
             ShowExitFullscreenButton();
+            RepositionVlcOverlays();
             _webView.CoreWebView2?.ExecuteScriptAsync("document.body.classList.add('desktop-mini-pip');");
         }
         else
         {
             _isPipMode = false;
+            if (!_isFullScreen)
+            {
+                _fullscreenTimer?.Stop();
+                _vlcFullscreenHudVisible = false;
+            }
             SuspendLayout();
             TopMost = false;
             FormBorderStyle = _prePipBorderStyle;
@@ -1098,6 +1218,7 @@ public partial class MainForm : Form
                 _videoView.Dock = DockStyle.None;
             }
             ResumeLayout(true);
+            RepositionVlcOverlays();
 
             _webView.CoreWebView2?.ExecuteScriptAsync("document.body.classList.remove('desktop-mini-pip'); window.fluiStreamApp?.player?.reportLayout();");
             if (_isVlcActive && _videoView != null)
@@ -1121,6 +1242,11 @@ public partial class MainForm : Form
 
         if (_isFullScreen)
         {
+            if (_pnlVlcToolsMenu != null) _pnlVlcToolsMenu.Visible = false;
+            _lastVlcCursorPos = Cursor.Position;
+            _lastVlcActivityTick = Environment.TickCount64;
+            _vlcFullscreenHudVisible = true;
+
             _previousWindowState = WindowState;
             _previousBorderStyle = FormBorderStyle;
             _previousBounds = Bounds;
@@ -1132,14 +1258,20 @@ public partial class MainForm : Form
 
             _videoView.Dock = DockStyle.Fill;
             _videoView.Visible = true;
-            _videoView.BringToFront();
             ResumeLayout(true);
 
             ShowExitFullscreenButton();
+            RepositionVlcOverlays();
+            EnsureVlcOverlayZOrder();
             _videoView.Focus();
         }
         else
         {
+            if (!_isPipMode)
+            {
+                _fullscreenTimer?.Stop();
+                _vlcFullscreenHudVisible = false;
+            }
             SuspendLayout();
             FormBorderStyle = _previousBorderStyle;
             WindowState = _previousWindowState;
@@ -1152,8 +1284,13 @@ public partial class MainForm : Form
             {
                 _btnExitFullscreen.Visible = false;
             }
+            if (_pnlVlcToolsMenu != null)
+            {
+                _pnlVlcToolsMenu.Visible = false;
+            }
 
             UpdateVideoViewLayout();
+            RepositionVlcOverlays();
         }
     }
 
@@ -1174,7 +1311,7 @@ public partial class MainForm : Form
             {
                 Text = "▶",
                 Size = new Size(68, 68),
-                BackColor = Color.FromArgb(220, 15, 23, 42),
+                BackColor = Color.FromArgb(15, 23, 42),
                 ForeColor = Color.FromArgb(245, 158, 11),
                 FlatStyle = FlatStyle.Flat,
                 Cursor = Cursors.Hand,
@@ -1182,27 +1319,35 @@ public partial class MainForm : Form
             };
             _btnCenterPlayOverlay.FlatAppearance.BorderSize = 2;
             _btnCenterPlayOverlay.FlatAppearance.BorderColor = Color.FromArgb(245, 158, 11);
-            _btnCenterPlayOverlay.Click += (s, e) => _vlcPlayer?.Pause();
+            _btnCenterPlayOverlay.Click += (s, e) =>
+            {
+                _vlcPlayer?.Pause();
+                if (_isFullScreen || _isPipMode) ShowExitFullscreenButton();
+            };
             Controls.Add(_btnCenterPlayOverlay);
         }
 
         int cx = _videoView.Left + Math.Max(0, (_videoView.Width - _btnCenterPlayOverlay.Width) / 2);
         int cy = _videoView.Top + Math.Max(0, (_videoView.Height - _btnCenterPlayOverlay.Height) / 2);
-        _btnCenterPlayOverlay.Location = new Point(cx, cy);
-        _btnCenterPlayOverlay.Visible = true;
-        _btnCenterPlayOverlay.BringToFront();
+        var centerLoc = new Point(cx, cy);
+        if (_btnCenterPlayOverlay.Location != centerLoc) _btnCenterPlayOverlay.Location = centerLoc;
+        if (!_btnCenterPlayOverlay.Visible) _btnCenterPlayOverlay.Visible = true;
+        EnsureVlcOverlayZOrder();
     }
 
     private void ShowExitFullscreenButton()
     {
         if (!_isFullScreen && !_isPipMode) return;
+        _lastVlcActivityTick = Environment.TickCount64;
+        _lastVlcCursorPos = Cursor.Position;
+
         if (_btnExitFullscreen == null)
         {
             _btnExitFullscreen = new Button
             {
                 Text = LocalizationService.Get(_isPipMode ? "ExitPipBtn" : "ExitFullscreenBtn"),
                 Size = new Size(190, 36),
-                BackColor = Color.FromArgb(220, 15, 23, 42), // #0F172A
+                BackColor = Color.FromArgb(15, 23, 42), // #0F172A
                 ForeColor = Color.FromArgb(240, 246, 252), // #F0F6FC
                 FlatStyle = FlatStyle.Flat,
                 Cursor = Cursors.Hand,
@@ -1218,23 +1363,69 @@ public partial class MainForm : Form
             };
             Controls.Add(_btnExitFullscreen);
 
-            _fullscreenTimer = new System.Windows.Forms.Timer { Interval = 3000 };
+            _fullscreenTimer = new System.Windows.Forms.Timer { Interval = 250 };
             _fullscreenTimer.Tick += (s, e) =>
             {
-                _fullscreenTimer.Stop();
-                if ((_isFullScreen || _isPipMode) && _btnExitFullscreen != null)
+                if ((!_isFullScreen && !_isPipMode) || !_isVlcActive)
                 {
-                    _btnExitFullscreen.Visible = false;
+                    _fullscreenTimer.Stop();
+                    return;
+                }
+
+                var cur = Cursor.Position;
+                if (Math.Abs(cur.X - _lastVlcCursorPos.X) >= 3 || Math.Abs(cur.Y - _lastVlcCursorPos.Y) >= 3)
+                {
+                    _lastVlcCursorPos = cur;
+                    _lastVlcActivityTick = Environment.TickCount64;
+                    if (!_vlcFullscreenHudVisible)
+                    {
+                        ShowExitFullscreenButton();
+                    }
+                    return;
+                }
+
+                bool menuOrDropdownOpen = (_pnlVlcToolsMenu != null && _pnlVlcToolsMenu.Visible) ||
+                    (_cmbVlcAspect?.DroppedDown == true) ||
+                    (_cmbVlcAudio?.DroppedDown == true) ||
+                    (_cmbVlcSubtitles?.DroppedDown == true);
+                if (menuOrDropdownOpen)
+                {
+                    _lastVlcActivityTick = Environment.TickCount64;
+                    return;
+                }
+
+                if (_vlcFullscreenHudVisible && Environment.TickCount64 - _lastVlcActivityTick >= 3000)
+                {
+                    _vlcFullscreenHudVisible = false;
+                    if (_btnExitFullscreen != null && _btnExitFullscreen.Visible)
+                    {
+                        _btnExitFullscreen.Visible = false;
+                    }
+                    if (_isFullScreen && _btnVlcTools != null && _btnVlcTools.Visible)
+                    {
+                        _btnVlcTools.Visible = false;
+                    }
                 }
             };
         }
 
-        _btnExitFullscreen.Text = LocalizationService.Get(_isPipMode ? "ExitPipBtn" : "ExitFullscreenBtn");
-        _btnExitFullscreen.Location = new Point(Math.Max(8, ClientSize.Width - _btnExitFullscreen.Width - 16), 12);
-        _btnExitFullscreen.Visible = true;
-        _btnExitFullscreen.BringToFront();
-        _fullscreenTimer?.Stop();
-        _fullscreenTimer?.Start();
+        string exitText = LocalizationService.Get(_isPipMode ? "ExitPipBtn" : "ExitFullscreenBtn");
+        var exitLoc = new Point(Math.Max(8, ClientSize.Width - _btnExitFullscreen.Width - 16), 12);
+        bool needsLayoutSync = !_vlcFullscreenHudVisible || !_btnExitFullscreen.Visible || _btnExitFullscreen.Text != exitText || _btnExitFullscreen.Location != exitLoc;
+        _vlcFullscreenHudVisible = true;
+
+        if (_btnExitFullscreen.Text != exitText) _btnExitFullscreen.Text = exitText;
+        if (_btnExitFullscreen.Location != exitLoc) _btnExitFullscreen.Location = exitLoc;
+        if (!_btnExitFullscreen.Visible) _btnExitFullscreen.Visible = true;
+
+        if (needsLayoutSync)
+        {
+            RepositionVlcOverlays();
+        }
+        if (_fullscreenTimer != null && !_fullscreenTimer.Enabled)
+        {
+            _fullscreenTimer.Start();
+        }
     }
 
     private void ApplyVlcLayout(int x, int y, int width, int height, bool visible)
@@ -1245,17 +1436,469 @@ public partial class MainForm : Form
         {
             _videoView.Visible = false;
             if (_btnCenterPlayOverlay != null) _btnCenterPlayOverlay.Visible = false;
+            RepositionVlcOverlays();
             return;
         }
 
         _videoView.Dock = DockStyle.None;
         _videoView.SetBounds(x, y, width, height);
         _videoView.Visible = true;
-        _videoView.BringToFront();
+        EnsureVlcOverlayZOrder();
         if (_btnCenterPlayOverlay != null && _btnCenterPlayOverlay.Visible)
         {
             UpdateCenterPlayOverlay(true);
         }
+        RepositionVlcOverlays();
+    }
+
+    private void EnsureVlcToolsOverlayCreated()
+    {
+        if (_btnVlcTools != null && _pnlVlcToolsMenu != null) return;
+
+        var darkSurface = Color.FromArgb(15, 23, 42);
+        var darkInput = Color.FromArgb(30, 41, 59);
+        var amberAccent = Color.FromArgb(245, 158, 11);
+        var lightText = Color.FromArgb(240, 246, 252);
+        var mutedText = Color.FromArgb(148, 163, 184);
+
+        _btnVlcTools = new Button
+        {
+            Text = LocalizationService.Get("VlcToolsBtn"),
+            Size = new Size(142, 34),
+            BackColor = Color.FromArgb(15, 23, 42),
+            ForeColor = lightText,
+            FlatStyle = FlatStyle.Flat,
+            Cursor = Cursors.Hand,
+            Font = new Font("Segoe UI", 9, FontStyle.Bold),
+            Visible = false
+        };
+        _btnVlcTools.FlatAppearance.BorderSize = 1;
+        _btnVlcTools.FlatAppearance.BorderColor = amberAccent;
+        _btnVlcTools.Click += (_, _) => ToggleVlcToolsMenu();
+        Controls.Add(_btnVlcTools);
+
+        _pnlVlcToolsMenu = new Panel
+        {
+            Size = new Size(316, 316),
+            BackColor = darkSurface,
+            ForeColor = lightText,
+            Visible = false
+        };
+        _pnlVlcToolsMenu.Paint += (_, e) =>
+        {
+            using var pen = new Pen(amberAccent, 1);
+            e.Graphics.DrawRectangle(pen, 0, 0, _pnlVlcToolsMenu.Width - 1, _pnlVlcToolsMenu.Height - 1);
+        };
+
+        var lblTitle = new Label
+        {
+            Text = LocalizationService.Get("VlcToolsTitle"),
+            Location = new Point(12, 10),
+            Size = new Size(256, 22),
+            ForeColor = amberAccent,
+            Font = new Font("Segoe UI", 9.5f, FontStyle.Bold)
+        };
+
+        var btnCloseMenu = new Button
+        {
+            Text = LocalizationService.Get("VlcCloseMenu"),
+            Location = new Point(274, 8),
+            Size = new Size(30, 26),
+            BackColor = darkInput,
+            ForeColor = lightText,
+            FlatStyle = FlatStyle.Flat,
+            Cursor = Cursors.Hand,
+            Font = new Font("Segoe UI", 8.5f, FontStyle.Bold)
+        };
+        btnCloseMenu.FlatAppearance.BorderSize = 0;
+        btnCloseMenu.Click += (_, _) =>
+        {
+            _pnlVlcToolsMenu.Visible = false;
+            _lastVlcActivityTick = Environment.TickCount64;
+        };
+
+        Button MakeActionBtn(string text, int x, int y, int w)
+        {
+            var btn = new Button
+            {
+                Text = text,
+                Location = new Point(x, y),
+                Size = new Size(w, 28),
+                BackColor = darkInput,
+                ForeColor = lightText,
+                FlatStyle = FlatStyle.Flat,
+                Cursor = Cursors.Hand,
+                Font = new Font("Segoe UI", 8.5f, FontStyle.Bold)
+            };
+            btn.FlatAppearance.BorderSize = 1;
+            btn.FlatAppearance.BorderColor = Color.FromArgb(51, 65, 85);
+            return btn;
+        }
+
+        var btnPlayPause = MakeActionBtn(LocalizationService.Get("VlcPlayPause"), 12, 38, 94);
+        btnPlayPause.Click += (_, _) => _vlcPlayer?.Pause();
+
+        var btnStop = MakeActionBtn(LocalizationService.Get("VlcStop"), 111, 38, 94);
+        btnStop.Click += (_, _) =>
+        {
+            _pnlVlcToolsMenu.Visible = false;
+            StopVlcStream();
+            _webView.CoreWebView2?.ExecuteScriptAsync("window.fluiStreamApp?.stopPlayback();");
+        };
+
+        var btnPip = MakeActionBtn(LocalizationService.Get("VlcPip"), 210, 38, 94);
+        btnPip.Click += (_, _) =>
+        {
+            _pnlVlcToolsMenu.Visible = false;
+            ToggleMiniPlayerPip();
+        };
+
+        var btnFs = MakeActionBtn(LocalizationService.Get("VlcFullscreen"), 12, 72, 143);
+        btnFs.Click += (_, _) =>
+        {
+            _pnlVlcToolsMenu.Visible = false;
+            ToggleVlcFullscreen();
+        };
+
+        var btnClosePlayer = MakeActionBtn(LocalizationService.Get("VlcClose"), 161, 72, 143);
+        btnClosePlayer.ForeColor = Color.FromArgb(248, 113, 113);
+        btnClosePlayer.Click += (_, _) =>
+        {
+            _pnlVlcToolsMenu.Visible = false;
+            StopVlcStream();
+            _webView.CoreWebView2?.ExecuteScriptAsync("window.fluiStreamApp?.closePlayerAndReset();");
+        };
+
+        _btnVlcMute = MakeActionBtn(LocalizationService.Get("VlcMute"), 12, 110, 98);
+        _btnVlcMute.Click += (_, _) =>
+        {
+            if (_vlcPlayer == null) return;
+            bool nextMuted = !_vlcPlayer.Mute;
+            _vlcPlayer.Mute = nextMuted;
+            SyncVlcToolsControls();
+            double volFrac = Math.Clamp((_vlcPlayer.Volume >= 0 ? _vlcPlayer.Volume : 100) / 100.0, 0.0, 1.0);
+            _webView.CoreWebView2?.ExecuteScriptAsync(
+                $"window.fluiStreamApp?.handleHardwareVolume({volFrac.ToString(System.Globalization.CultureInfo.InvariantCulture)}, {(nextMuted ? "true" : "false")});"
+            );
+        };
+
+        _trkVlcVolume = new TrackBar
+        {
+            Location = new Point(116, 108),
+            Size = new Size(188, 34),
+            Minimum = 0,
+            Maximum = 100,
+            TickStyle = TickStyle.None,
+            BackColor = darkSurface
+        };
+        _trkVlcVolume.Scroll += (_, _) =>
+        {
+            if (_vlcPlayer == null || _suppressVlcTrackEvents) return;
+            int vol = _trkVlcVolume.Value;
+            _vlcPlayer.Volume = vol;
+            if (vol > 0 && _vlcPlayer.Mute) _vlcPlayer.Mute = false;
+            SyncVlcToolsControls();
+            double volFrac = vol / 100.0;
+            _webView.CoreWebView2?.ExecuteScriptAsync(
+                $"window.fluiStreamApp?.handleHardwareVolume({volFrac.ToString(System.Globalization.CultureInfo.InvariantCulture)}, {(_vlcPlayer.Mute ? "true" : "false")});"
+            );
+        };
+
+        var lblAspect = new Label
+        {
+            Text = LocalizationService.Get("VlcAspectLabel"),
+            Location = new Point(12, 148),
+            Size = new Size(292, 18),
+            ForeColor = mutedText,
+            Font = new Font("Segoe UI", 8.5f, FontStyle.Regular)
+        };
+
+        _cmbVlcAspect = new ComboBox
+        {
+            Location = new Point(12, 168),
+            Size = new Size(292, 26),
+            DropDownStyle = ComboBoxStyle.DropDownList,
+            BackColor = darkInput,
+            ForeColor = lightText,
+            FlatStyle = FlatStyle.Flat
+        };
+        _cmbVlcAspect.Items.AddRange(new object[]
+        {
+            new { Tag = "auto", Text = LocalizationService.Get("VlcAspectAuto") },
+            new { Tag = "16:9", Text = "16:9" },
+            new { Tag = "4:3", Text = "4:3" },
+            new { Tag = "fill", Text = LocalizationService.Get("VlcAspectFill") }
+        });
+        _cmbVlcAspect.DisplayMember = "Text";
+        _cmbVlcAspect.SelectedIndex = 0;
+        _cmbVlcAspect.SelectedIndexChanged += (_, _) =>
+        {
+            if (_suppressVlcTrackEvents || _cmbVlcAspect.SelectedItem == null) return;
+            string ratio = _cmbVlcAspect.SelectedIndex switch
+            {
+                1 => "16:9",
+                2 => "4:3",
+                3 => "fill",
+                _ => "auto"
+            };
+            _vlcAspectRatio = ratio;
+            SetVlcAspectRatio(ratio);
+            string serialized = System.Text.Json.JsonSerializer.Serialize(ratio);
+            _webView.CoreWebView2?.ExecuteScriptAsync($"window.fluiStreamApp?.handleNativeAspectRatio({serialized});");
+        };
+
+        var lblAudio = new Label
+        {
+            Text = LocalizationService.Get("VlcAudioLabel"),
+            Location = new Point(12, 202),
+            Size = new Size(292, 18),
+            ForeColor = mutedText,
+            Font = new Font("Segoe UI", 8.5f, FontStyle.Regular)
+        };
+
+        _cmbVlcAudio = new ComboBox
+        {
+            Location = new Point(12, 222),
+            Size = new Size(292, 26),
+            DropDownStyle = ComboBoxStyle.DropDownList,
+            BackColor = darkInput,
+            ForeColor = lightText,
+            FlatStyle = FlatStyle.Flat
+        };
+        _cmbVlcAudio.Items.Add(new VlcTrackOption { Id = -1, Name = LocalizationService.Get("VlcAudioDefault") });
+        _cmbVlcAudio.SelectedIndex = 0;
+        _cmbVlcAudio.SelectedIndexChanged += (_, _) =>
+        {
+            if (_suppressVlcTrackEvents || _vlcPlayer == null) return;
+            if (_cmbVlcAudio.SelectedItem is VlcTrackOption opt)
+            {
+                _vlcPlayer.SetAudioTrack(opt.Id);
+                Task.Delay(120).ContinueWith(_ => BeginInvoke(SendVlcTracksToWeb));
+            }
+        };
+
+        var lblSubtitles = new Label
+        {
+            Text = LocalizationService.Get("VlcSubtitleLabel"),
+            Location = new Point(12, 256),
+            Size = new Size(292, 18),
+            ForeColor = mutedText,
+            Font = new Font("Segoe UI", 8.5f, FontStyle.Regular)
+        };
+
+        _cmbVlcSubtitles = new ComboBox
+        {
+            Location = new Point(12, 276),
+            Size = new Size(292, 26),
+            DropDownStyle = ComboBoxStyle.DropDownList,
+            BackColor = darkInput,
+            ForeColor = lightText,
+            FlatStyle = FlatStyle.Flat
+        };
+        _cmbVlcSubtitles.Items.Add(new VlcTrackOption { Id = -1, Name = LocalizationService.Get("VlcSubtitleNone") });
+        _cmbVlcSubtitles.SelectedIndex = 0;
+        _cmbVlcSubtitles.SelectedIndexChanged += (_, _) =>
+        {
+            if (_suppressVlcTrackEvents || _vlcPlayer == null) return;
+            if (_cmbVlcSubtitles.SelectedItem is VlcTrackOption opt)
+            {
+                _vlcPlayer.SetSpu(opt.Id);
+                Task.Delay(120).ContinueWith(_ => BeginInvoke(SendVlcTracksToWeb));
+            }
+        };
+
+        _pnlVlcToolsMenu.Controls.AddRange(new Control[]
+        {
+            lblTitle, btnCloseMenu,
+            btnPlayPause, btnStop, btnPip, btnFs, btnClosePlayer,
+            _btnVlcMute, _trkVlcVolume,
+            lblAspect, _cmbVlcAspect,
+            lblAudio, _cmbVlcAudio,
+            lblSubtitles, _cmbVlcSubtitles
+        });
+        Controls.Add(_pnlVlcToolsMenu);
+    }
+
+    private void ToggleVlcToolsMenu()
+    {
+        if (!_isVlcActive || _videoView == null || !_videoView.Visible || _isPipMode) return;
+        EnsureVlcToolsOverlayCreated();
+        if (_pnlVlcToolsMenu == null) return;
+
+        _lastVlcActivityTick = Environment.TickCount64;
+        _lastVlcCursorPos = Cursor.Position;
+
+        bool nextVisible = !_pnlVlcToolsMenu.Visible;
+        if (nextVisible)
+        {
+            SyncVlcToolsControls();
+            SendVlcTracksToWeb();
+        }
+        _pnlVlcToolsMenu.Visible = nextVisible;
+        RepositionVlcOverlays();
+    }
+
+    private void SyncVlcToolsControls()
+    {
+        if (_pnlVlcToolsMenu == null || _vlcPlayer == null) return;
+        _suppressVlcTrackEvents = true;
+        try
+        {
+            if (_trkVlcVolume != null)
+            {
+                int vol = Math.Clamp(_vlcPlayer.Volume >= 0 ? _vlcPlayer.Volume : 100, 0, 100);
+                _trkVlcVolume.Value = vol;
+            }
+            if (_btnVlcMute != null)
+            {
+                _btnVlcMute.ForeColor = _vlcPlayer.Mute ? Color.FromArgb(245, 158, 11) : Color.FromArgb(240, 246, 252);
+            }
+            if (_cmbVlcAspect != null)
+            {
+                _cmbVlcAspect.SelectedIndex = _vlcAspectRatio switch
+                {
+                    "16:9" => 1,
+                    "4:3" => 2,
+                    "fill" => 3,
+                    _ => 0
+                };
+            }
+        }
+        finally
+        {
+            _suppressVlcTrackEvents = false;
+        }
+    }
+
+    private void UpdateNativeTrackSelectors(List<VlcTrackOption> audioOpts, int currentAudio, List<VlcTrackOption> spuOpts, int currentSpu)
+    {
+        if (_cmbVlcAudio == null || _cmbVlcSubtitles == null) return;
+        _suppressVlcTrackEvents = true;
+        try
+        {
+            _cmbVlcAudio.Items.Clear();
+            if (audioOpts.Count == 0)
+            {
+                _cmbVlcAudio.Items.Add(new VlcTrackOption { Id = -1, Name = LocalizationService.Get("VlcAudioDefault") });
+                _cmbVlcAudio.SelectedIndex = 0;
+            }
+            else
+            {
+                int selIdx = 0;
+                for (int i = 0; i < audioOpts.Count; i++)
+                {
+                    _cmbVlcAudio.Items.Add(audioOpts[i]);
+                    if (audioOpts[i].Id == currentAudio) selIdx = i;
+                }
+                _cmbVlcAudio.SelectedIndex = selIdx;
+            }
+
+            _cmbVlcSubtitles.Items.Clear();
+            if (spuOpts.Count == 0)
+            {
+                _cmbVlcSubtitles.Items.Add(new VlcTrackOption { Id = -1, Name = LocalizationService.Get("VlcSubtitleNone") });
+                _cmbVlcSubtitles.SelectedIndex = 0;
+            }
+            else
+            {
+                int selIdx = 0;
+                for (int i = 0; i < spuOpts.Count; i++)
+                {
+                    _cmbVlcSubtitles.Items.Add(spuOpts[i]);
+                    if (spuOpts[i].Id == currentSpu) selIdx = i;
+                }
+                _cmbVlcSubtitles.SelectedIndex = selIdx;
+            }
+        }
+        finally
+        {
+            _suppressVlcTrackEvents = false;
+        }
+    }
+
+    private void EnsureVlcOverlayZOrder()
+    {
+        Control?[] desiredTopDown =
+        {
+            _pnlVlcToolsMenu,
+            _btnExitFullscreen,
+            _btnVlcTools,
+            _btnCenterPlayOverlay,
+            _videoView,
+            _webView
+        };
+
+        var present = new List<Control>(desiredTopDown.Length);
+        foreach (var ctrl in desiredTopDown)
+        {
+            if (ctrl != null && ctrl.Parent == this)
+            {
+                present.Add(ctrl);
+            }
+        }
+        if (present.Count < 2) return;
+
+        bool alreadyOrdered = true;
+        int prevIdx = -1;
+        foreach (var ctrl in present)
+        {
+            int idx = Controls.GetChildIndex(ctrl, false);
+            if (idx <= prevIdx)
+            {
+                alreadyOrdered = false;
+                break;
+            }
+            prevIdx = idx;
+        }
+        if (alreadyOrdered) return;
+
+        for (int i = 0; i < present.Count; i++)
+        {
+            if (Controls.GetChildIndex(present[i], false) != i)
+            {
+                Controls.SetChildIndex(present[i], i);
+            }
+        }
+    }
+
+    private void RepositionVlcOverlays()
+    {
+        if (!_isVlcActive || _videoView == null || !_videoView.Visible || _isPipMode || _videoView.Width < 120 || _videoView.Height < 90)
+        {
+            if (_btnVlcTools != null && _btnVlcTools.Visible) _btnVlcTools.Visible = false;
+            if (_pnlVlcToolsMenu != null && _pnlVlcToolsMenu.Visible) _pnlVlcToolsMenu.Visible = false;
+            return;
+        }
+
+        EnsureVlcToolsOverlayCreated();
+        if (_btnVlcTools == null || _pnlVlcToolsMenu == null) return;
+
+        bool exitBtnShown = _isFullScreen && _btnExitFullscreen != null && _btnExitFullscreen.Visible;
+        int btnX = exitBtnShown
+            ? Math.Max(_videoView.Left + 8, _btnExitFullscreen!.Left - _btnVlcTools.Width - 10)
+            : Math.Max(_videoView.Left + 8, _videoView.Right - _btnVlcTools.Width - 14);
+        int btnY = _videoView.Top + 12;
+
+        var toolsBtnLoc = new Point(btnX, btnY);
+        if (_btnVlcTools.Location != toolsBtnLoc) _btnVlcTools.Location = toolsBtnLoc;
+
+        bool showToolsBtn = !_isFullScreen || _vlcFullscreenHudVisible || _pnlVlcToolsMenu.Visible;
+        if (_btnVlcTools.Visible != showToolsBtn) _btnVlcTools.Visible = showToolsBtn;
+
+        int menuX = Math.Clamp(_videoView.Right - _pnlVlcToolsMenu.Width - 14, 8, Math.Max(8, ClientSize.Width - _pnlVlcToolsMenu.Width - 8));
+        int menuY = Math.Clamp(_btnVlcTools.Bottom + 6, 8, Math.Max(8, ClientSize.Height - _pnlVlcToolsMenu.Height - 8));
+        var menuLoc = new Point(menuX, menuY);
+        if (_pnlVlcToolsMenu.Location != menuLoc) _pnlVlcToolsMenu.Location = menuLoc;
+
+        if (_btnCenterPlayOverlay != null && _btnCenterPlayOverlay.Visible)
+        {
+            int cx = _videoView.Left + Math.Max(0, (_videoView.Width - _btnCenterPlayOverlay.Width) / 2);
+            int cy = _videoView.Top + Math.Max(0, (_videoView.Height - _btnCenterPlayOverlay.Height) / 2);
+            var centerLoc = new Point(cx, cy);
+            if (_btnCenterPlayOverlay.Location != centerLoc) _btnCenterPlayOverlay.Location = centerLoc;
+        }
+
+        EnsureVlcOverlayZOrder();
     }
 
     private async void UpdateVideoViewLayout()
@@ -1423,10 +2066,12 @@ public partial class MainForm : Form
             if (_isFullScreen || _isPipMode)
             {
                 _videoView?.SetBounds(0, 0, ClientSize.Width, ClientSize.Height);
+                RepositionVlcOverlays();
             }
             else
             {
                 UpdateVideoViewLayout();
+                RepositionVlcOverlays();
             }
         }
     }
@@ -1435,6 +2080,8 @@ public partial class MainForm : Form
     {
         try
         {
+            _localProxyListener?.Stop();
+            _localProxyListener?.Close();
             ClearAllMultiScreenSlots();
             for (int i = 0; i < MaxMultiScreenSlots; i++)
             {
@@ -1450,6 +2097,262 @@ public partial class MainForm : Form
             // Ignore
         }
         base.OnFormClosing(e);
+    }
+
+    private static HttpClient CreateProxyHttpClient()
+    {
+        var handler = new HttpClientHandler
+        {
+            AllowAutoRedirect = true,
+            MaxAutomaticRedirections = 10,
+            AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate,
+            ServerCertificateCustomValidationCallback = HttpClientHandler.DangerousAcceptAnyServerCertificateValidator
+        };
+        return new HttpClient(handler, disposeHandler: true)
+        {
+            Timeout = Timeout.InfiniteTimeSpan
+        };
+    }
+
+    private void StartLocalStreamProxy()
+    {
+        if (_localProxyListener != null && _localProxyListener.IsListening) return;
+
+        for (int port = 5055; port <= 5075; port++)
+        {
+            var listener = new HttpListener();
+            string prefix = $"http://127.0.0.1:{port}/";
+            listener.Prefixes.Add(prefix);
+            try
+            {
+                listener.Start();
+                _localProxyListener = listener;
+                _localProxyBaseUrl = prefix;
+                _ = Task.Run(async () =>
+                {
+                    while (listener.IsListening)
+                    {
+                        try
+                        {
+                            var ctx = await listener.GetContextAsync().ConfigureAwait(false);
+                            _ = Task.Run(() => HandleLocalProxyRequestAsync(ctx));
+                        }
+                        catch (HttpListenerException)
+                        {
+                            break;
+                        }
+                        catch (ObjectDisposedException)
+                        {
+                            break;
+                        }
+                        catch
+                        {
+                            // Keep listener alive on transient accept errors
+                        }
+                    }
+                });
+                return;
+            }
+            catch
+            {
+                try { listener.Close(); } catch { }
+            }
+        }
+    }
+
+    private async Task HandleLocalProxyRequestAsync(HttpListenerContext ctx)
+    {
+        var res = ctx.Response;
+        res.Headers["Access-Control-Allow-Origin"] = "*";
+        res.Headers["Access-Control-Allow-Methods"] = "GET, HEAD, OPTIONS";
+        res.Headers["Access-Control-Allow-Headers"] = "*";
+        res.Headers["Access-Control-Expose-Headers"] = "Content-Length, Content-Range, Content-Type";
+
+        try
+        {
+            if (string.Equals(ctx.Request.HttpMethod, "OPTIONS", StringComparison.OrdinalIgnoreCase))
+            {
+                res.StatusCode = 204;
+                res.Close();
+                return;
+            }
+
+            if (string.Equals(ctx.Request.Url?.AbsolutePath, "/health", StringComparison.OrdinalIgnoreCase))
+            {
+                res.ContentType = "application/json; charset=utf-8";
+                string payload = System.Text.Json.JsonSerializer.Serialize(new
+                {
+                    status = "ok",
+                    mode = "desktop-webview",
+                    proxyUrl = _localProxyBaseUrl
+                });
+                byte[] okBytes = Encoding.UTF8.GetBytes(payload);
+                res.ContentLength64 = okBytes.Length;
+                await res.OutputStream.WriteAsync(okBytes, 0, okBytes.Length).ConfigureAwait(false);
+                res.Close();
+                return;
+            }
+
+            if (!string.Equals(ctx.Request.Url?.AbsolutePath, "/proxy", StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(ctx.Request.Url?.AbsolutePath, "/api/proxy", StringComparison.OrdinalIgnoreCase))
+            {
+                res.StatusCode = 404;
+                res.Close();
+                return;
+            }
+
+            string? rawUrl = ctx.Request.QueryString["url"];
+            if (string.IsNullOrWhiteSpace(rawUrl)
+                || !Uri.TryCreate(rawUrl, UriKind.Absolute, out var targetUri)
+                || (targetUri.Scheme != Uri.UriSchemeHttp && targetUri.Scheme != Uri.UriSchemeHttps))
+            {
+                res.StatusCode = 400;
+                res.Close();
+                return;
+            }
+
+            using var req = new HttpRequestMessage(
+                string.Equals(ctx.Request.HttpMethod, "HEAD", StringComparison.OrdinalIgnoreCase) ? HttpMethod.Head : HttpMethod.Get,
+                targetUri
+            );
+            req.Headers.TryAddWithoutValidation("User-Agent", "IPTVSmartersPro/3.1.5 (Linux;Android 11) VLC/3.0.20");
+            req.Headers.TryAddWithoutValidation("Accept", "*/*");
+            string? rangeHeader = ctx.Request.Headers["Range"];
+            if (!string.IsNullOrWhiteSpace(rangeHeader))
+            {
+                req.Headers.TryAddWithoutValidation("Range", rangeHeader);
+            }
+
+            using var connectCts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+            using var upstreamRes = await _proxyHttpClient
+                .SendAsync(req, HttpCompletionOption.ResponseHeadersRead, connectCts.Token)
+                .ConfigureAwait(false);
+
+            res.StatusCode = (int)upstreamRes.StatusCode;
+            Uri finalUri = upstreamRes.RequestMessage?.RequestUri ?? targetUri;
+            string mediaType = upstreamRes.Content.Headers.ContentType?.MediaType ?? "";
+
+            bool isBinaryMedia = mediaType.Contains("mp2t", StringComparison.OrdinalIgnoreCase)
+                || mediaType.Contains("video/mp4", StringComparison.OrdinalIgnoreCase)
+                || mediaType.Contains("octet-stream", StringComparison.OrdinalIgnoreCase) && finalUri.AbsolutePath.EndsWith(".ts", StringComparison.OrdinalIgnoreCase);
+
+            bool looksLikeM3u8 = !isBinaryMedia && (
+                mediaType.Contains("mpegurl", StringComparison.OrdinalIgnoreCase)
+                || finalUri.AbsolutePath.EndsWith(".m3u8", StringComparison.OrdinalIgnoreCase)
+                || targetUri.AbsolutePath.EndsWith(".m3u8", StringComparison.OrdinalIgnoreCase)
+            );
+
+            long? contentLen = upstreamRes.Content.Headers.ContentLength;
+            if (looksLikeM3u8 && (!contentLen.HasValue || contentLen.Value <= 4 * 1024 * 1024))
+            {
+                string bodyText = await upstreamRes.Content.ReadAsStringAsync(connectCts.Token).ConfigureAwait(false);
+                if (bodyText.TrimStart().StartsWith("#EXTM3U", StringComparison.OrdinalIgnoreCase))
+                {
+                    string rewritten = RewriteM3u8Manifest(bodyText, finalUri);
+                    byte[] bytes = Encoding.UTF8.GetBytes(rewritten);
+                    res.ContentType = "application/vnd.apple.mpegurl; charset=utf-8";
+                    res.ContentLength64 = bytes.Length;
+                    await res.OutputStream.WriteAsync(bytes, 0, bytes.Length).ConfigureAwait(false);
+                }
+                else
+                {
+                    byte[] bytes = Encoding.UTF8.GetBytes(bodyText);
+                    if (!string.IsNullOrEmpty(mediaType)) res.ContentType = mediaType;
+                    res.ContentLength64 = bytes.Length;
+                    await res.OutputStream.WriteAsync(bytes, 0, bytes.Length).ConfigureAwait(false);
+                }
+                res.Close();
+                return;
+            }
+
+            if (upstreamRes.Content.Headers.ContentType != null)
+            {
+                res.ContentType = upstreamRes.Content.Headers.ContentType.ToString();
+            }
+            if (contentLen.HasValue && contentLen.Value >= 0)
+            {
+                res.ContentLength64 = contentLen.Value;
+            }
+            if (upstreamRes.Content.Headers.ContentRange != null)
+            {
+                res.Headers["Content-Range"] = upstreamRes.Content.Headers.ContentRange.ToString();
+            }
+
+            await using var upstreamStream = await upstreamRes.Content.ReadAsStreamAsync(connectCts.Token).ConfigureAwait(false);
+            byte[] buffer = new byte[65536];
+            int bytesRead;
+            while ((bytesRead = await upstreamStream.ReadAsync(buffer, 0, buffer.Length).ConfigureAwait(false)) > 0)
+            {
+                await res.OutputStream.WriteAsync(buffer, 0, bytesRead).ConfigureAwait(false);
+                await res.OutputStream.FlushAsync().ConfigureAwait(false);
+            }
+            res.Close();
+        }
+        catch (OperationCanceledException)
+        {
+            try
+            {
+                res.StatusCode = 504;
+                res.Close();
+            }
+            catch { }
+        }
+        catch
+        {
+            try
+            {
+                res.StatusCode = 502;
+                res.Close();
+            }
+            catch { }
+        }
+    }
+
+    private string RewriteM3u8Manifest(string manifestContent, Uri baseUri)
+    {
+        var lines = manifestContent.Replace("\r\n", "\n").Split('\n');
+        var sb = new StringBuilder(manifestContent.Length + 256);
+
+        for (int i = 0; i < lines.Length; i++)
+        {
+            string line = lines[i];
+            if (string.IsNullOrWhiteSpace(line))
+            {
+                if (i < lines.Length - 1) sb.Append('\n');
+                continue;
+            }
+
+            if (line.StartsWith('#'))
+            {
+                line = Regex.Replace(line, @"URI=""([^""]+)""", m =>
+                {
+                    string raw = m.Groups[1].Value;
+                    if (raw.StartsWith("data:", StringComparison.OrdinalIgnoreCase)) return m.Value;
+                    if (Uri.TryCreate(baseUri, raw, out var resolved) && (resolved.Scheme == Uri.UriSchemeHttp || resolved.Scheme == Uri.UriSchemeHttps))
+                    {
+                        return $"URI=\"{_localProxyBaseUrl}proxy?url={Uri.EscapeDataString(resolved.ToString())}\"";
+                    }
+                    return m.Value;
+                });
+                sb.Append(line);
+            }
+            else
+            {
+                string trimmed = line.Trim();
+                if (Uri.TryCreate(baseUri, trimmed, out var resolved) && (resolved.Scheme == Uri.UriSchemeHttp || resolved.Scheme == Uri.UriSchemeHttps))
+                {
+                    sb.Append($"{_localProxyBaseUrl}proxy?url={Uri.EscapeDataString(resolved.ToString())}");
+                }
+                else
+                {
+                    sb.Append(line);
+                }
+            }
+
+            if (i < lines.Length - 1) sb.Append('\n');
+        }
+
+        return sb.ToString();
     }
 
     private void ShowDarkDialog(string title, string message)
