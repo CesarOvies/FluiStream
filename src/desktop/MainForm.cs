@@ -25,8 +25,9 @@ public partial class MainForm : Form
     private VideoView? _videoView;
     private bool _isVlcActive = false;
     private bool _isFullScreen = false;
+    private bool _isEnforcingHorizontalBounds = false;
     private long _lastReportedTimeMs = 0;
-    private static readonly Size DefaultMinimumWindowSize = new(800, 600);
+    private static readonly Size DefaultMinimumWindowSize = new(960, 540);
     private static readonly Size PipMinimumWindowSize = new(240, 135);
     private FormWindowState _previousWindowState = FormWindowState.Normal;
     private FormBorderStyle _previousBorderStyle = FormBorderStyle.Sizable;
@@ -86,8 +87,8 @@ public partial class MainForm : Form
                    (File.Exists(Path.Combine(AppContext.BaseDirectory, "app.ico")) ? new Icon(Path.Combine(AppContext.BaseDirectory, "app.ico")) : null);
         }
         catch { }
-        Size = new Size(1280, 800);
-        MinimumSize = new Size(800, 600);
+        Size = new Size(1280, 720);
+        MinimumSize = DefaultMinimumWindowSize;
         StartPosition = FormStartPosition.CenterScreen;
         BackColor = Color.FromArgb(6, 16, 30); // #06101E
         ForeColor = Color.FromArgb(240, 246, 252); // #F0F6FC
@@ -2058,9 +2059,37 @@ public partial class MainForm : Form
         }
     }
 
+    private void EnforceHorizontalWindowBounds()
+    {
+        if (_isEnforcingHorizontalBounds || _isFullScreen || _isPipMode || WindowState != FormWindowState.Normal)
+            return;
+
+        int minWidth = Math.Max(DefaultMinimumWindowSize.Width, MinimumSize.Width);
+        int minHeight = Math.Max(DefaultMinimumWindowSize.Height, MinimumSize.Height);
+        int targetWidth = Math.Max(Width, minWidth);
+        int maxAllowedHeight = Math.Max(minHeight, (int)Math.Round(targetWidth * 9.0 / 16.0));
+        int targetHeight = Height > targetWidth
+            ? maxAllowedHeight
+            : Math.Max(Height, minHeight);
+
+        if (Width != targetWidth || Height != targetHeight)
+        {
+            try
+            {
+                _isEnforcingHorizontalBounds = true;
+                Size = new Size(targetWidth, targetHeight);
+            }
+            finally
+            {
+                _isEnforcingHorizontalBounds = false;
+            }
+        }
+    }
+
     protected override void OnResize(EventArgs e)
     {
         base.OnResize(e);
+        EnforceHorizontalWindowBounds();
         if (_isVlcActive)
         {
             if (_isFullScreen || _isPipMode)

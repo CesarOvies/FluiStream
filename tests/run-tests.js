@@ -2143,10 +2143,11 @@ await test('Onboarding 2 etapas, seleção de perfil com sync em segundo plano, 
   assert.equal(html.includes('id="home-expiration-footer"'), false, 'Rodapé de expiração deve ser removido da tela inicial');
   assert.match(html, /data-settings-tile="about"/);
 
-  // CSS: relógio sempre visível, topo empilhado sem overflow-x e alvos táteis >=44px
+  // CSS: relógio sempre visível, topo horizontal sem overflow-x e alvos táteis >=44px
   assert.equal(/\.header-clock-wrap\s*\{\s*display:\s*none/i.test(css), false, 'Relógio/data não deve ser ocultado em telas menores');
   assert.equal(/\.header-actions\s*\{[^}]*overflow-x:\s*auto/i.test(css), false, 'Ações do topo não devem gerar rolagem horizontal');
-  assert.match(css, /\.header-inner\s*\{[^}]*flex-direction:\s*column/);
+  assert.match(css, /\.header-inner\s*\{[^}]*flex-direction:\s*row/);
+  assert.equal(/\.header-inner\s*\{[^}]*flex-direction:\s*column/.test(css), false, 'Cabeçalho não deve empilhar em coluna');
   assert.match(css, /\.onboarding-device-grid\s*\{/);
   assert.match(css, /@media\s*\(pointer:\s*coarse\)/);
 
@@ -2158,6 +2159,34 @@ await test('Onboarding 2 etapas, seleção de perfil com sync em segundo plano, 
   assert.match(appJs, /updateProfileCardSyncUi\(/);
   assert.match(appJs, /openProfilesModal\(\{\s*isStartup:\s*true\s*\}\)/);
   assert.match(appJs, /sub-auto-refresh-interval/);
+});
+
+await test('Orientação e layout fixados na Horizontal (Android, Desktop, Web/PWA e CSS)', () => {
+  const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+  const androidManifest = readFileSync(resolve(rootDir, 'src/android/app/src/main/AndroidManifest.xml'), 'utf-8');
+  const mainActivityKt = readFileSync(resolve(rootDir, 'src/android/app/src/main/java/com/cesarovies/fluistream/MainActivity.kt'), 'utf-8');
+  const mainFormCs = readFileSync(resolve(rootDir, 'src/desktop/MainForm.cs'), 'utf-8');
+  const crossPlatformHostCs = readFileSync(resolve(rootDir, 'src/desktop/CrossPlatformHost.cs'), 'utf-8');
+  const manifestWeb = readFileSync(resolve(rootDir, 'src/web/manifest.webmanifest'), 'utf-8');
+  const css = readFileSync(resolve(rootDir, 'src/web/css/style.css'), 'utf-8');
+  const appJs = readFileSync(resolve(rootDir, 'src/web/js/app.js'), 'utf-8');
+
+  assert.match(androidManifest, /android:screenOrientation="sensorLandscape"/);
+  assert.match(androidManifest, /android:resizeableActivity="false"/);
+  assert.match(mainActivityKt, /ActivityInfo\.SCREEN_ORIENTATION_SENSOR_LANDSCAPE/);
+
+  assert.match(mainFormCs, /DefaultMinimumWindowSize\s*=\s*new\(960,\s*540\)/);
+  assert.match(mainFormCs, /Size\s*=\s*new Size\(1280,\s*720\)/);
+  assert.match(mainFormCs, /EnforceHorizontalWindowBounds\(/);
+  assert.match(crossPlatformHostCs, /--window-size=1280,720/);
+
+  assert.match(manifestWeb, /"orientation":\s*"landscape"/);
+  assert.match(appJs, /data-orientation-lock',\s*'landscape'/);
+  assert.match(appJs, /window\.screen\.orientation\.lock\('landscape'\)/);
+
+  assert.equal(/\.home-bento-layout\s*\{\s*grid-template-columns:\s*1fr;/i.test(css), false, '.home-bento-layout não deve empilhar em 1 coluna');
+  assert.equal(/\.onboarding-device-grid\s*\{\s*grid-template-columns:\s*1fr;/i.test(css), false, '.onboarding-device-grid não deve empilhar em 1 coluna');
+  assert.equal(/\.epg-split-layout\s*\{\s*grid-template-columns:\s*1fr;/i.test(css), false, '.epg-split-layout não deve empilhar em 1 coluna');
 });
 
 console.log(`\n========================================`);

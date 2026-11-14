@@ -371,14 +371,14 @@ public static class CrossPlatformHost
             {
                 try
                 {
-                    Process.Start(new ProcessStartInfo("google-chrome", $"--app={url}") { UseShellExecute = true });
+                    Process.Start(new ProcessStartInfo("google-chrome", $"--app={url} --window-size=1280,720") { UseShellExecute = true });
                     return;
                 }
                 catch { }
 
                 try
                 {
-                    Process.Start(new ProcessStartInfo("chromium", $"--app={url}") { UseShellExecute = true });
+                    Process.Start(new ProcessStartInfo("chromium", $"--app={url} --window-size=1280,720") { UseShellExecute = true });
                     return;
                 }
                 catch { }
@@ -389,7 +389,7 @@ public static class CrossPlatformHost
             {
                 try
                 {
-                    Process.Start(new ProcessStartInfo("open", $"-a \"Google Chrome\" --args --app={url}") { UseShellExecute = true });
+                    Process.Start(new ProcessStartInfo("open", $"-a \"Google Chrome\" --args --app={url} --window-size=1280,720") { UseShellExecute = true });
                     return;
                 }
                 catch { }
