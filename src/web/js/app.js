@@ -740,6 +740,19 @@ class FluiStreamApp {
     this.navigateToScreen(this.playlist.items.length > 0 ? 'home' : 'empty');
   }
 
+  // Browse (categories + player) hides the top header; back arrow returns home.
+  // Header height is measured (class briefly removed, no paint) so panes reclaim exactly that space.
+  syncAppHeaderVisibility() {
+    const body = document.body;
+    body.classList.remove('app-header-hidden');
+    if (this.activeScreen !== 'browse') {
+      body.style.removeProperty('--hidden-header-h');
+      return;
+    }
+    body.style.setProperty('--hidden-header-h', `${this.dom.appHeader?.offsetHeight || 0}px`);
+    body.classList.add('app-header-hidden');
+  }
+
   navigateToScreen(screenName) {
     this.setMobileSidebarOpen(false);
     if (this.activeScreen === 'multiscreen' && screenName !== 'multiscreen') {
@@ -764,6 +777,7 @@ class FluiStreamApp {
     Object.entries(views).forEach(([key, el]) => {
       if (el) el.classList.toggle('hidden', key !== screenName);
     });
+    this.syncAppHeaderVisibility();
 
     if (screenName === 'home') this.renderHomeHub();
     if (screenName === 'browse') this.renderBrowseView();
@@ -1621,6 +1635,7 @@ class FluiStreamApp {
     window.addEventListener('keydown', (e) => this.handleGlobalKeyDown(e));
     let deviceResizeTimer;
     window.addEventListener('resize', () => {
+      if (this.activeScreen === 'browse') this.syncAppHeaderVisibility();
       clearTimeout(deviceResizeTimer);
       deviceResizeTimer = setTimeout(() => {
         if ((storage.getSettings().deviceMode || 'auto') === 'auto') {
