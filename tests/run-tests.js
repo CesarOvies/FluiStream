@@ -2189,6 +2189,17 @@ await test('Orientação e layout fixados na Horizontal (Android, Desktop, Web/P
   assert.equal(/\.epg-split-layout\s*\{\s*grid-template-columns:\s*1fr;/i.test(css), false, '.epg-split-layout não deve empilhar em 1 coluna');
 });
 
+await test('Topo (app-header) oculto nas categorias/player e altura devolvida aos painéis', () => {
+  const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+  const css = readFileSync(resolve(rootDir, 'src/web/css/style.css'), 'utf-8');
+  const appJs = readFileSync(resolve(rootDir, 'src/web/js/app.js'), 'utf-8');
+
+  assert.match(css, /body\.app-header-hidden \.app-header\s*\{\s*display:\s*none;/);
+  assert.match(css, /\.split-sidebar\s*\{[^}]*height:\s*calc\(100vh - 115px \+ var\(--hidden-header-h, 0px\)\)/);
+  assert.match(appJs, /syncAppHeaderVisibility\(\)\s*\{[\s\S]*?this\.activeScreen !== 'browse'[\s\S]*?app-header-hidden/);
+  assert.match(appJs, /toggle\('hidden', key !== screenName\);\s*\}\);\s*this\.syncAppHeaderVisibility\(\);/);
+});
+
 console.log(`\n========================================`);
 console.log(`Resultados dos Testes: ${passedTests}/${totalTests} passaram.`);
 console.log(`========================================\n`);

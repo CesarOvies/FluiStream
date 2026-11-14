@@ -281,6 +281,20 @@ summary:focus-visible,
   padding-right: env(safe-area-inset-right);
 }
 
+/* Browse/player screen: top header hidden (back arrow returns home).
+   --hidden-header-h (set in JS) gives the freed height back to the panes. */
+body.app-header-hidden .app-header {
+  display: none;
+}
+
+body.app-header-hidden .main-layout {
+  padding-top: max(clamp(0.6rem, 1.5vw, 1.25rem), env(safe-area-inset-top));
+}
+
+body.app-header-hidden .split-sidebar {
+  top: 8px;
+}
+
 .header-inner {
   max-width: 1680px;
   width: 100%;
@@ -914,7 +928,7 @@ summary:focus-visible,
   grid-template-columns: 300px minmax(0, 1fr);
   gap: 1.15rem;
   align-items: stretch;
-  min-height: calc(100dvh - 140px);
+  min-height: calc(100dvh - 140px + var(--hidden-header-h, 0px));
 }
 
 .split-sidebar {
@@ -923,8 +937,8 @@ summary:focus-visible,
   border-radius: 14px;
   display: flex;
   flex-direction: column;
-  height: calc(100vh - 115px);
-  max-height: calc(100vh - 115px);
+  height: calc(100vh - 115px + var(--hidden-header-h, 0px));
+  max-height: calc(100vh - 115px + var(--hidden-header-h, 0px));
   position: sticky;
   top: 76px;
   overflow: hidden;
@@ -1139,7 +1153,7 @@ summary:focus-visible,
   flex-direction: column;
   gap: 0.85rem;
   min-width: 0;
-  min-height: calc(100vh - 115px);
+  min-height: calc(100vh - 115px + var(--hidden-header-h, 0px));
 }
 
 /* Player Section */
@@ -3447,8 +3461,8 @@ body.is-android-app .player-wrapper {
   .split-sidebar {
     position: sticky;
     top: 8px;
-    height: calc(100dvh - 108px);
-    max-height: calc(100dvh - 108px);
+    height: calc(100dvh - 108px + var(--hidden-header-h, 0px));
+    max-height: calc(100dvh - 108px + var(--hidden-header-h, 0px));
     min-height: 240px;
     border-radius: 12px;
   }
@@ -3638,8 +3652,8 @@ body.is-android-app .player-wrapper {
     gap: 0.45rem;
   }
   .split-sidebar {
-    height: calc(100dvh - 135px);
-    max-height: calc(100dvh - 135px);
+    height: calc(100dvh - 135px + var(--hidden-header-h, 0px));
+    max-height: calc(100dvh - 135px + var(--hidden-header-h, 0px));
     min-height: 220px;
   }
   .split-sidebar-brand {
@@ -3752,8 +3766,8 @@ body.is-android-app .player-wrapper {
     gap: 0.5rem;
   }
   .split-sidebar {
-    height: calc(100dvh - 78px);
-    max-height: calc(100dvh - 78px);
+    height: calc(100dvh - 78px + var(--hidden-header-h, 0px));
+    max-height: calc(100dvh - 78px + var(--hidden-header-h, 0px));
     min-height: 180px;
   }
   .split-sidebar-header {
@@ -3924,7 +3938,7 @@ body.is-android-app #modal-import .modal-dialog {
    ===================================================== */
 .split-pane-shell.catalog-maximized {
   grid-template-columns: minmax(0, 1fr) !important;
-  min-height: calc(100dvh - 130px);
+  min-height: calc(100dvh - 130px + var(--hidden-header-h, 0px));
 }
 
 .split-pane-shell.catalog-maximized .split-main-pane {
@@ -3937,8 +3951,8 @@ body.is-android-app #modal-import .modal-dialog {
   top: 0 !important;
   width: 100% !important;
   max-width: none !important;
-  height: calc(100dvh - 125px) !important;
-  max-height: calc(100dvh - 125px) !important;
+  height: calc(100dvh - 125px + var(--hidden-header-h, 0px)) !important;
+  max-height: calc(100dvh - 125px + var(--hidden-header-h, 0px)) !important;
   transform: none !important;
   z-index: 1;
 }
