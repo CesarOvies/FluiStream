@@ -105,24 +105,10 @@
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
           <span data-i18n="masterSearch">Busca Global</span>
         </button>
-
-        <nav class="nav-tabs-wrapper" aria-label="Navegação Principal">
-          <button class="nav-tab-btn active" data-view="home" data-i18n="navHome">Início</button>
-          <button class="nav-tab-btn" data-view="live" data-i18n="navLive">Ao Vivo</button>
-          <button class="nav-tab-btn" data-view="movie" data-i18n="navMovies">Filmes</button>
-          <button class="nav-tab-btn" data-view="series" data-i18n="navSeries">Séries</button>
-          <button class="nav-tab-btn" data-view="favorites" data-i18n="navFavorites">Favoritos</button>
-        </nav>
       </div>
 
       <!-- Ações Rápidas -->
       <div class="header-actions">
-        <button class="btn-icon" id="btn-quick-live-epg" title="Live with EPG" data-i18n-title="homeLiveEpg">
-          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="15" rx="2"/><polyline points="17 2 12 7 7 2"/></svg>
-        </button>
-        <button class="btn-icon" id="btn-quick-epg-guide" title="TV Guide (EPG)" data-i18n-title="navEpg">
-          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-        </button>
         <button class="btn-icon" id="btn-quick-multiscreen" title="Multi-Screen" data-i18n-title="settingsMultiScreen">
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
         </button>
@@ -134,16 +120,8 @@
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
           <span id="header-profile-name">Perfil</span>
         </button>
-        <button class="btn-secondary btn-header-pill" id="btn-open-account" title="Account Info" data-i18n-title="accountInfoTitle">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M6 16c.6-1.6 1.8-2.5 3-2.5s2.4.9 3 2.5"/><line x1="15" y1="9" x2="19" y2="9"/><line x1="15" y1="13" x2="18" y2="13"/></svg>
-          <span class="header-btn-label" data-i18n="navAccount">Conta</span>
-        </button>
         <button class="btn-icon" id="btn-open-settings" data-i18n-title="navSettings" title="Configurações">
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-        </button>
-        <button class="btn-secondary btn-header-pill" id="btn-open-about" data-i18n-title="navAbout" title="Sobre o Projeto">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
-          <span class="header-btn-label" data-i18n="navAboutShort">Sobre</span>
         </button>
       </div>
     </div>
@@ -254,16 +232,6 @@
         </aside>
       </div>
 
-      <!-- Rodapé de Expiração da Assinatura -->
-      <footer class="home-expiration-footer" id="home-expiration-footer">
-        <div class="home-exp-left">
-          <strong id="home-exp-profile" style="color: var(--text-primary);">-</strong>
-          <span class="status-pill status-pill--active" id="home-exp-status">Active</span>
-          <span><span data-i18n="homeExpiration">Expiração</span>: <strong id="home-exp-date" style="color: var(--text-primary);">-</strong></span>
-          <span id="home-exp-cons" style="color: var(--text-secondary);"></span>
-        </div>
-        <button class="btn-secondary" id="btn-home-account-info" data-i18n="settingsAccountInfo">Informações da Conta</button>
-      </footer>
     </section>
 
     <!-- TELA 2: SPLIT-PANE BROWSER + PLAYER -->
@@ -562,6 +530,14 @@
             <span data-i18n="accountInfoTitle">Xtream &amp; Assinatura</span>
           </div>
         </button>
+
+        <button class="settings-tile" data-settings-tile="about">
+          <div class="settings-tile-icon">ℹ️</div>
+          <div class="settings-tile-info">
+            <h4 data-i18n="navAboutShort">Sobre</h4>
+            <span data-i18n="navAbout">Sobre o Projeto</span>
+          </div>
+        </button>
       </div>
     </section>
 
@@ -650,12 +626,48 @@
 
   </main>
 
+  <!-- Modal de Boas-Vindas / Configuração Inicial (Passo 1: Tipo de Exibição) -->
+  <div class="modal-backdrop hidden" id="modal-onboarding" role="dialog" aria-modal="true" aria-labelledby="onboarding-title">
+    <div class="modal-dialog modal-lg onboarding-dialog">
+      <div class="modal-header">
+        <h3 id="onboarding-title" data-i18n="onboardingTitle">Bem-vindo ao FluiStream</h3>
+        <button class="modal-close-btn" id="btn-close-onboarding" aria-label="Fechar">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p class="onboarding-subtitle" data-i18n="onboardingSubtitle">Onde você vai assistir? Vamos ajustar o layout e os controles para sua tela.</p>
+        <div class="onboarding-device-grid" id="onboarding-device-grid">
+          <button type="button" class="onboarding-device-card" data-onboarding-mode="mobile">
+            <span class="onboarding-badge hidden" data-i18n="onboardingRecommended">Recomendado</span>
+            <span class="onboarding-device-icon" aria-hidden="true">📱</span>
+            <strong class="onboarding-device-title" data-i18n="onboardingModeMobileTitle">Celular</strong>
+            <span class="onboarding-device-desc" data-i18n="onboardingModeMobileDesc">Toque otimizado, menus compactos e controles para tela vertical ou horizontal.</span>
+          </button>
+          <button type="button" class="onboarding-device-card" data-onboarding-mode="desktop">
+            <span class="onboarding-badge hidden" data-i18n="onboardingRecommended">Recomendado</span>
+            <span class="onboarding-device-icon" aria-hidden="true">🖥️</span>
+            <strong class="onboarding-device-title" data-i18n="onboardingModeDesktopTitle">Desktop</strong>
+            <span class="onboarding-device-desc" data-i18n="onboardingModeDesktopDesc">Interface completa com teclado, mouse e janela redimensionável.</span>
+          </button>
+          <button type="button" class="onboarding-device-card" data-onboarding-mode="tv">
+            <span class="onboarding-badge hidden" data-i18n="onboardingRecommended">Recomendado</span>
+            <span class="onboarding-device-icon" aria-hidden="true">📺</span>
+            <strong class="onboarding-device-title" data-i18n="onboardingModeTvTitle">Televisão</strong>
+            <span class="onboarding-device-desc" data-i18n="onboardingModeTvDesc">Botões ampliados, foco visível e navegação por controle remoto (D-Pad).</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Modal de Importação -->
   <div class="modal-backdrop hidden" id="modal-import">
     <div class="modal-dialog">
       <div class="modal-header">
         <h3 data-i18n="navImport">Importar Lista</h3>
-        <button class="modal-close-btn" id="btn-close-import">&times;</button>
+        <div style="display: flex; align-items: center; gap: 0.5rem;">
+          <button type="button" class="btn-secondary hidden" id="btn-import-back-device" data-i18n="btnChangeDeviceMode">Trocar Exibição</button>
+          <button class="modal-close-btn" id="btn-close-import">&times;</button>
+        </div>
       </div>
       <div class="modal-body">
         <div class="form-group">
@@ -679,23 +691,23 @@
         <div class="import-panel hidden" id="panel-url">
           <div class="form-group">
             <label data-i18n="labelUrlInput">URL da Lista M3U / M3U8</label>
-            <input type="url" id="input-m3u-url" placeholder="http://servidor.com/lista.m3u" class="form-control" />
+            <input type="url" id="input-m3u-url" placeholder="http://servidor.com/lista.m3u" class="form-control" autocapitalize="none" autocomplete="off" spellcheck="false" />
           </div>
         </div>
 
         <div class="import-panel hidden" id="panel-xtream">
           <div class="form-group">
             <label data-i18n="labelServerUrl">URL do Servidor</label>
-            <input type="text" id="input-xtream-server" placeholder="http://servidor.com:8080" class="form-control" />
+            <input type="text" id="input-xtream-server" placeholder="http://servidor.com:8080" class="form-control" autocapitalize="none" autocomplete="off" spellcheck="false" />
           </div>
           <div class="xtream-credentials-grid">
             <div class="form-group">
               <label data-i18n="labelUsername">Usuário</label>
-              <input type="text" id="input-xtream-user" class="form-control" />
+              <input type="text" id="input-xtream-user" class="form-control" autocapitalize="none" autocomplete="off" spellcheck="false" />
             </div>
             <div class="form-group">
               <label data-i18n="labelPassword">Senha</label>
-              <input type="password" id="input-xtream-pass" class="form-control" />
+              <input type="password" id="input-xtream-pass" class="form-control" autocomplete="off" />
             </div>
           </div>
         </div>
@@ -707,7 +719,7 @@
           </label>
           <div class="form-group">
             <label data-i18n="labelExternalEpg">EPG Externo (URL XMLTV opcional)</label>
-            <input type="url" id="input-external-epg" placeholder="http://servidor.com/epg.xml" class="form-control" />
+            <input type="url" id="input-external-epg" placeholder="http://servidor.com/epg.xml" class="form-control" autocapitalize="none" autocomplete="off" spellcheck="false" />
           </div>
         </div>
 
@@ -719,8 +731,11 @@
         </div>
       </div>
       <div class="modal-footer">
-        <button class="btn-secondary" id="btn-cancel-import" data-i18n="btnCancel">Cancelar</button>
-        <button class="btn-amber" id="btn-submit-import" data-i18n="btnConfirmImport">Carregar Lista</button>
+        <button type="button" class="btn-secondary" id="btn-import-demo" data-i18n="btnLoadSample">Carregar Lista de Demonstração</button>
+        <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+          <button class="btn-secondary" id="btn-cancel-import" data-i18n="btnCancel">Cancelar</button>
+          <button class="btn-amber" id="btn-submit-import" data-i18n="btnConfirmImport">Carregar Lista</button>
+        </div>
       </div>
     </div>
   </div>
@@ -881,7 +896,7 @@
   <div class="modal-backdrop hidden" id="modal-profiles">
     <div class="modal-dialog modal-lg">
       <div class="modal-header">
-        <h3 data-i18n="listPlaylist">LIST PLAYLIST</h3>
+        <h3 id="modal-profiles-title" data-i18n="listPlaylist">LIST PLAYLIST</h3>
         <div style="display: flex; align-items: center; gap: 0.5rem;">
           <button class="btn-amber" id="btn-profiles-add" data-i18n="btnAddPlaylist">+ ADD PLAYLIST</button>
           <button class="modal-close-btn" id="btn-close-profiles">&times;</button>
