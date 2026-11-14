@@ -12,6 +12,8 @@ node_modules/
 # IDE & Editor files
 .vs/
 .vscode/
+.idea/
+*.iml
 *.user
 *.suo
 *.userosscache
@@ -34,6 +36,17 @@ EBWebView/
 
 # Tool & session cache
 .github/context-mode/
+.context-mode/
+.codegraph/
+
+# Android & Gradle
+.gradle/
+.kotlin/
+local.properties
+*.apk
+*.aab
+*.ap_
+*.dex
 
 # Android signing secrets
 *.keystore
