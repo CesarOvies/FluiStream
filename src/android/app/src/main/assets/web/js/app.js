@@ -70,6 +70,7 @@ class FluiStreamApp {
     this.lastFocusedElement = null;
     this._playerIdleTimer = null;
     this._isPlayerPlaying = false;
+    this._syncingProfileIds = new Set();
 
     this.init();
   }
@@ -94,15 +95,15 @@ class FluiStreamApp {
     this.applyDeviceMode();
     this.updateNotificationBadge();
 
-    if (this.playlist.items.length > 0) {
-      this.navigateToScreen('home');
-      const cfg = storage.getSettings();
-      if (cfg.autoRefresh) {
-        const prof = storage.getActiveProfile();
-        if (prof && (prof.type === 'xtream' || prof.type === 'm3u_url')) {
-          this.reloadRemoteProfileData(prof, true).catch(() => {});
-        }
-      }
+    const profiles = storage.getProfiles();
+    const cfg = storage.getSettings();
+    if (profiles.length === 0 && !cfg.onboardingCompleted) {
+      this.navigateToScreen('empty');
+      this.openOnboardingModal();
+    } else if (this.playlist.items.length > 0 || profiles.length > 0) {
+      this.navigateToScreen(this.playlist.items.length > 0 ? 'home' : 'empty');
+      this.openProfilesModal({ isStartup: true });
+      this.startBackgroundProfilesSync();
     } else {
       this.navigateToScreen('empty');
     }
@@ -122,19 +123,14 @@ class FluiStreamApp {
       headerClockDate: document.getElementById('header-clock-date'),
       btnMasterSearch: document.getElementById('btn-master-search'),
       btnBrandHome: document.getElementById('btn-brand-home'),
-      navTabs: document.querySelectorAll('.nav-tab-btn'),
 
       // Quick Header Icons
-      btnQuickLiveEpg: document.getElementById('btn-quick-live-epg'),
-      btnQuickEpgGuide: document.getElementById('btn-quick-epg-guide'),
       btnQuickMultiscreen: document.getElementById('btn-quick-multiscreen'),
       btnQuickNotifications: document.getElementById('btn-quick-notifications'),
       notifBadge: document.getElementById('notif-badge'),
       btnOpenProfiles: document.getElementById('btn-open-profiles'),
       headerProfileName: document.getElementById('header-profile-name'),
-      btnOpenAccount: document.getElementById('btn-open-account'),
       btnOpenSettings: document.getElementById('btn-open-settings'),
-      btnOpenAbout: document.getElementById('btn-open-about'),
 
       // Top-level Views
       emptyState: document.getElementById('empty-state-view'),
@@ -168,11 +164,6 @@ class FluiStreamApp {
       homeFeaturedList: document.getElementById('home-featured-list'),
       btnHomeHistory: document.getElementById('btn-home-history'),
       btnHomeClearHistory: document.getElementById('btn-home-clear-history'),
-      homeExpProfile: document.getElementById('home-exp-profile'),
-      homeExpStatus: document.getElementById('home-exp-status'),
-      homeExpDate: document.getElementById('home-exp-date'),
-      homeExpCons: document.getElementById('home-exp-cons'),
-      btnHomeAccountInfo: document.getElementById('btn-home-account-info'),
 
       // Split-Pane Browser
       splitPaneShell: document.querySelector('#main-content-view .split-pane-shell'),
@@ -337,8 +328,12 @@ class FluiStreamApp {
       inputMasterSearch: document.getElementById('input-master-search'),
       masterSearchResults: document.getElementById('master-search-results'),
 
-      // Import & About
+      // Onboarding & Import & About
+      modalOnboarding: document.getElementById('modal-onboarding'),
+      btnCloseOnboarding: document.getElementById('btn-close-onboarding'),
+      onboardingCards: document.querySelectorAll('.onboarding-device-card'),
       modalImport: document.getElementById('modal-import'),
+      btnImportBackDevice: document.getElementById('btn-import-back-device'),
       btnCloseImport: document.getElementById('btn-close-import'),
       importTabs: document.querySelectorAll('.import-tab-btn'),
       importPanels: document.querySelectorAll('.import-panel'),
@@ -350,6 +345,7 @@ class FluiStreamApp {
       xtreamServerInput: document.getElementById('input-xtream-server'),
       xtreamUserInput: document.getElementById('input-xtream-user'),
       xtreamPassInput: document.getElementById('input-xtream-pass'),
+      btnImportDemo: document.getElementById('btn-import-demo'),
       btnSubmitImport: document.getElementById('btn-submit-import'),
       btnCancelImport: document.getElementById('btn-cancel-import'),
       importStatusMsg: document.getElementById('import-status-text'),
@@ -359,6 +355,7 @@ class FluiStreamApp {
 
       // Profiles & Edit Profile
       modalProfiles: document.getElementById('modal-profiles'),
+      modalProfilesTitle: document.getElementById('modal-profiles-title'),
       btnCloseProfiles: document.getElementById('btn-close-profiles'),
       btnProfilesAdd: document.getElementById('btn-profiles-add'),
       profilesGrid: document.getElementById('profiles-grid-list'),
@@ -761,12 +758,6 @@ class FluiStreamApp {
       if (el) el.classList.toggle('hidden', key !== screenName);
     });
 
-    this.dom.navTabs.forEach(tab => {
-      const view = tab.getAttribute('data-view');
-      const isActive = (screenName === 'home' && view === 'home') || (screenName === 'browse' && view === this.currentView);
-      tab.classList.toggle('active', isActive);
-    });
-
     if (screenName === 'home') this.renderHomeHub();
     if (screenName === 'browse') this.renderBrowseView();
     if (screenName === 'settings') this.updateSettingsTileSubtitles();
@@ -837,10 +828,10 @@ class FluiStreamApp {
       target = this.dom.multiscreenView?.querySelector('.multiscreen-slot-actions button, .multiscreen-slot-empty, #btn-multiscreen-back, button');
     } else if (screenName === 'home') {
       target = this.dom.homeHubView?.querySelector('.gradient-tile, .bento-card, button')
-        || Array.from(this.dom.navTabs || []).find(t => t.classList.contains('active'));
+        || this.dom.btnMasterSearch;
     } else {
-      target = Array.from(this.dom.navTabs || []).find(t => t.classList.contains('active'))
-        || document.querySelector('#content-view button');
+      target = document.querySelector('#main-content-view .sidebar-cat-btn, #main-content-view button')
+        || this.dom.btnMasterSearch;
     }
 
     if (target && typeof target.focus === 'function' && target.offsetWidth > 0) {
@@ -882,18 +873,6 @@ class FluiStreamApp {
   }
 
   bindEvents() {
-    // Nav Tabs
-    this.dom.navTabs.forEach(tab => {
-      tab.addEventListener('click', () => {
-        const view = tab.getAttribute('data-view');
-        if (view === 'home') {
-          this.goHome();
-          return;
-        }
-        this.openBrowseView(view);
-      });
-    });
-
     // Brand Home
     if (this.dom.btnBrandHome) {
       const goHome = () => this.goHome();
@@ -909,15 +888,6 @@ class FluiStreamApp {
     // Header Quick Actions
     if (this.dom.btnMasterSearch) {
       this.dom.btnMasterSearch.addEventListener('click', () => this.openMasterSearchModal());
-    }
-    if (this.dom.btnQuickLiveEpg) {
-      this.dom.btnQuickLiveEpg.addEventListener('click', () => this.openBrowseView(ItemType.LIVE));
-    }
-    if (this.dom.btnQuickEpgGuide) {
-      this.dom.btnQuickEpgGuide.addEventListener('click', () => {
-        this.navigateToScreen('epg');
-        this.switchEpgTab('timeline');
-      });
     }
     if (this.dom.btnQuickMultiscreen) {
       this.dom.btnQuickMultiscreen.addEventListener('click', () => this.openModal(this.dom.modalMultiscreen));
@@ -969,9 +939,6 @@ class FluiStreamApp {
     }
     if (this.dom.btnSidebarClearHistory) {
       this.dom.btnSidebarClearHistory.addEventListener('click', () => this.clearWatchHistory());
-    }
-    if (this.dom.btnHomeAccountInfo) {
-      this.dom.btnHomeAccountInfo.addEventListener('click', () => this.openAccountModal());
     }
 
     // Split-Pane Sidebar & Browser
@@ -1504,11 +1471,28 @@ class FluiStreamApp {
       });
     }
 
-    // Import / Profiles / Account / Edit / Series / About Modals
-    if (this.dom.btnEmptyImport) this.dom.btnEmptyImport.addEventListener('click', () => this.openModal(this.dom.modalImport));
+    // Onboarding / Import / Profiles / Account / Edit / Series / About Modals
+    if (this.dom.btnCloseOnboarding) {
+      this.dom.btnCloseOnboarding.addEventListener('click', () => {
+        storage.saveSettings({ onboardingCompleted: true });
+        this.closeModal(this.dom.modalOnboarding);
+      });
+    }
+    this.dom.onboardingCards?.forEach(card => {
+      card.addEventListener('click', () => {
+        this.selectOnboardingDeviceMode(card.getAttribute('data-onboarding-mode'));
+      });
+    });
+    if (this.dom.btnImportBackDevice) {
+      this.dom.btnImportBackDevice.addEventListener('click', () => {
+        this.closeModal(this.dom.modalImport);
+        this.openOnboardingModal();
+      });
+    }
+    if (this.dom.btnEmptyImport) this.dom.btnEmptyImport.addEventListener('click', () => this.openImportModal());
     if (this.dom.btnCloseImport) this.dom.btnCloseImport.addEventListener('click', () => this.closeModal(this.dom.modalImport));
     if (this.dom.btnCancelImport) this.dom.btnCancelImport.addEventListener('click', () => this.closeModal(this.dom.modalImport));
-    if (this.dom.btnOpenAbout) this.dom.btnOpenAbout.addEventListener('click', () => this.openModal(this.dom.modalAbout));
+    if (this.dom.btnImportDemo) this.dom.btnImportDemo.addEventListener('click', () => this.loadDemoPlaylist());
     if (this.dom.btnEmptyAbout) this.dom.btnEmptyAbout.addEventListener('click', () => this.openModal(this.dom.modalAbout));
     if (this.dom.btnCloseAbout) this.dom.btnCloseAbout.addEventListener('click', () => this.closeModal(this.dom.modalAbout));
     if (this.dom.btnLoadDemo) this.dom.btnLoadDemo.addEventListener('click', () => this.loadDemoPlaylist());
@@ -1546,11 +1530,10 @@ class FluiStreamApp {
     if (this.dom.btnProfilesAdd) {
       this.dom.btnProfilesAdd.addEventListener('click', () => {
         this.closeModal(this.dom.modalProfiles);
-        this.openModal(this.dom.modalImport);
+        this.openImportModal();
       });
     }
 
-    if (this.dom.btnOpenAccount) this.dom.btnOpenAccount.addEventListener('click', () => this.openAccountModal());
     if (this.dom.btnCloseAccount) this.dom.btnCloseAccount.addEventListener('click', () => this.closeModal(this.dom.modalAccount));
     if (this.dom.btnAccBack) this.dom.btnAccBack.addEventListener('click', () => this.closeModal(this.dom.modalAccount));
     if (this.dom.btnAccLogout) this.dom.btnAccLogout.addEventListener('click', () => this.handleProfileLogout());
@@ -1858,10 +1841,10 @@ class FluiStreamApp {
     if (!scopeRoot) return false;
 
     const selector = [
-      '.nav-tab-btn',
       '.header-actions button',
       '#btn-brand-home',
       '#btn-master-search',
+      '.onboarding-device-card',
       '.subscreen-topbar button',
       '.bento-card',
       '.gradient-tile',
@@ -2099,19 +2082,6 @@ class FluiStreamApp {
 
     const epgProgs = Array.from(this.epg.programmes.values()).reduce((a, b) => a + b.length, 0);
     if (this.dom.homeEpgSub) this.dom.homeEpgSub.textContent = epgProgs > 0 ? `${this.epg.channels.size} ch • ${epgProgs} prog` : 'XMLTV';
-
-    // Expiration Footer
-    if (this.dom.homeExpProfile) this.dom.homeExpProfile.textContent = prof?.name || 'FluiStream';
-    const acc = prof?.accountInfo || {};
-    const status = acc.status || 'Active';
-    if (this.dom.homeExpStatus) {
-      this.dom.homeExpStatus.textContent = status;
-      this.dom.homeExpStatus.className = `status-pill ${status === 'Active' ? 'status-pill--active' : 'status-pill--expired'}`;
-    }
-    if (this.dom.homeExpDate) this.dom.homeExpDate.textContent = acc.expDate || i18n.get('accNoExpiration');
-    if (this.dom.homeExpCons) {
-      this.dom.homeExpCons.textContent = acc.maxConnections ? `${acc.activeCons || '0'} / ${acc.maxConnections} conn` : '';
-    }
 
     // Featured / Recents + Continue Watching
     if (this.dom.homeFeaturedList) {
@@ -2820,6 +2790,9 @@ class FluiStreamApp {
       case 'speedtest':
         this.openSpeedTestSubModal();
         break;
+      case 'about':
+        this.openModal(this.dom.modalAbout);
+        break;
     }
   }
 
@@ -2876,6 +2849,7 @@ class FluiStreamApp {
 
   openAutomationSubModal() {
     const cfg = storage.getSettings();
+    const interval = Number(cfg.autoRefreshIntervalHours) || 6;
     this.dom.modalSettingsSubTitle.textContent = i18n.get('settingsAutomation');
     this.dom.modalSettingsSubFooter.classList.remove('hidden');
     this.dom.modalSettingsSubBody.innerHTML = `
@@ -2883,14 +2857,22 @@ class FluiStreamApp {
         <input type="checkbox" id="sub-auto-refresh" ${cfg.autoRefresh ? 'checked' : ''} />
         <span>${this.escapeHtml(i18n.get('autoRefreshLabel'))}</span>
       </label>
+      <div class="form-group">
+        <label for="sub-auto-refresh-interval">${this.escapeHtml(i18n.get('autoRefreshIntervalLabel'))}</label>
+        <select id="sub-auto-refresh-interval" class="form-control">
+          ${[1, 3, 6, 12, 24].map(h => `<option value="${h}" ${interval === h ? 'selected' : ''}>${h}h</option>`).join('')}
+        </select>
+      </div>
       <label class="checkbox-label">
         <input type="checkbox" id="sub-auto-play-next" ${cfg.autoPlayNext !== false ? 'checked' : ''} />
         <span>${this.escapeHtml(i18n.get('autoPlayNextLabel'))}</span>
       </label>
     `;
     this.dom.btnSaveSettingsSub.onclick = () => {
+      const nextInterval = parseInt(document.getElementById('sub-auto-refresh-interval')?.value || '6', 10);
       storage.saveSettings({
         autoRefresh: Boolean(document.getElementById('sub-auto-refresh')?.checked),
+        autoRefreshIntervalHours: Number.isFinite(nextInterval) ? nextInterval : 6,
         autoPlayNext: Boolean(document.getElementById('sub-auto-play-next')?.checked)
       });
       this.closeModal(this.dom.modalSettingsSub);
@@ -4059,6 +4041,51 @@ class FluiStreamApp {
     }
   }
 
+  openOnboardingModal() {
+    const recommended = this.resolveEffectiveDeviceMode('auto');
+    this.dom.onboardingCards?.forEach(card => {
+      const cardMode = card.getAttribute('data-onboarding-mode');
+      const isRec = cardMode === recommended;
+      card.classList.toggle('is-recommended', isRec);
+      const badge = card.querySelector('.onboarding-badge');
+      if (badge) badge.classList.toggle('hidden', !isRec);
+    });
+    this.openModal(this.dom.modalOnboarding);
+    const recCard = Array.from(this.dom.onboardingCards || []).find(c => c.classList.contains('is-recommended'));
+    if (recCard && typeof recCard.focus === 'function') {
+      recCard.focus();
+    }
+  }
+
+  selectOnboardingDeviceMode(mode) {
+    const chosen = ['mobile', 'desktop', 'tv'].includes(mode) ? mode : 'auto';
+    storage.saveSettings({ deviceMode: chosen, onboardingCompleted: true });
+    this.applyDeviceMode();
+    this.closeModal(this.dom.modalOnboarding);
+    this.openImportModal({ fromOnboarding: true, deviceMode: chosen });
+  }
+
+  openImportModal(opts = {}) {
+    const mode = opts.deviceMode || this.resolveEffectiveDeviceMode();
+    const isInitialSetup = Boolean(opts.fromOnboarding || storage.getProfiles().length === 0);
+    const defaultTab = isInitialSetup && (mode === 'tv' || mode === 'mobile') ? 'panel-xtream' : 'panel-file';
+    const tabBtn = Array.from(this.dom.importTabs || []).find(b => b.getAttribute('data-panel') === defaultTab)
+      || this.dom.importTabs?.[0];
+    if (tabBtn) {
+      this.dom.importTabs?.forEach(b => b.classList.remove('active'));
+      this.dom.importPanels?.forEach(p => p.classList.add('hidden'));
+      tabBtn.classList.add('active');
+      document.getElementById(tabBtn.getAttribute('data-panel'))?.classList.remove('hidden');
+    }
+    if (this.dom.btnImportBackDevice) {
+      this.dom.btnImportBackDevice.classList.toggle('hidden', !isInitialSetup);
+    }
+    if (this.dom.importStatusMsg) {
+      this.dom.importStatusMsg.textContent = '';
+    }
+    this.openModal(this.dom.modalImport);
+  }
+
   async loadDemoPlaylist() {
     const demoM3U = `#EXTM3U
 #EXTINF:-1 tvg-id="test.mux" tvg-name="Mux Test Live Stream" tvg-logo="assets/logo.svg" group-title="Canais Teste" catchup="default" catchup-days="3",Mux Test Live Stream (HLS)
@@ -4220,7 +4247,8 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
     }
   }
 
-  async processLoadedM3u(m3uContent, name, embeddedXmltv = null, externalEpgUrl = null, profileMeta = null) {
+  async processLoadedM3u(m3uContent, name, embeddedXmltv = null, externalEpgUrl = null, profileMeta = null, options = {}) {
+    const background = Boolean(options?.background);
     const parsed = M3UParser.parse(m3uContent);
     if (!parsed.items || parsed.items.length === 0) {
       throw new Error(i18n.get('errorM3uEmpty'));
@@ -4256,47 +4284,68 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
     };
 
     storage.saveProfile(profile);
-    storage.setActiveProfileId(profile.id);
+    if (!background || !storage.getActiveProfileId()) {
+      storage.setActiveProfileId(profile.id);
+    }
+    const isStillActive = storage.getActiveProfileId() === profile.id;
 
-    this.playlist = {
+    const nextPlaylist = {
       name: profileName,
       items: parsed.items,
       epgUrl: profile.epgUrl,
       summary: parsed.summary
     };
 
-    await storage.savePlaylist(this.playlist, profile.id);
+    await storage.savePlaylist(nextPlaylist, profile.id);
 
-    if (this.dom.headerProfileName) {
-      this.dom.headerProfileName.textContent = profile.name;
+    if (!background || isStillActive) {
+      this.playlist = nextPlaylist;
+      if (this.dom.headerProfileName) {
+        this.dom.headerProfileName.textContent = profile.name;
+      }
     }
 
+    const shouldFetchEpg = profile.epgUrl && (!background ? this.dom.useEmbeddedEpgCheck?.checked !== false : true);
     if (embeddedXmltv) {
-      this.epg.parse(embeddedXmltv);
       await storage.saveEpg(embeddedXmltv, profile.id);
-      this.updateCurrentEpgDisplay();
-    } else if (this.playlist.epgUrl && this.dom.useEmbeddedEpgCheck?.checked !== false) {
-      this.fetchAndParseEpg(this.playlist.epgUrl, profile.id);
+      if (!background || isStillActive) {
+        this.epg.parse(embeddedXmltv);
+        this.updateCurrentEpgDisplay();
+      }
+    } else if (shouldFetchEpg) {
+      this.fetchAndParseEpg(profile.epgUrl, profile.id, { background });
     }
 
-    this.navigateToScreen('home');
+    if (!background) {
+      this.navigateToScreen('home');
+    } else if (isStillActive && this.activeScreen === 'home') {
+      this.renderHomeHub();
+    }
   }
 
-  async fetchAndParseEpg(epgUrl, profileId = null) {
+  async fetchAndParseEpg(epgUrl, profileId = null, options = {}) {
+    const background = Boolean(options?.background);
+    const targetProfileId = profileId || storage.getActiveProfileId();
     try {
-      if (this.dom.epgStatusBadge) this.dom.epgStatusBadge.textContent = 'Carregando EPG...';
+      if (!background && this.dom.epgStatusBadge) this.dom.epgStatusBadge.textContent = 'Carregando EPG...';
       const xml = await fetchRemoteText(epgUrl);
       if (xml && xml.includes('<tv')) {
-        this.epg.parse(xml);
-        await storage.saveEpg(xml, profileId || storage.getActiveProfileId());
-        this.updateCurrentEpgDisplay();
-        const totalProgs = Array.from(this.epg.programmes.values()).reduce((acc, p) => acc + p.length, 0);
-        if (this.dom.epgStatusBadge) this.dom.epgStatusBadge.textContent = `EPG: ${totalProgs} progs`;
-        this.addAppNotification('success', i18n.get('notifEpgLoaded'), i18n.get('epgChannelsFound', { count: this.epg.channels.size }));
+        await storage.saveEpg(xml, targetProfileId);
+        if (!background || targetProfileId === storage.getActiveProfileId()) {
+          this.epg.parse(xml);
+          this.updateCurrentEpgDisplay();
+          const totalProgs = Array.from(this.epg.programmes.values()).reduce((acc, p) => acc + p.length, 0);
+          if (this.dom.epgStatusBadge) this.dom.epgStatusBadge.textContent = `EPG: ${totalProgs} progs`;
+          if (!background) {
+            this.addAppNotification('success', i18n.get('notifEpgLoaded'), i18n.get('epgChannelsFound', { count: this.epg.channels.size }));
+          }
+        }
       }
     } catch (e) {
-      if (this.dom.epgStatusBadge) this.dom.epgStatusBadge.textContent = 'EPG Indisponível';
-      this.addAppNotification('warning', i18n.get('notifEpgFailed'), e.message || '');
+      if (!background) {
+        if (this.dom.epgStatusBadge) this.dom.epgStatusBadge.textContent = 'EPG Indisponível';
+        this.addAppNotification('warning', i18n.get('notifEpgFailed'), e.message || '');
+      }
     }
   }
 
@@ -4388,9 +4437,53 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
   // =====================================================
   // PROFILES & EDIT PROFILE (NORMALIZED XTREAM FIELDS)
   // =====================================================
-  openProfilesModal() {
+  _buildProfileSubText(profile) {
+    const acc = profile?.accountInfo || {};
+    const statusText = acc.status || '';
+    const expText = acc.expDate ? `${i18n.get('homeExpiration')}: ${acc.expDate}` : '';
+    const consText = acc.maxConnections ? `${acc.activeCons || '0'}/${acc.maxConnections}` : '';
+    return [profile?.sourceInfo, statusText, expText, consText].filter(Boolean).join(' • ');
+  }
+
+  updateProfileCardSyncUi(profileId) {
+    if (!this.dom.profilesGrid || !profileId) return;
+    const prof = storage.getProfiles().find(p => p.id === profileId);
+    const subEl = Array.from(this.dom.profilesGrid.querySelectorAll('[data-profile-sub]'))
+      .find(el => el.getAttribute('data-profile-sub') === profileId);
+    if (!subEl) return;
+    const isSyncing = this._syncingProfileIds.has(profileId);
+    const baseText = this._buildProfileSubText(prof);
+    subEl.innerHTML = `${this.escapeHtml(baseText)}${isSyncing ? `<span class="profile-sync-badge">${this.escapeHtml(i18n.get('profileSyncingBadge'))}</span>` : ''}`;
+  }
+
+  startBackgroundProfilesSync() {
+    const profiles = storage.getProfiles();
+    const tasks = [];
+    for (const p of profiles) {
+      if (!storage.shouldRefreshProfile(p)) continue;
+      if (this._syncingProfileIds.has(p.id)) continue;
+      this._syncingProfileIds.add(p.id);
+      this.updateProfileCardSyncUi(p.id);
+      const task = this.reloadRemoteProfileData(p, { silent: true, background: true })
+        .catch(() => {})
+        .finally(() => {
+          this._syncingProfileIds.delete(p.id);
+          this.updateProfileCardSyncUi(p.id);
+        });
+      tasks.push(task);
+    }
+    return Promise.allSettled(tasks);
+  }
+
+  openProfilesModal(options = {}) {
     const profiles = storage.getProfiles();
     const activeId = storage.getActiveProfileId();
+    const isStartup = Boolean(options?.isStartup);
+    if (this.dom.modalProfilesTitle) {
+      const titleKey = isStartup ? 'chooseProfileTitle' : 'listPlaylist';
+      this.dom.modalProfilesTitle.setAttribute('data-i18n', titleKey);
+      this.dom.modalProfilesTitle.textContent = i18n.get(titleKey);
+    }
     if (!this.dom.profilesGrid) return;
 
     if (profiles.length === 0) {
@@ -4398,6 +4491,8 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
     } else {
       this.dom.profilesGrid.innerHTML = profiles.map(p => {
         const isActive = p.id === activeId;
+        const isSyncing = this._syncingProfileIds.has(p.id);
+        const subText = this._buildProfileSubText(p);
         return `
           <div class="profile-card ${isActive ? 'active-profile' : ''}" data-profile-id="${this.escapeHtml(p.id)}" tabindex="0">
             <div class="profile-card-icon">👤</div>
@@ -4406,7 +4501,7 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
                 <span class="profile-card-name" title="${this.escapeHtml(p.name)}">${this.escapeHtml(p.name)}</span>
                 ${isActive ? `<span class="profile-tag-active">${this.escapeHtml(i18n.get('profileActiveBadge'))}</span>` : ''}
               </div>
-              <div class="profile-card-sub">${this.escapeHtml(p.sourceInfo || '')}</div>
+              <div class="profile-card-sub" data-profile-sub="${this.escapeHtml(p.id)}">${this.escapeHtml(subText)}${isSyncing ? `<span class="profile-sync-badge">${this.escapeHtml(i18n.get('profileSyncingBadge'))}</span>` : ''}</div>
             </div>
             <div class="profile-card-actions">
               <button class="btn-icon btn-profile-info" data-info-id="${this.escapeHtml(p.id)}" title="${this.escapeHtml(i18n.get('btnAccountInfo'))}">ℹ</button>
@@ -4463,6 +4558,10 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
       });
     }
     this.openModal(this.dom.modalProfiles);
+    const preferredCard = this.dom.profilesGrid.querySelector('.profile-card.active-profile, .profile-card');
+    if (preferredCard && typeof preferredCard.focus === 'function') {
+      preferredCard.focus();
+    }
   }
 
   async switchProfile(profileId) {
@@ -4630,22 +4729,43 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
     }
   }
 
-  async reloadRemoteProfileData(prof, silent = false) {
+  async reloadRemoteProfileData(prof, options = false) {
     if (!prof) return;
+    const silent = typeof options === 'boolean' ? options : Boolean(options?.silent);
+    const background = typeof options === 'object' && options !== null ? Boolean(options.background) : false;
     if (prof.type === 'xtream') {
       const cfg = storage.getSettings();
       const server = prof.url || prof.serverUrl || prof.xtreamServer || '';
       const user = prof.username || prof.xtreamUser || '';
       const pass = prof.password || prof.xtreamPass || '';
       const xtream = new XtreamApi(server, user, pass, prof.corsProxy || cfg.corsProxy);
+      let nextProfile = prof;
+      try {
+        const auth = await xtream.authenticate();
+        const accInfo = auth?.accountInfo || auth?.user;
+        if (accInfo) {
+          nextProfile = {
+            ...prof,
+            accountInfo: {
+              ...(prof.accountInfo || {}),
+              username: accInfo.username || user,
+              status: accInfo.status || prof.accountInfo?.status || 'Active',
+              expDate: accInfo.expDate ? accInfo.expDate.toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', year: 'numeric' }) : (prof.accountInfo?.expDate || 'Active'),
+              isTrial: accInfo.isTrial ?? prof.accountInfo?.isTrial ?? 'No',
+              activeCons: String(accInfo.activeCons ?? prof.accountInfo?.activeCons ?? '0'),
+              maxConnections: String(accInfo.maxConnections ?? prof.accountInfo?.maxConnections ?? '1')
+            }
+          };
+        }
+      } catch (_) { /* Keep cached accountInfo if only M3U endpoint responds */ }
       const m3uContent = await fetchRemoteText(xtream.getM3uUrl());
-      const epgUrl = prof.epgUrl || xtream.getEpgUrl();
-      await this.processLoadedM3u(m3uContent, prof.name, null, epgUrl, prof);
+      const epgUrl = nextProfile.epgUrl || xtream.getEpgUrl();
+      await this.processLoadedM3u(m3uContent, nextProfile.name, null, epgUrl, nextProfile, { background });
     } else if (prof.type === 'm3u_url') {
       const m3uContent = await fetchRemoteText(prof.url || prof.m3uUrl);
-      await this.processLoadedM3u(m3uContent, prof.name, null, prof.epgUrl, prof);
+      await this.processLoadedM3u(m3uContent, prof.name, null, prof.epgUrl, prof, { background });
     }
-    if (!silent || this.activeScreen === 'home') this.renderHomeHub();
+    if (!background && (!silent || this.activeScreen === 'home')) this.renderHomeHub();
   }
 
   // =====================================================

@@ -126,7 +126,7 @@ await test('Todos os 3 idiomas (pt-BR, en-US, es) devem possuir o mesmo conjunto
   const enKeys = Object.keys(translations['en-US']).sort();
   const esKeys = Object.keys(translations['es']).sort();
 
-  assert.equal(ptKeys.length, 259, `Esperado exatamente 259 chaves i18n em pt-BR, obtido ${ptKeys.length}`);
+  assert.equal(ptKeys.length, 272, `Esperado exatamente 272 chaves i18n em pt-BR, obtido ${ptKeys.length}`);
   assert.deepEqual(ptKeys, enKeys, 'Chaves pt-BR e en-US devem ser idênticas');
   assert.deepEqual(ptKeys, esKeys, 'Chaves pt-BR e es devem ser idênticas');
 
@@ -274,7 +274,7 @@ await test('Build Android e workflow de release devem sincronizar versionName/ve
   assert.match(releaseYml, /output-metadata\.json/);
   assert.match(releaseYml, /Verify APK Version Matches Release/);
 
-  for (const rel of ['js/version.js', 'js/localization.js', 'js/app.js']) {
+  for (const rel of ['js/version.js', 'js/localization.js', 'js/app.js', 'js/storage.js']) {
     const webFile = readFileSync(resolve(rootDir, 'src/web', rel), 'utf-8');
     const androidAsset = readFileSync(resolve(rootDir, 'src/android/app/src/main/assets/web', rel), 'utf-8');
     assert.equal(androidAsset, webFile, `Asset Android ${rel} deve estar sincronizado com src/web/${rel}`);
@@ -897,7 +897,9 @@ await test('HTML, CSS e JS devem implementar drill-down na sidebar, player com o
   assert.match(html, /id="btn-browse-epg-load-more"/);
   assert.match(html, /id="btn-epg-timeline-load-more"/);
 
-  assert.match(css, /\.nav-tabs-wrapper\s*\{[^}]*flex-shrink:\s*0/);
+  assert.equal(html.includes('class="nav-tabs-wrapper"'), false);
+  assert.equal(html.includes('id="home-expiration-footer"'), false);
+  assert.match(css, /\.header-actions\s*\{[^}]*flex-wrap:\s*wrap/);
   assert.match(css, /\.profile-card-name\s*\{[^}]*text-overflow:\s*ellipsis/);
   assert.match(css, /\.epg-content-panel\s*\{[^}]*min-width:\s*0/);
   assert.match(css, /\.player-epg-card\.player-epg-maximized\s*\{/);
@@ -959,8 +961,9 @@ await test('Mute icon, volume bar, pause central, botões de cabeçalho e Format
   const appJs = readFileSync(resolve(rootDir, 'src/web/js/app.js'), 'utf-8');
 
   assert.match(html, /id="btn-player-center-toggle"/);
-  assert.match(html, /data-i18n="navAccount"/);
-  assert.match(html, /data-i18n="navAboutShort"/);
+  assert.equal(html.includes('id="btn-open-account"'), false);
+  assert.equal(html.includes('id="btn-open-about"'), false);
+  assert.match(html, /data-settings-tile="about"[\s\S]*data-i18n="navAboutShort"/);
   assert.equal(html.includes('id="btn-open-import"'), false);
   assert.equal(html.includes('id="settings-stream-mode-select"'), false);
   assert.match(css, /--vol-pct/);
@@ -2069,6 +2072,92 @@ await test('Android ExoPlayer: decoder fallback, TsExtractor IPTV flags, fallbac
       globalThis.window = prevWindow;
     }
   }
+});
+
+await test('StorageService: shouldRefreshProfile, intervalo autoRefreshIntervalHours e onboardingCompleted', async () => {
+  await withMockLocalStorage(async () => {
+    const svc = new StorageService();
+    const initial = svc.getSettings();
+    assert.equal(initial.onboardingCompleted, false);
+    assert.equal(initial.autoRefreshIntervalHours, 6);
+
+    svc.saveSettings({ onboardingCompleted: true, autoRefreshIntervalHours: 0 });
+    assert.equal(svc.getSettings().onboardingCompleted, true);
+    assert.equal(svc.getSettings().autoRefreshIntervalHours, 1, 'Intervalo mínimo deve ser 1h');
+
+    svc.saveSettings({ autoRefreshIntervalHours: 999 });
+    assert.equal(svc.getSettings().autoRefreshIntervalHours, 168, 'Intervalo máximo deve ser 168h');
+
+    svc.saveSettings({ autoRefresh: false, autoRefreshIntervalHours: 6 });
+    const now = Date.UTC(2026, 0, 10, 12, 0, 0);
+    assert.equal(svc.shouldRefreshProfile({ id: 'p_file', type: 'm3u_file', updatedAt: new Date(now - 24 * 3600000).toISOString() }, now), false);
+    assert.equal(svc.shouldRefreshProfile({ id: 'p_missing', type: 'xtream' }, now), true);
+    assert.equal(svc.shouldRefreshProfile({ id: 'p_fresh', type: 'm3u_url', updatedAt: new Date(now - 2 * 3600000).toISOString() }, now), false);
+    assert.equal(svc.shouldRefreshProfile({ id: 'p_stale', type: 'xtream', updatedAt: new Date(now - 6 * 3600000).toISOString() }, now), true);
+
+    svc.saveSettings({ autoRefresh: true, autoRefreshIntervalHours: 12 });
+    assert.equal(svc.shouldRefreshProfile({ id: 'p_fresh_auto', type: 'm3u_url', updatedAt: new Date(now - 60000).toISOString() }, now), true);
+    assert.equal(svc.shouldRefreshProfile({ id: 'p_file_auto', type: 'm3u_file' }, now), false);
+  });
+});
+
+await test('Onboarding 2 etapas, seleção de perfil com sync em segundo plano, topo empilhado e remoção do rodapé de expiração', () => {
+  const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+  const html = readFileSync(resolve(rootDir, 'src/web/index.html'), 'utf-8');
+  const css = readFileSync(resolve(rootDir, 'src/web/css/style.css'), 'utf-8');
+  const appJs = readFileSync(resolve(rootDir, 'src/web/js/app.js'), 'utf-8');
+
+  // Onboarding + Importação Streamlined
+  assert.match(html, /id="modal-onboarding"/);
+  assert.match(html, /data-onboarding-mode="mobile"/);
+  assert.match(html, /data-onboarding-mode="desktop"/);
+  assert.match(html, /data-onboarding-mode="tv"/);
+  assert.match(html, /id="btn-import-back-device"/);
+  assert.match(html, /id="btn-import-demo"/);
+  assert.match(html, /id="input-xtream-server"[^>]*autocapitalize="none"/);
+  assert.match(html, /id="modal-profiles-title"/);
+
+  // Cabeçalho simplificado e remoção do rodapé de expiração
+  const headerHtml = html.match(/<header class="app-header"[\s\S]*?<\/header>/)?.[0] || '';
+  for (const requiredId of [
+    'btn-brand-home',
+    'header-clock-time',
+    'header-clock-date',
+    'btn-master-search',
+    'btn-quick-multiscreen',
+    'btn-quick-notifications',
+    'btn-open-profiles',
+    'btn-open-settings'
+  ]) {
+    assert.ok(headerHtml.includes(`id="${requiredId}"`), `Header deve manter #${requiredId}`);
+  }
+  for (const removedId of [
+    'btn-quick-live-epg',
+    'btn-quick-epg-guide',
+    'btn-open-account',
+    'btn-open-about'
+  ]) {
+    assert.equal(headerHtml.includes(`id="${removedId}"`), false, `Header não deve conter #${removedId}`);
+  }
+  assert.equal(headerHtml.includes('nav-tabs-wrapper'), false, 'Header não deve conter abas de navegação redundantes');
+  assert.equal(html.includes('id="home-expiration-footer"'), false, 'Rodapé de expiração deve ser removido da tela inicial');
+  assert.match(html, /data-settings-tile="about"/);
+
+  // CSS: relógio sempre visível, topo empilhado sem overflow-x e alvos táteis >=44px
+  assert.equal(/\.header-clock-wrap\s*\{\s*display:\s*none/i.test(css), false, 'Relógio/data não deve ser ocultado em telas menores');
+  assert.equal(/\.header-actions\s*\{[^}]*overflow-x:\s*auto/i.test(css), false, 'Ações do topo não devem gerar rolagem horizontal');
+  assert.match(css, /\.header-inner\s*\{[^}]*flex-direction:\s*column/);
+  assert.match(css, /\.onboarding-device-grid\s*\{/);
+  assert.match(css, /@media\s*\(pointer:\s*coarse\)/);
+
+  // App.js: fluxos de onboarding, seleção inicial de perfil e sync em segundo plano
+  assert.match(appJs, /openOnboardingModal\(/);
+  assert.match(appJs, /selectOnboardingDeviceMode\(/);
+  assert.match(appJs, /openImportModal\(/);
+  assert.match(appJs, /startBackgroundProfilesSync\(/);
+  assert.match(appJs, /updateProfileCardSyncUi\(/);
+  assert.match(appJs, /openProfilesModal\(\{\s*isStartup:\s*true\s*\}\)/);
+  assert.match(appJs, /sub-auto-refresh-interval/);
 });
 
 console.log(`\n========================================`);

@@ -272,7 +272,20 @@ export const translations = {
     notifEpgFailed: 'Falha ao sincronizar EPG',
     multiScreenTitle: 'Escolher Layout Multi-Tela',
     multiScreenSelectSlot: 'Selecionar canal para este quadro',
-    multiScreenNativeNote: 'Nota: No modo nativo, os quadros secundários usam reprodução web HLS quando disponível.'
+    multiScreenNativeNote: 'Nota: No modo nativo, os quadros secundários usam reprodução web HLS quando disponível.',
+    onboardingTitle: 'Bem-vindo ao FluiStream',
+    onboardingSubtitle: 'Onde você vai assistir? Vamos ajustar o layout e os controles para sua tela.',
+    onboardingModeMobileTitle: 'Celular',
+    onboardingModeMobileDesc: 'Toque otimizado, menus compactos e controles para tela vertical ou horizontal.',
+    onboardingModeDesktopTitle: 'Desktop',
+    onboardingModeDesktopDesc: 'Interface completa com teclado, mouse e janela redimensionável.',
+    onboardingModeTvTitle: 'Televisão',
+    onboardingModeTvDesc: 'Botões ampliados, foco visível e navegação por controle remoto (D-Pad).',
+    onboardingRecommended: 'Recomendado',
+    btnChangeDeviceMode: 'Trocar Exibição',
+    chooseProfileTitle: 'Quem vai assistir?',
+    profileSyncingBadge: 'Atualizando...',
+    autoRefreshIntervalLabel: 'Intervalo de Atualização Automática'
   },
   'en-US': {
     appName: 'FluiStream',
@@ -533,7 +546,20 @@ export const translations = {
     notifEpgFailed: 'Failed to load EPG',
     multiScreenTitle: 'Choose Multi-Screen Layout',
     multiScreenSelectSlot: 'Select channel for this slot',
-    multiScreenNativeNote: 'Note: In native mode, secondary slots use web HLS playback when available.'
+    multiScreenNativeNote: 'Note: In native mode, secondary slots use web HLS playback when available.',
+    onboardingTitle: 'Welcome to FluiStream',
+    onboardingSubtitle: 'Where will you watch? We will tune the layout and controls for your screen.',
+    onboardingModeMobileTitle: 'Mobile',
+    onboardingModeMobileDesc: 'Touch-friendly menus and compact controls for portrait or landscape screens.',
+    onboardingModeDesktopTitle: 'Desktop',
+    onboardingModeDesktopDesc: 'Full workspace built for keyboard, mouse, and resizable windows.',
+    onboardingModeTvTitle: 'Television',
+    onboardingModeTvDesc: 'Large buttons, high-visibility focus, and remote control (D-Pad) navigation.',
+    onboardingRecommended: 'Recommended',
+    btnChangeDeviceMode: 'Change Display',
+    chooseProfileTitle: 'Who is watching?',
+    profileSyncingBadge: 'Updating...',
+    autoRefreshIntervalLabel: 'Auto-Refresh Interval'
   },
   'es': {
     appName: 'FluiStream',
@@ -794,7 +820,20 @@ export const translations = {
     notifEpgFailed: 'Error al sincronizar EPG',
     multiScreenTitle: 'Elegir Diseño Multi-Pantalla',
     multiScreenSelectSlot: 'Seleccionar canal para este cuadro',
-    multiScreenNativeNote: 'Nota: En modo nativo, los cuadros secundarios usan reproducción web HLS cuando está disponible.'
+    multiScreenNativeNote: 'Nota: En modo nativo, los cuadros secundarios usan reproducción web HLS cuando está disponible.',
+    onboardingTitle: 'Bienvenido a FluiStream',
+    onboardingSubtitle: '¿Dónde vas a ver? Ajustaremos el diseño y los controles para tu pantalla.',
+    onboardingModeMobileTitle: 'Móvil',
+    onboardingModeMobileDesc: 'Menús táctiles y controles compactos para pantalla vertical u horizontal.',
+    onboardingModeDesktopTitle: 'Escritorio',
+    onboardingModeDesktopDesc: 'Interfaz completa pensada para teclado, ratón y ventanas redimensionables.',
+    onboardingModeTvTitle: 'Televisión',
+    onboardingModeTvDesc: 'Botones grandes, foco visible y navegación con control remoto (D-Pad).',
+    onboardingRecommended: 'Recomendado',
+    btnChangeDeviceMode: 'Cambiar Pantalla',
+    chooseProfileTitle: '¿Quién va a ver?',
+    profileSyncingBadge: 'Actualizando...',
+    autoRefreshIntervalLabel: 'Intervalo de Actualización Automática'
   }
 };
 

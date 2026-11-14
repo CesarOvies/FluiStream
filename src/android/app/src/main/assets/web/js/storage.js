@@ -489,6 +489,8 @@ export class StorageService {
       timeFormat: '24h',
       deviceMode: 'auto',
       autoRefresh: false,
+      autoRefreshIntervalHours: 6,
+      onboardingCompleted: false,
       autoPlayNext: true,
       epgTimeshift: 0,
       historyLimit: 30,
@@ -499,6 +501,7 @@ export class StorageService {
       const globalData = localStorage.getItem('fluistream_settings');
       const globalCfg = globalData ? JSON.parse(globalData) : {};
       const parsedLimit = parseInt(globalCfg.historyLimit, 10);
+      const parsedInterval = parseInt(globalCfg.autoRefreshIntervalHours, 10);
 
       return {
         corsProxy: activeProfile?.corsProxy ?? globalCfg.corsProxy ?? defaults.corsProxy,
@@ -510,6 +513,8 @@ export class StorageService {
         timeFormat: globalCfg.timeFormat ?? defaults.timeFormat,
         deviceMode: globalCfg.deviceMode ?? defaults.deviceMode,
         autoRefresh: globalCfg.autoRefresh ?? defaults.autoRefresh,
+        autoRefreshIntervalHours: Number.isFinite(parsedInterval) ? Math.max(1, Math.min(168, parsedInterval)) : defaults.autoRefreshIntervalHours,
+        onboardingCompleted: Boolean(globalCfg.onboardingCompleted ?? defaults.onboardingCompleted),
         autoPlayNext: globalCfg.autoPlayNext ?? defaults.autoPlayNext,
         epgTimeshift: globalCfg.epgTimeshift ?? defaults.epgTimeshift,
         historyLimit: Number.isFinite(parsedLimit) ? Math.max(1, Math.min(500, parsedLimit)) : defaults.historyLimit,
@@ -520,12 +525,29 @@ export class StorageService {
     }
   }
 
+  shouldRefreshProfile(profile, now = Date.now()) {
+    if (!profile || (profile.type !== 'xtream' && profile.type !== 'm3u_url')) {
+      return false;
+    }
+    const cfg = this.getSettings();
+    if (cfg.autoRefresh) return true;
+    const intervalHours = Math.max(1, Number(cfg.autoRefreshIntervalHours) || 6);
+    const intervalMs = intervalHours * 3600 * 1000;
+    const updatedAtMs = profile.updatedAt ? Date.parse(profile.updatedAt) : NaN;
+    if (!Number.isFinite(updatedAtMs)) return true;
+    return (now - updatedAtMs) >= intervalMs;
+  }
+
   saveSettings(settings) {
     try {
       const merged = { ...this.getSettings(), ...(settings || {}) };
       if (merged.historyLimit !== undefined) {
         const n = parseInt(merged.historyLimit, 10);
         merged.historyLimit = Number.isFinite(n) ? Math.max(1, Math.min(500, n)) : 30;
+      }
+      if (merged.autoRefreshIntervalHours !== undefined) {
+        const hrs = parseInt(merged.autoRefreshIntervalHours, 10);
+        merged.autoRefreshIntervalHours = Number.isFinite(hrs) ? Math.max(1, Math.min(168, hrs)) : 6;
       }
       localStorage.setItem('fluistream_settings', JSON.stringify(merged));
       if (settings?.historyLimit !== undefined) {
