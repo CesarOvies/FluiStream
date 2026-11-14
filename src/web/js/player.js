@@ -81,6 +81,12 @@ export class VideoPlayerController {
     this._inNativeFullscreen = false;
     this._resumeAfterFullscreen = false;
     this._fullscreenResumeTimer = null;
+    this._playbackSessionId = 0;
+    this._activeAttempt = null;
+    this._html5Attempts = [];
+    this._html5AttemptIdx = 0;
+    this._suppressVideoError = false;
+    this._vlcFallbackTried = false;
 
     this.initEvents();
   }
@@ -109,9 +115,13 @@ export class VideoPlayerController {
       }
     });
     this.video.addEventListener('error', (e) => {
-      if (this.isStopped || !this.currentItem) return; // Não reportar erro se usuário clicou em Parar ou Fechar
+      if (this.isStopped || !this.currentItem || this._suppressVideoError) return; // Não reportar erro se usuário clicou em Parar, Fechar ou troca de candidato
       const code = this.video.error ? this.video.error.code : 'UNKNOWN';
       const msg = this.video.error ? this.video.error.message : '';
+      if (this._activeAttempt && this._activeAttempt.sessionId === this._playbackSessionId) {
+        this._handleHtml5AttemptFailure(this._playbackSessionId, 'HTML5_VIDEO_ERROR', String(msg || code), { code, message: msg });
+        return;
+      }
       this.notifyState('error', { type: 'HTML5_VIDEO_ERROR', code, message: msg });
     });
 
@@ -135,8 +145,9 @@ export class VideoPlayerController {
       // Ignore
     }
 
-    // Duplo clique para alternar tela cheia
+    // Duplo clique para alternar tela cheia no container (#player-wrapper)
     this.video.addEventListener('dblclick', (e) => {
+      e.preventDefault?.();
       e.stopPropagation();
       this.toggleFullscreen();
     });
@@ -153,7 +164,14 @@ export class VideoPlayerController {
 
     if (typeof document !== 'undefined') {
       const onFullscreenChange = () => {
-        const isFs = Boolean(document.fullscreenElement || document.webkitFullscreenElement);
+        const fsEl = document.fullscreenElement || document.webkitFullscreenElement;
+        if (fsEl && fsEl === this.video && this.container && this.container !== this.video && this.container.requestFullscreen) {
+          Promise.resolve(document.exitFullscreen?.()).catch(() => {}).finally(() => {
+            if (!this.isStopped) this.container.requestFullscreen().catch(() => {});
+          });
+          return;
+        }
+        const isFs = Boolean(fsEl);
         if (isFs) {
           this._resumeAfterFullscreen = !this.video.paused && !this.isStopped;
         } else {
@@ -324,10 +342,14 @@ export class VideoPlayerController {
    */
   async playStream(item, corsProxy = '', streamMode = 'auto', playerEngine = 'hls') {
     if (!item || !item.url) return;
+    const sessionId = ++this._playbackSessionId;
     this.isStopped = false;
     this.currentItem = item;
     this.currentStreamMode = streamMode;
     this.currentEngine = playerEngine;
+    this._vlcFallbackTried = false;
+    this._activeAttempt = null;
+    this._lastHtml5Error = null;
     this.notifyState('loading');
 
     const candidates = this.buildStreamCandidates(item.url, item.type, streamMode);
@@ -336,13 +358,8 @@ export class VideoPlayerController {
     // Ponte Nativa Android (ExoPlayer / Media3 via @JavascriptInterface window.androidBridge)
     const isAndroidApp = typeof window !== 'undefined' && Boolean(window.androidBridge);
     if (isAndroidApp) {
-      this._destroyHtml5Engines();
-      if (this.video) {
-        this.video.pause();
-        this.video.removeAttribute('src');
-        this.video.load();
-        this.video.style.display = 'none';
-      }
+      this._destroyHtml5Engines(true);
+      this._clearVideoSource(true);
       window.androidBridge.playStream(streamUrl, item.name || '', item.type || 'live', streamMode || 'auto');
       this.updateMediaSession(item);
       this.notifyState('playing');
@@ -352,13 +369,8 @@ export class VideoPlayerController {
     // Se motor for VLC e estiver rodando no app Desktop
     const isDesktopApp = typeof window !== 'undefined' && Boolean(window.chrome?.webview);
     if (playerEngine === 'vlc' && isDesktopApp) {
-      this._destroyHtml5Engines();
-      if (this.video) {
-        this.video.pause();
-        this.video.removeAttribute('src');
-        this.video.load();
-        this.video.style.display = 'none';
-      }
+      this._destroyHtml5Engines(true);
+      this._clearVideoSource(true);
 
       // Delegar ao LibVLC em C# (inclui URLs fallback caso .m3u8 dê 404)
       this.notifyNativeVlc('PLAY', {
@@ -384,125 +396,299 @@ export class VideoPlayerController {
       this.notifyNativeVlc('STOP');
     }
 
-    const finalUrl = corsProxy ? applyCorsProxy(corsProxy, streamUrl) : streamUrl;
+    this._html5Attempts = this._buildHtml5AttemptQueue(candidates, item, corsProxy, streamMode, isDesktopApp);
+    this._html5AttemptIdx = 0;
+    this._runHtml5Attempt(sessionId);
 
-    // Limpar instâncias HTML5 anteriores
-    this._destroyHtml5Engines();
+    // Media Session API para SO (Windows, Android, macOS)
+    this.updateMediaSession(item);
+  }
 
-    const isVideoFile = finalUrl.includes('.mp4') || finalUrl.includes('.mkv') || finalUrl.includes('.avi') || finalUrl.includes('.webm') || item.type === 'movie' || item.type === 'series';
-    const isTsStream = !isVideoFile && (streamMode === 'ts' || /\.ts(?:[?#]|$)/i.test(streamUrl));
-    const isHlsStream = !isVideoFile && !isTsStream && (streamMode === 'hls' || finalUrl.includes('.m3u8') || (streamMode === 'auto' && (item.type === 'live' || finalUrl.includes('/live/'))));
+  _buildHtml5AttemptQueue(candidates, item, corsProxy = '', streamMode = 'auto') {
+    const queue = [];
+    const seen = new Set();
+    const rawProxyPrefix = (typeof window !== 'undefined' && typeof window.__fluiLocalProxyUrl === 'string')
+      ? window.__fluiLocalProxyUrl.trim()
+      : '';
+    const localProxyPrefix = rawProxyPrefix ? (rawProxyPrefix.endsWith('/') ? rawProxyPrefix : `${rawProxyPrefix}/`) : '';
 
-    // 1. Suporte a HLS via Hls.js
-    if (isHlsStream && typeof window !== 'undefined' && window.Hls && window.Hls.isSupported()) {
+    const pushAttempt = (kind, url, rawUrl) => {
+      if (!url) return;
+      const key = `${kind}|${url}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      queue.push({ kind, url, rawUrl, enableWorker: true });
+    };
+
+    for (const rawUrl of candidates) {
+      const isExplicitMedia = /\.(?:mp4|mkv|avi|webm)(?:[?#]|$)/i.test(rawUrl);
+      const isVodNonHls = (item.type === 'movie' || item.type === 'series') && !/\.(?:m3u8|ts)(?:[?#]|$)/i.test(rawUrl);
+      const isVideoFile = isExplicitMedia || isVodNonHls;
+      const isTs = !isVideoFile && (streamMode === 'ts' || /\.ts(?:[?#]|$)/i.test(rawUrl));
+      const isHls = !isVideoFile && !isTs && (streamMode === 'hls' || /\.m3u8(?:[?#]|$)/i.test(rawUrl) || (streamMode === 'auto' && (item.type === 'live' || rawUrl.includes('/live/'))));
+      const isRawLive = !isVideoFile && !isTs && !isHls && (item.type === 'live' || rawUrl.includes('/live/'));
+
+      let urls;
+      if (corsProxy) {
+        urls = [applyCorsProxy(corsProxy, rawUrl)];
+      } else if (localProxyPrefix && /^https?:\/\//i.test(rawUrl)) {
+        const proxiedUrl = `${localProxyPrefix}proxy?url=${encodeURIComponent(rawUrl)}`;
+        urls = isVideoFile ? [rawUrl, proxiedUrl] : [proxiedUrl, rawUrl];
+      } else {
+        urls = [rawUrl];
+      }
+
+      for (const u of urls) {
+        if (isHls) {
+          pushAttempt('hls', u, rawUrl);
+        } else if (isTs) {
+          pushAttempt('mpegts', u, rawUrl);
+        } else if (isRawLive) {
+          pushAttempt('mpegts', u, rawUrl);
+          pushAttempt('hls', u, rawUrl);
+        } else {
+          pushAttempt('native', u, rawUrl);
+        }
+      }
+    }
+
+    return queue;
+  }
+
+  _runHtml5Attempt(sessionId) {
+    if (this.isStopped || sessionId !== this._playbackSessionId) return;
+
+    while (this._html5AttemptIdx < this._html5Attempts.length) {
+      const candidate = this._html5Attempts[this._html5AttemptIdx];
+      const hlsSupported = typeof window !== 'undefined' && Boolean(window.Hls && window.Hls.isSupported());
+      const mpegtsSupported = typeof window !== 'undefined' && Boolean(window.mpegts?.isSupported());
+      const safariNativeHls = Boolean(this.video?.canPlayType?.('application/vnd.apple.mpegurl'));
+
+      let kind = candidate.kind;
+      if (kind === 'hls' && !hlsSupported) {
+        if (safariNativeHls) {
+          kind = 'native';
+        } else {
+          this._html5AttemptIdx++;
+          continue;
+        }
+      }
+      if (kind === 'mpegts' && !mpegtsSupported) {
+        this._html5AttemptIdx++;
+        continue;
+      }
+
+      const attempt = { ...candidate, kind, sessionId };
+      this._activeAttempt = attempt;
+      this._destroyHtml5Engines(true);
+
+      if (kind === 'hls') {
+        this._startHlsAttempt(attempt, attempt.enableWorker);
+      } else if (kind === 'mpegts') {
+        this._startMpegtsAttempt(attempt);
+      } else {
+        this._startNativeAttempt(attempt);
+      }
+      return;
+    }
+
+    if (this._fallbackToDesktopVlc(this.currentItem, this.currentStreamMode)) {
+      return;
+    }
+
+    this.notifyState('error', this._lastHtml5Error || { type: 'HTML5_VIDEO_ERROR', details: 'NO_SUPPORTED_STREAM' });
+  }
+
+  _startHlsAttempt(attempt, enableWorker = true) {
+    const { sessionId, url } = attempt;
+    try {
       this.hls = new window.Hls({
-        enableWorker: true,
+        enableWorker,
         lowLatencyMode: true,
         backBufferLength: 60,
         maxBufferLength: 30,
         maxMaxBufferLength: 60,
         manifestLoadingTimeOut: 10000,
-        manifestLoadingMaxRetry: 2,
+        manifestLoadingMaxRetry: 1,
         levelLoadingTimeOut: 10000,
-        levelLoadingMaxRetry: 2,
+        levelLoadingMaxRetry: 1,
         fragLoadingTimeOut: 12000,
-        fragLoadingMaxRetry: 2
+        fragLoadingMaxRetry: 1
       });
+    } catch (err) {
+      if (enableWorker) {
+        this._startHlsAttempt(attempt, false);
+      } else {
+        this._handleHtml5AttemptFailure(sessionId, 'FATAL_ERROR', String(err?.message || err));
+      }
+      return;
+    }
 
-      this.hls.loadSource(finalUrl);
-      this.hls.attachMedia(this.video);
+    this.hls.loadSource(url);
+    this.hls.attachMedia(this.video);
 
-      this.hls.on(window.Hls.Events.AUDIO_TRACKS_UPDATED, (event, data) => {
-        this.extractHlsAudioTracks(data.audioTracks || this.hls.audioTracks);
+    this.hls.on(window.Hls.Events.AUDIO_TRACKS_UPDATED, (event, data) => {
+      if (sessionId !== this._playbackSessionId) return;
+      this.extractHlsAudioTracks(data.audioTracks || this.hls.audioTracks);
+    });
+
+    this.hls.on(window.Hls.Events.AUDIO_TRACK_SWITCHED, (event, data) => {
+      if (sessionId !== this._playbackSessionId) return;
+      this.currentAudioTrack = data.id;
+      this.notifyTracks();
+    });
+
+    this.hls.on(window.Hls.Events.SUBTITLE_TRACKS_UPDATED, (event, data) => {
+      if (sessionId !== this._playbackSessionId) return;
+      this.extractHlsSubtitleTracks(data.subtitleTracks || this.hls.subtitleTracks);
+    });
+
+    this.hls.on(window.Hls.Events.SUBTITLE_TRACK_SWITCH, (event, data) => {
+      if (sessionId !== this._playbackSessionId) return;
+      this.currentSubtitleTrack = data.id;
+      this.notifyTracks();
+    });
+
+    this.hls.on(window.Hls.Events.MANIFEST_PARSED, () => {
+      if (this.isStopped || sessionId !== this._playbackSessionId) return;
+      if (this.hls?.audioTracks && this.hls.audioTracks.length > 0) {
+        this.extractHlsAudioTracks(this.hls.audioTracks);
+      }
+      if (this.hls?.subtitleTracks && this.hls.subtitleTracks.length > 0) {
+        this.extractHlsSubtitleTracks(this.hls.subtitleTracks);
+      }
+      this.video.play().catch(e => {
+        console.warn('Autoplay blocked:', e);
+        if (e?.name === 'NotAllowedError') this.notifyState('ready');
       });
+    });
 
-      this.hls.on(window.Hls.Events.AUDIO_TRACK_SWITCHED, (event, data) => {
-        this.currentAudioTrack = data.id;
-        this.notifyTracks();
-      });
+    let networkRetries = 0;
+    let mediaRecoveries = 0;
+    this.hls.on(window.Hls.Events.ERROR, (event, data) => {
+      if (this.isStopped || sessionId !== this._playbackSessionId || this._activeAttempt !== attempt) return;
+      if (!data?.fatal) return;
 
-      this.hls.on(window.Hls.Events.SUBTITLE_TRACKS_UPDATED, (event, data) => {
-        this.extractHlsSubtitleTracks(data.subtitleTracks || this.hls.subtitleTracks);
-      });
-
-      this.hls.on(window.Hls.Events.SUBTITLE_TRACK_SWITCH, (event, data) => {
-        this.currentSubtitleTrack = data.id;
-        this.notifyTracks();
-      });
-
-      this.hls.on(window.Hls.Events.MANIFEST_PARSED, () => {
-        if (this.hls.audioTracks && this.hls.audioTracks.length > 0) {
-          this.extractHlsAudioTracks(this.hls.audioTracks);
-        }
-        if (this.hls.subtitleTracks && this.hls.subtitleTracks.length > 0) {
-          this.extractHlsSubtitleTracks(this.hls.subtitleTracks);
-        }
-        this.video.play().catch(e => {
-          console.warn('Autoplay blocked:', e);
-          this.notifyState('ready');
-        });
-      });
-
-      this.hls.on(window.Hls.Events.ERROR, (event, data) => {
-        if (data.fatal) {
-          switch (data.type) {
-            case window.Hls.ErrorTypes.NETWORK_ERROR:
-              console.warn('HLS Network error, attempting recovery...');
-              if (data.details === 'manifestLoadError' || data.details === 'manifestLoadTimeOut') {
-                const isWeb = typeof window !== 'undefined' && !window.chrome?.webview && !window.androidBridge;
-                this.notifyState('error', {
-                  type: 'NETWORK_ERROR',
-                  details: data.details,
-                  isCorsOrMixedContent: isWeb
-                });
-                this.hls.destroy();
-              } else {
-                this.hls.startLoad();
-              }
-              break;
-            case window.Hls.ErrorTypes.MEDIA_ERROR:
-              console.warn('HLS Media error, attempting recovery...');
-              this.hls.recoverMediaError();
-              break;
-            default:
-              console.error('HLS Fatal error:', data);
-              this.notifyState('error', { type: 'FATAL_ERROR', details: data.details });
-              this.hls.destroy();
-              break;
+      const isWeb = typeof window !== 'undefined' && !window.chrome?.webview && !window.androidBridge;
+      switch (data.type) {
+        case window.Hls.ErrorTypes.NETWORK_ERROR: {
+          const isManifestErr = data.details === 'manifestLoadError' || data.details === 'manifestLoadTimeOut' || data.details === 'manifestParsingError';
+          if (!isManifestErr && networkRetries < 1) {
+            networkRetries++;
+            this.hls?.startLoad();
+            return;
           }
+          this._handleHtml5AttemptFailure(sessionId, 'NETWORK_ERROR', String(data.details || 'NETWORK_ERROR'), { isCorsOrMixedContent: isWeb });
+          break;
         }
-      });
-    } else if (isTsStream && typeof window !== 'undefined' && window.mpegts?.isSupported()) {
-      // 2. Suporte MPEG-TS (.ts) via mpegts.js MSE
+        case window.Hls.ErrorTypes.MEDIA_ERROR:
+          if (mediaRecoveries < 1 && this.hls) {
+            mediaRecoveries++;
+            this.hls.recoverMediaError();
+            return;
+          }
+          this._handleHtml5AttemptFailure(sessionId, 'MEDIA_ERROR', String(data.details || 'MEDIA_ERROR'));
+          break;
+        default:
+          if (data.details === 'internalException' && enableWorker) {
+            this._destroyHtml5Engines(true);
+            this._startHlsAttempt(attempt, false);
+            return;
+          }
+          this._handleHtml5AttemptFailure(sessionId, 'FATAL_ERROR', String(data.details || 'FATAL_ERROR'));
+          break;
+      }
+    });
+  }
+
+  _startMpegtsAttempt(attempt) {
+    const { sessionId, url } = attempt;
+    try {
       this.mpegtsPlayer = window.mpegts.createPlayer(
-        { type: 'mpegts', isLive: item.type === 'live', url: finalUrl },
+        { type: 'mpegts', isLive: this.currentItem?.type === 'live', url },
         { enableWorker: false, enableStashBuffer: true, liveBufferLatencyChasing: false }
       );
       this.mpegtsPlayer.attachMediaElement(this.video);
       this.mpegtsPlayer.load();
       this.mpegtsPlayer.play().catch(e => {
         console.warn('MPEG-TS autoplay blocked:', e);
-        this.notifyState('ready');
+        if (e?.name === 'NotAllowedError') this.notifyState('ready');
       });
       this.mpegtsPlayer.on(window.mpegts.Events.ERROR, (errType, errDetail) => {
-        console.error('MPEG-TS error:', errType, errDetail);
-        this.notifyState('error', { type: 'MPEGTS_ERROR', details: String(errDetail || errType) });
+        if (this.isStopped || sessionId !== this._playbackSessionId || this._activeAttempt !== attempt) return;
+        this._handleHtml5AttemptFailure(sessionId, 'MPEGTS_ERROR', String(errDetail || errType || 'Exception'));
       });
-    } else {
-      // 3. Reprodução nativa (Safari HLS nativo, MP4, WebM)
-      this.video.src = finalUrl;
-      this.video.load();
-      this.video.addEventListener('loadedmetadata', () => {
-        this.extractNativeTracks();
-      }, { once: true });
-      this.video.play().catch(e => {
-        console.warn('Autoplay blocked:', e);
-        this.notifyState('ready');
-      });
+    } catch (err) {
+      this._handleHtml5AttemptFailure(sessionId, 'MPEGTS_ERROR', String(err?.message || err));
+    }
+  }
+
+  _startNativeAttempt(attempt) {
+    const { sessionId, url } = attempt;
+    this._suppressVideoError = false;
+    this.video.src = url;
+    this.video.load();
+    this.video.addEventListener('loadedmetadata', () => {
+      if (this.isStopped || sessionId !== this._playbackSessionId) return;
+      this.extractNativeTracks();
+    }, { once: true });
+    this.video.play().catch(e => {
+      console.warn('Autoplay blocked:', e);
+      if (e?.name === 'NotAllowedError') this.notifyState('ready');
+    });
+  }
+
+  _handleHtml5AttemptFailure(sessionId, errorType, details, extra = {}) {
+    if (this.isStopped || sessionId !== this._playbackSessionId || !this._activeAttempt) return;
+    this._activeAttempt = null;
+    this._lastHtml5Error = { type: errorType, details, ...extra };
+    this._destroyHtml5Engines(true);
+    this._clearVideoSource(false);
+
+    if (this._html5AttemptIdx + 1 < this._html5Attempts.length) {
+      this._html5AttemptIdx++;
+      this._runHtml5Attempt(sessionId);
+      return;
     }
 
-    // Media Session API para SO (Windows, Android, macOS)
+    if (this._fallbackToDesktopVlc(this.currentItem, this.currentStreamMode)) {
+      return;
+    }
+
+    this.notifyState('error', this._lastHtml5Error);
+  }
+
+  _fallbackToDesktopVlc(item, streamMode) {
+    if (this._vlcFallbackTried || this.isStopped || !item?.url) return false;
+    const isDesktopApp = typeof window !== 'undefined' && Boolean(window.chrome?.webview);
+    if (!isDesktopApp) return false;
+
+    this._vlcFallbackTried = true;
+    this.currentEngine = 'vlc';
+    this._activeAttempt = null;
+    this._destroyHtml5Engines(true);
+    this._clearVideoSource(true);
+
+    const candidates = this.buildStreamCandidates(item.url, item.type, streamMode);
+    const streamUrl = candidates[0] || item.url;
+    console.warn('[FluiStream] HTML5 HLS falhou no Desktop; ativando fallback LibVLC:', streamUrl);
+
+    this.notifyNativeVlc('PLAY', {
+      url: streamUrl,
+      fallbackUrls: candidates.slice(1),
+      title: item.name || '',
+      itemType: item.type,
+      aspectRatio: this.aspectRatio || 'auto'
+    });
     this.updateMediaSession(item);
+    if (typeof requestAnimationFrame === 'function') {
+      requestAnimationFrame(() => this.reportLayout());
+    } else {
+      this.reportLayout();
+    }
+    setTimeout(() => { if (!this.isStopped) this.reportLayout(); }, 150);
+    setTimeout(() => { if (!this.isStopped) this.notifyNativeVlc('GET_TRACKS'); }, 1200);
+    return true;
   }
 
   updateMediaSession(item) {
@@ -753,7 +939,18 @@ export class VideoPlayerController {
     }
   }
 
-  _destroyHtml5Engines() {
+  _clearVideoSource(hide = false) {
+    if (!this.video) return;
+    this._suppressVideoError = true;
+    this.video.pause?.();
+    this.video.removeAttribute?.('src');
+    this.video.load?.();
+    if (hide) this.video.style.display = 'none';
+    setTimeout(() => { this._suppressVideoError = false; }, 0);
+  }
+
+  _destroyHtml5Engines(suppressError = false) {
+    if (suppressError) this._suppressVideoError = true;
     if (this.hls) {
       try { this.hls.destroy(); } catch {}
       this.hls = null;
@@ -767,10 +964,17 @@ export class VideoPlayerController {
       } catch {}
       this.mpegtsPlayer = null;
     }
+    if (suppressError) {
+      setTimeout(() => { this._suppressVideoError = false; }, 0);
+    }
   }
 
   stop() {
     const isAndroidApp = typeof window !== 'undefined' && Boolean(window.androidBridge);
+    this._playbackSessionId++;
+    this._activeAttempt = null;
+    this._html5Attempts = [];
+    this._html5AttemptIdx = 0;
     this.isStopped = true;
     this.currentItem = null;
     this.audioTracks = [];
@@ -778,12 +982,10 @@ export class VideoPlayerController {
     this.currentAudioTrack = -1;
     this.currentSubtitleTrack = -1;
     this.notifyTracks();
-    this._destroyHtml5Engines();
+    this._destroyHtml5Engines(true);
     if (this.video) {
-      this.video.pause();
-      this.video.removeAttribute('src');
-      this.video.load();
-      this.video.style.display = isAndroidApp ? 'none' : 'block';
+      this._clearVideoSource(isAndroidApp);
+      if (!isAndroidApp) this.video.style.display = 'block';
     }
     if (isAndroidApp) {
       window.androidBridge?.stopStream?.();
