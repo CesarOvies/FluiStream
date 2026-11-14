@@ -347,40 +347,42 @@
                   <svg id="icon-center-play" class="hidden" width="28" height="28" viewBox="0 0 24 24" fill="currentColor"><polygon points="6 3 20 12 6 21 6 3"/></svg>
                 </button>
               </div>
-              <video id="main-video" playsinline webkit-playsinline controls></video>
-            </div>
-
-            <!-- Barra de Metadados e Controles do Player -->
-            <div class="player-meta-bar">
-              <div class="player-meta-top">
-                <div class="player-now-playing">
-                  <img id="player-channel-logo" class="player-channel-logo-img hidden" alt="" />
-                  <div class="player-info-text">
-                    <div class="player-channel-title-row">
-                      <h3 id="player-channel-title">FluiStream</h3>
-                      <span id="player-channel-group" class="badge-group"></span>
-                    </div>
-                  </div>
+              <video id="main-video" playsinline webkit-playsinline controlslist="nofullscreen"></video>
+              <button type="button" class="btn-player-tools" id="btn-player-tools" aria-expanded="false" data-i18n-title="playerToolsMenu" title="Ferramentas do Player">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+                <span data-i18n="playerToolsBtn">Opções</span>
+              </button>
+              <div id="player-tools-menu" class="player-tools-menu hidden" role="dialog" aria-modal="true" data-i18n-title="playerToolsMenu">
+                <div class="player-tools-header">
+                  <span data-i18n="playerToolsMenu">Ferramentas do Player</span>
+                  <button type="button" class="btn-icon" id="btn-player-tools-close" title="Fechar" data-i18n-title="btnClose">×</button>
                 </div>
-
-                <div class="player-controls-right">
-                  <div class="player-volume-wrap" id="player-volume-wrap">
-                    <button class="btn-secondary btn-icon" id="btn-player-mute" title="Mudo (M)" data-i18n-title="playerMute">
-                      <svg id="icon-volume-high" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
-                      <svg id="icon-volume-muted" class="hidden" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/></svg>
-                    </button>
-                    <input type="range" id="input-player-volume" class="volume-slider" min="0" max="1" step="0.05" value="0.8" aria-label="Volume" />
-                  </div>
-                  <select class="select-custom" id="select-player-engine" title="Motor do Player" data-i18n-title="playerEngine">
-                    <option value="hls" data-i18n="playerEngineHls">Player HLS Nativo</option>
-                    <option value="vlc" data-i18n="playerEngineVlc">Player VLC</option>
-                  </select>
-                  <select class="select-custom" id="select-stream-mode" title="Estilo de Transmissão" data-i18n-title="playerStreamMode">
-                    <option value="auto" data-i18n="playerStreamAuto">Auto (HLS)</option>
-                    <option value="hls" data-i18n="playerStreamHls">HLS (.m3u8)</option>
-                    <option value="ts" data-i18n="playerStreamTs">MPEG-TS (.ts)</option>
-                    <option value="direct" data-i18n="playerStreamDirect">Original</option>
-                  </select>
+                <div class="player-tools-actions">
+                  <button type="button" class="btn-icon" id="btn-player-playpause" title="Pausar / Reproduzir (Espaço)" data-i18n-title="playerPause">
+                    <svg id="icon-player-pause" width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>
+                    <svg id="icon-player-play" class="hidden" width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                  </button>
+                  <button type="button" class="btn-icon" id="btn-player-stop" title="Parar Reprodução" data-i18n-title="playerStop">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="5" y="5" width="14" height="14" rx="2"/></svg>
+                  </button>
+                  <button type="button" class="btn-icon" id="btn-player-pip" title="Picture-in-Picture" data-i18n-title="playerPip">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><rect x="12" y="9" width="8" height="6" rx="1"/></svg>
+                  </button>
+                  <button type="button" class="btn-icon" id="btn-player-fullscreen" title="Tela Cheia" data-i18n-title="playerFullscreen">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>
+                  </button>
+                  <button type="button" class="btn-icon" id="btn-player-close" title="Fechar Player" data-i18n-title="playerClose">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                  </button>
+                </div>
+                <div class="player-volume-wrap" id="player-volume-wrap">
+                  <button type="button" class="btn-secondary btn-icon" id="btn-player-mute" title="Mudo (M)" data-i18n-title="playerMute">
+                    <svg id="icon-volume-high" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
+                    <svg id="icon-volume-muted" class="hidden" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/></svg>
+                  </button>
+                  <input type="range" id="input-player-volume" class="volume-slider" min="0" max="1" step="0.05" value="0.8" aria-label="Volume" />
+                </div>
+                <div class="player-tools-selects">
                   <select class="select-custom" id="select-aspect-ratio" title="Proporção" data-i18n-title="playerAspectRatio">
                     <option value="auto" data-i18n="playerAspectAuto">Auto</option>
                     <option value="16:9">16:9</option>
@@ -393,21 +395,29 @@
                   <select class="select-custom" id="select-player-subtitles" title="Legendas" data-i18n-title="playerSubtitles">
                     <option value="-1" data-i18n="playerSubtitlesNone">Legendas: Desativadas</option>
                   </select>
-                  <button class="btn-icon" id="btn-player-pip" title="Picture-in-Picture" data-i18n-title="playerPip">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><rect x="12" y="9" width="8" height="6" rx="1"/></svg>
+                </div>
+              </div>
+            </div>
+
+            <!-- Barra de Metadados do Player -->
+            <div class="player-meta-bar">
+              <div class="player-meta-top">
+                <div class="player-now-playing">
+                  <img id="player-channel-logo" class="player-channel-logo-img hidden" alt="" />
+                  <div class="player-info-text">
+                    <div class="player-channel-title-row">
+                      <h3 id="player-channel-title">FluiStream</h3>
+                      <span id="player-channel-group" class="badge-group"></span>
+                    </div>
+                  </div>
+                </div>
+                <div class="player-meta-actions">
+                  <button type="button" class="btn-secondary btn-meta-player-action" id="btn-meta-player-tools" data-i18n-title="playerToolsMenu" title="Ferramentas do Player">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+                    <span data-i18n="playerToolsBtn">Opções</span>
                   </button>
-                  <button class="btn-icon" id="btn-player-fullscreen" title="Tela Cheia" data-i18n-title="playerFullscreen">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>
-                  </button>
-                  <button class="btn-icon" id="btn-player-playpause" title="Pausar / Reproduzir (Espaço)" data-i18n-title="playerPause">
-                    <svg id="icon-player-pause" width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>
-                    <svg id="icon-player-play" class="hidden" width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-                  </button>
-                  <button class="btn-icon" id="btn-player-stop" title="Parar Reprodução" data-i18n-title="playerStop">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="5" y="5" width="14" height="14" rx="2"/></svg>
-                  </button>
-                  <button class="btn-icon" id="btn-player-close" title="Fechar Player" data-i18n-title="playerClose">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                  <button type="button" class="btn-secondary btn-icon" id="btn-meta-player-fullscreen" data-i18n-title="playerFullscreen" title="Tela Cheia">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>
                   </button>
                 </div>
               </div>
@@ -678,13 +688,15 @@
             <label data-i18n="labelServerUrl">URL do Servidor</label>
             <input type="text" id="input-xtream-server" placeholder="http://servidor.com:8080" class="form-control" />
           </div>
-          <div class="form-group" style="margin-top: 0.5rem;">
-            <label data-i18n="labelUsername">Usuário</label>
-            <input type="text" id="input-xtream-user" class="form-control" />
-          </div>
-          <div class="form-group" style="margin-top: 0.5rem;">
-            <label data-i18n="labelPassword">Senha</label>
-            <input type="password" id="input-xtream-pass" class="form-control" />
+          <div class="xtream-credentials-grid">
+            <div class="form-group">
+              <label data-i18n="labelUsername">Usuário</label>
+              <input type="text" id="input-xtream-user" class="form-control" />
+            </div>
+            <div class="form-group">
+              <label data-i18n="labelPassword">Senha</label>
+              <input type="password" id="input-xtream-pass" class="form-control" />
+            </div>
           </div>
         </div>
 
@@ -707,6 +719,7 @@
         </div>
       </div>
       <div class="modal-footer">
+        <button class="btn-secondary" id="btn-cancel-import" data-i18n="btnCancel">Cancelar</button>
         <button class="btn-amber" id="btn-submit-import" data-i18n="btnConfirmImport">Carregar Lista</button>
       </div>
     </div>
@@ -744,6 +757,7 @@
             <option value="vlc" data-i18n="playerEngineVlc">Player VLC (Nativo Desktop)</option>
           </select>
           <p class="help-text" data-i18n="settingsPlayerEngineHelp"></p>
+          <div id="settings-player-engine-notice" class="engine-choice-notice" role="status"></div>
         </div>
 
         <div class="form-group">
@@ -938,6 +952,7 @@
               <option value="hls" data-i18n="playerEngineHls">Player HLS Nativo</option>
               <option value="vlc" data-i18n="playerEngineVlc">Player VLC</option>
             </select>
+            <div id="edit-player-engine-notice" class="engine-choice-notice" role="status"></div>
           </div>
         </div>
 

@@ -43,12 +43,75 @@ function stripHtml(html) {
     .trim();
 }
 
+const STOP_WORDS = new Set([
+  'o', 'a', 'os', 'as', 'um', 'uma', 'uns', 'umas', 'de', 'da', 'do', 'das', 'dos',
+  'em', 'no', 'na', 'nos', 'nas', 'e', 'the', 'an', 'and', 'of', 'in', 'to', 'for',
+  'el', 'la', 'los', 'las', 'un', 'una', 'del', 'y'
+]);
+
+function normalizeCompareText(str) {
+  return String(str || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function getSignificantTokens(str) {
+  const all = normalizeCompareText(str).split(' ').filter(t => t.length >= 2);
+  const sig = all.filter(t => !STOP_WORDS.has(t) && !/^\d{4}$/.test(t));
+  return sig.length > 0 ? sig : all;
+}
+
+export function scoreTitleMatch(candidateTitle, targetTitle, targetYear = '', candidateYear = '') {
+  const candNorm = normalizeCompareText(candidateTitle);
+  const targetNorm = normalizeCompareText(targetTitle);
+  if (!candNorm || !targetNorm) return -1;
+
+  if (targetYear && candidateYear && /^\d{4}$/.test(String(targetYear)) && /^\d{4}$/.test(String(candidateYear))) {
+    if (Math.abs(parseInt(targetYear, 10) - parseInt(candidateYear, 10)) > 1) {
+      return -1;
+    }
+  }
+
+  const targetTokens = getSignificantTokens(targetTitle);
+  const candTokens = new Set(getSignificantTokens(candidateTitle));
+  if (targetTokens.length === 0) return -1;
+
+  const baseTitlePart = normalizeCompareText(String(targetTitle || '').split(/[:\-–|]/)[0]);
+  const primaryToken = targetTokens[0];
+  let matched = 0;
+  for (const t of targetTokens) {
+    if (candTokens.has(t)) matched += 1;
+  }
+
+  if (targetTokens.length === 1) {
+    if (!candTokens.has(primaryToken)) return -1;
+  } else {
+    const minRequired = Math.ceil(targetTokens.length * 0.5);
+    const hasPrimaryAndPrefix = Boolean(baseTitlePart && candNorm.includes(baseTitlePart) && matched >= 1);
+    if (matched < minRequired && !hasPrimaryAndPrefix) return -1;
+    if (!candTokens.has(primaryToken) && matched < Math.ceil(targetTokens.length * 0.75)) return -1;
+  }
+
+  let score = (matched / targetTokens.length) * 20;
+  if (candNorm.includes(targetNorm)) score += 10;
+  else if (baseTitlePart && candNorm.includes(baseTitlePart)) score += 5;
+  if (targetYear && candidateYear && Math.abs(parseInt(targetYear, 10) - parseInt(candidateYear, 10)) <= 1) {
+    score += 8;
+  }
+  return score;
+}
+
 export function parseAdoroCinemaHtml(html) {
   const src = String(html || '');
-  if (!src) return { synopsis: '', poster: '', detailPath: '' };
+  if (!src) return { synopsis: '', poster: '', detailPath: '', title: '' };
 
   let synopsis = '';
   let poster = '';
+  let title = '';
 
   const ldMatches = src.matchAll(/<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi);
   for (const m of ldMatches) {
@@ -56,6 +119,9 @@ export function parseAdoroCinemaHtml(html) {
       const parsed = JSON.parse(m[1].trim());
       const nodes = Array.isArray(parsed) ? parsed : [parsed];
       for (const node of nodes) {
+        if (!title && typeof node?.name === 'string' && node.name.trim()) {
+          title = stripHtml(node.name);
+        }
         if (!synopsis && typeof node?.description === 'string' && node.description.trim().length > 20) {
           synopsis = stripHtml(node.description);
         }
@@ -64,6 +130,11 @@ export function parseAdoroCinemaHtml(html) {
         }
       }
     } catch {}
+  }
+
+  if (!title) {
+    const ogTitle = src.match(/<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)["']/i);
+    if (ogTitle) title = stripHtml(ogTitle[1]);
   }
 
   if (!synopsis) {
@@ -84,7 +155,7 @@ export function parseAdoroCinemaHtml(html) {
   const linkMatch = src.match(/href=["'](\/(?:filmes\/filme|series\/serie)-\d+\/?)["']/i);
   const detailPath = linkMatch ? linkMatch[1] : '';
 
-  return { synopsis, poster, detailPath };
+  return { synopsis, poster, detailPath, title };
 }
 
 async function safeFetchJson(url) {
@@ -97,11 +168,12 @@ async function safeFetchJson(url) {
   }
 }
 
-async function fetchAdoroCinema(title, kind, fetchTextFn) {
+async function fetchAdoroCinema(title, kind, fetchTextFn, year = '') {
   const isNativeCapable = typeof window !== 'undefined' && Boolean(window.chrome?.webview);
   if (!isNativeCapable && fetchTextFn === fetchRemoteText) return null;
   try {
-    const searchUrl = `https://www.adorocinema.com/pesquisar/?q=${encodeURIComponent(title)}`;
+    const query = year ? `${title} ${year}` : title;
+    const searchUrl = `https://www.adorocinema.com/pesquisar/?q=${encodeURIComponent(query)}`;
     const html = await fetchTextFn(searchUrl, 8000);
     let parsed = parseAdoroCinemaHtml(html);
     if ((!parsed.synopsis || !parsed.poster) && parsed.detailPath) {
@@ -110,33 +182,55 @@ async function fetchAdoroCinema(title, kind, fetchTextFn) {
       parsed = {
         synopsis: detailParsed.synopsis || parsed.synopsis,
         poster: detailParsed.poster || parsed.poster,
-        detailPath: parsed.detailPath
+        detailPath: parsed.detailPath,
+        title: detailParsed.title || parsed.title
       };
+    }
+    if (parsed.title && scoreTitleMatch(parsed.title, title, year) < 0) {
+      return null;
     }
     if (parsed.synopsis || parsed.poster) return parsed;
   } catch {}
   return null;
 }
 
-async function fetchItunes(title, kind, fetchJsonFn) {
+async function fetchItunes(title, kind, fetchJsonFn, year = '') {
   const media = kind === 'series' ? 'tvShow' : 'movie';
   const data = await fetchJsonFn(
-    `https://itunes.apple.com/search?term=${encodeURIComponent(title)}&media=${media}&country=BR&lang=pt_br&limit=3`
+    `https://itunes.apple.com/search?term=${encodeURIComponent(title)}&media=${media}&country=BR&lang=pt_br&limit=8`
   );
-  const hit = data?.results?.[0];
-  if (!hit) return null;
-  const poster = hit.artworkUrl100 ? hit.artworkUrl100.replace(/100x100bb/i, '600x600bb') : '';
+  const results = Array.isArray(data?.results) ? data.results : [];
+  if (results.length === 0) return null;
+
+  let bestHit = null;
+  let bestScore = -1;
+  for (const cand of results) {
+    const candTitle = cand.trackName || cand.collectionName || '';
+    const candYear = String(cand.releaseDate || '').slice(0, 4);
+    const sc = scoreTitleMatch(candTitle, title, year, candYear);
+    if (sc > bestScore) {
+      bestScore = sc;
+      bestHit = cand;
+    }
+  }
+  if (!bestHit || bestScore < 0) return null;
+
+  const poster = bestHit.artworkUrl100 ? bestHit.artworkUrl100.replace(/100x100bb/i, '600x600bb') : '';
   return {
-    synopsis: stripHtml(hit.longDescription || hit.shortDescription || ''),
+    synopsis: stripHtml(bestHit.longDescription || bestHit.shortDescription || ''),
     poster,
-    trailerUrl: hit.previewUrl || '',
-    genre: hit.primaryGenreName || ''
+    trailerUrl: bestHit.previewUrl || '',
+    genre: bestHit.primaryGenreName || ''
   };
 }
 
-async function fetchTvMaze(title, fetchJsonFn) {
+async function fetchTvMaze(title, fetchJsonFn, year = '') {
   const data = await fetchJsonFn(`https://api.tvmaze.com/singlesearch/shows?q=${encodeURIComponent(title)}`);
   if (!data) return null;
+  const candYear = String(data.premiered || '').slice(0, 4);
+  if (data.name && scoreTitleMatch(data.name, title, year, candYear) < 0) {
+    return null;
+  }
   return {
     synopsis: stripHtml(data.summary || ''),
     poster: data.image?.original || data.image?.medium || '',
@@ -167,12 +261,68 @@ async function fetchWikipedia(title, kind, fetchJsonFn) {
   return null;
 }
 
-export async function resolveYouTubeTrailerId(title, fetchTextFn = fetchRemoteText) {
+const YOUTUBE_NOISE_RE = /\b(?:15s|10s|6s|initial credits|bumper|commercial|shorts|making of|bastidores|reaction|react|review|an[áa]lise|cr[íi]tica|soundtrack|trilha sonora|clipe|scene|cena)\b/i;
+
+export function selectBestYouTubeTrailerFromHtml(html, title, year = '') {
+  const src = String(html || '');
+  if (!src) return '';
+
+  const rendererMatches = [...src.matchAll(/"videoRenderer"\s*:\s*\{\s*"videoId"\s*:\s*"([a-zA-Z0-9_-]{11})"/g)];
+  if (rendererMatches.length === 0) {
+    const fallbackMatch = src.match(/"videoId"\s*:\s*"([a-zA-Z0-9_-]{11})"/);
+    return fallbackMatch ? fallbackMatch[1] : '';
+  }
+
+  let bestId = '';
+  let bestScore = -1;
+
+  for (let i = 0; i < rendererMatches.length && i < 20; i++) {
+    const match = rendererMatches[i];
+    const videoId = match[1];
+    const slice = src.slice(match.index, match.index + 1600);
+    const titleMatch = slice.match(/"title"\s*:\s*\{\s*"runs"\s*:\s*\[\s*\{\s*"text"\s*:\s*"((?:\\.|[^"\\])+)"/)
+      || slice.match(/"title"\s*:\s*\{\s*"simpleText"\s*:\s*"((?:\\.|[^"\\])+)"/);
+    if (!titleMatch) continue;
+
+    let candTitle = titleMatch[1];
+    try {
+      candTitle = JSON.parse(`"${candTitle}"`);
+    } catch {}
+
+    if (YOUTUBE_NOISE_RE.test(candTitle)) continue;
+
+    // Filtrar clipes curtos (< 25s) como bumpers de distribuidora ("15s video")
+    const lenMatch = slice.match(/"lengthText"\s*:\s*\{[^}]*"simpleText"\s*:\s*"(\d+):(\d{2})"/);
+    if (lenMatch) {
+      const totalSec = parseInt(lenMatch[1], 10) * 60 + parseInt(lenMatch[2], 10);
+      if (totalSec > 0 && totalSec < 25) continue;
+      if (totalSec > 600) continue; // ignorar filmes completos / lives > 10 min
+    }
+
+    const baseScore = scoreTitleMatch(candTitle, title, year);
+    if (baseScore < 0) continue;
+
+    let score = baseScore;
+    if (/\btrailer\b/i.test(candTitle)) score += 8;
+    if (/\b(?:oficial|official|legendado|dublado)\b/i.test(candTitle)) score += 4;
+    if (year && candTitle.includes(String(year))) score += 6;
+    if (/\bteaser\b/i.test(candTitle) && !/\btrailer\b/i.test(candTitle)) score -= 3;
+
+    if (score > bestScore) {
+      bestScore = score;
+      bestId = videoId;
+    }
+  }
+
+  return bestId;
+}
+
+export async function resolveYouTubeTrailerId(title, fetchTextFn = fetchRemoteText, year = '') {
   try {
-    const url = `https://www.youtube.com/results?search_query=${encodeURIComponent(`${title} trailer oficial`)}`;
+    const q = `${title}${year ? ` ${year}` : ''} trailer oficial legendado`;
+    const url = `https://www.youtube.com/results?search_query=${encodeURIComponent(q)}`;
     const html = await fetchTextFn(url, 8000);
-    const m = String(html || '').match(/"videoId":"([a-zA-Z0-9_-]{11})"/);
-    return m ? m[1] : '';
+    return selectBestYouTubeTrailerFromHtml(html, title, year);
   } catch {
     return '';
   }
@@ -201,8 +351,9 @@ export async function resolveTrailerPlayback(item, meta = null, fetchTextFn = fe
     }
   }
 
-  const { title } = cleanMediaTitle(item?.name || item?.seriesTitle || '');
-  const searchedYtId = await resolveYouTubeTrailerId(title, fetchTextFn);
+  const { title, year } = cleanMediaTitle(item?.name || item?.seriesTitle || '');
+  const resolvedYear = meta?.year || year;
+  const searchedYtId = await resolveYouTubeTrailerId(title, fetchTextFn, resolvedYear);
   if (searchedYtId) {
     return {
       type: 'youtube',
@@ -254,7 +405,7 @@ export async function resolveMediaMetadata(item, opts = {}) {
 
   // 2. Fontes externas: AdoroCinema -> iTunes / TVMaze -> Wikipedia
   if (!result.synopsis || !result.poster || (kind === 'movie' && !result.youtubeId && !result.trailerUrl)) {
-    const adoro = await fetchAdoroCinema(title, kind, fetchTextFn);
+    const adoro = await fetchAdoroCinema(title, kind, fetchTextFn, result.year);
     if (adoro) {
       if (!result.synopsis && adoro.synopsis) result.synopsis = adoro.synopsis;
       if (!result.poster && adoro.poster) result.poster = adoro.poster;
@@ -262,7 +413,7 @@ export async function resolveMediaMetadata(item, opts = {}) {
   }
 
   if (!result.synopsis || !result.poster || (kind === 'movie' && !result.trailerUrl)) {
-    const itunes = await fetchItunes(title, kind, fetchJsonFn);
+    const itunes = await fetchItunes(title, kind, fetchJsonFn, result.year);
     if (itunes) {
       if (!result.synopsis && itunes.synopsis) result.synopsis = itunes.synopsis;
       if (!result.poster && itunes.poster) result.poster = itunes.poster;
@@ -272,7 +423,7 @@ export async function resolveMediaMetadata(item, opts = {}) {
   }
 
   if (kind === 'series' && (!result.synopsis || !result.poster)) {
-    const tvm = await fetchTvMaze(title, fetchJsonFn);
+    const tvm = await fetchTvMaze(title, fetchJsonFn, result.year);
     if (tvm) {
       if (!result.synopsis && tvm.synopsis) result.synopsis = tvm.synopsis;
       if (!result.poster && tvm.poster) result.poster = tvm.poster;
@@ -292,3 +443,4 @@ export async function resolveMediaMetadata(item, opts = {}) {
   metadataCache.set(cacheKey, result);
   return result;
 }
+

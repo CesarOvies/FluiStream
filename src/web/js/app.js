@@ -51,6 +51,10 @@ class FluiStreamApp {
     this._indexedPlaylistLen = -1;
     this._seriesCache = new Map();
     this._epgItemByChannelKey = new Map();
+    this._posterCacheMap = this._loadPosterCache();
+    this._posterPreloadQueue = [];
+    this._posterPreloadQueuedKeys = new Set();
+    this._posterPreloadInFlight = 0;
     this.PAGE_SIZE = 60;
     this.renderedCount = 0;
     this.currentFilteredItems = [];
@@ -64,6 +68,8 @@ class FluiStreamApp {
     this.lastProgressSaveAt = 0;
     this.parentalUnlocked = false;
     this.lastFocusedElement = null;
+    this._playerIdleTimer = null;
+    this._isPlayerPlaying = false;
 
     this.init();
   }
@@ -102,8 +108,8 @@ class FluiStreamApp {
     }
 
     this.checkAppUpdates();
-    if (!this.isNativeApp()) {
-      this.detectLocalProxy();
+    if (!window.androidBridge) {
+      this.ensureLocalProxyStarted();
     }
   }
 
@@ -169,6 +175,7 @@ class FluiStreamApp {
       btnHomeAccountInfo: document.getElementById('btn-home-account-info'),
 
       // Split-Pane Browser
+      splitPaneShell: document.querySelector('#main-content-view .split-pane-shell'),
       splitSidebar: document.getElementById('split-sidebar'),
       sidebarBackdrop: document.getElementById('sidebar-backdrop'),
       splitSidebarTitle: document.getElementById('split-sidebar-title'),
@@ -210,6 +217,11 @@ class FluiStreamApp {
       playerErrorHint: document.getElementById('player-error-hint'),
       btnPlayerRetry: document.getElementById('btn-player-retry'),
       btnPlayerOpenSettings: document.getElementById('btn-player-open-settings'),
+      btnPlayerTools: document.getElementById('btn-player-tools'),
+      btnMetaPlayerTools: document.getElementById('btn-meta-player-tools'),
+      btnMetaPlayerFullscreen: document.getElementById('btn-meta-player-fullscreen'),
+      playerToolsMenu: document.getElementById('player-tools-menu'),
+      btnPlayerToolsClose: document.getElementById('btn-player-tools-close'),
       btnPlayerPlayPause: document.getElementById('btn-player-playpause'),
       iconPlayerPause: document.getElementById('icon-player-pause'),
       iconPlayerPlay: document.getElementById('icon-player-play'),
@@ -256,6 +268,7 @@ class FluiStreamApp {
       btnUseLocalProxy: document.getElementById('btn-use-local-proxy'),
       localProxyDetectStatus: document.getElementById('local-proxy-detect-status'),
       settingsPlayerEngineSelect: document.getElementById('settings-player-engine-select'),
+      settingsPlayerEngineNotice: document.getElementById('settings-player-engine-notice'),
       settingsHistoryLimitSelect: document.getElementById('settings-history-limit-select'),
       btnSaveSettings: document.getElementById('btn-save-settings'),
       btnClearHistory: document.getElementById('btn-clear-history'),
@@ -338,6 +351,7 @@ class FluiStreamApp {
       xtreamUserInput: document.getElementById('input-xtream-user'),
       xtreamPassInput: document.getElementById('input-xtream-pass'),
       btnSubmitImport: document.getElementById('btn-submit-import'),
+      btnCancelImport: document.getElementById('btn-cancel-import'),
       importStatusMsg: document.getElementById('import-status-text'),
       importWebCorsNotice: document.getElementById('import-web-cors-notice'),
       modalAbout: document.getElementById('modal-about'),
@@ -365,6 +379,7 @@ class FluiStreamApp {
       inputEditExternalEpg: document.getElementById('input-edit-external-epg'),
       selectEditStreamMode: document.getElementById('select-edit-stream-mode'),
       selectEditPlayerEngine: document.getElementById('select-edit-player-engine'),
+      editPlayerEngineNotice: document.getElementById('edit-player-engine-notice'),
       editProfileAdvancedDetails: document.getElementById('edit-profile-advanced-details'),
       inputEditCorsProxy: document.getElementById('input-edit-cors-proxy'),
       editProfileStatus: document.getElementById('edit-profile-status'),
@@ -532,9 +547,24 @@ class FluiStreamApp {
     this.syncVolumeUi();
   }
 
+  handleNativeAspectRatio(ratio) {
+    if (this.dom.aspectSelect && ratio) {
+      this.dom.aspectSelect.value = ratio;
+    }
+  }
+
   handleNativeBack() {
+    const activeEl = typeof document !== 'undefined' ? document.activeElement : null;
+    if (activeEl && activeEl.dataset?.tvEditing === 'true') {
+      this._setTvInputEditing(activeEl, false);
+      return 'handled';
+    }
     if (this.dom.seasonsPopup && !this.dom.seasonsPopup.classList.contains('hidden')) {
       this.dom.seasonsPopup.classList.add('hidden');
+      return 'handled';
+    }
+    if (this.dom.playerToolsMenu && !this.dom.playerToolsMenu.classList.contains('hidden')) {
+      this.closePlayerToolsMenu(true);
       return 'handled';
     }
     const openModals = Array.from(document.querySelectorAll('.modal-backdrop:not(.hidden)'));
@@ -612,6 +642,11 @@ class FluiStreamApp {
   resolveEffectiveDeviceMode(mode = storage.getSettings().deviceMode || 'auto') {
     if (mode === 'tv' || mode === 'mobile' || mode === 'desktop') return mode;
     if (typeof window === 'undefined') return 'desktop';
+    try {
+      if (window.androidBridge && typeof window.androidBridge.isTv === 'function' && window.androidBridge.isTv()) {
+        return 'tv';
+      }
+    } catch (_) { /* ignore */ }
     const ua = navigator?.userAgent || '';
     const isTvUa = /(android tv|smarttv|googletv|aft[a-z0-9]|bravia|mibox|tizen|webos)/i.test(ua);
     const hasCoarse = typeof window.matchMedia === 'function' && window.matchMedia('(hover: none) and (pointer: coarse)').matches;
@@ -738,7 +773,79 @@ class FluiStreamApp {
     if (screenName === 'epg') this.renderEpgSubscreen();
     if (screenName === 'notifications') this.renderNotifications();
 
+    this._ensureScreenFocus(screenName);
     this.updateNativeOverlayVisibility();
+  }
+
+  _isTvNavigationMode() {
+    if (typeof window === 'undefined') return false;
+    return this.resolveEffectiveDeviceMode() === 'tv' || Boolean(window.androidBridge?.isAndroid?.());
+  }
+
+  _isTextEntryElement(el) {
+    if (!el) return false;
+    const tag = el.tagName;
+    if (tag === 'TEXTAREA') return true;
+    if (tag !== 'INPUT') return false;
+    const inputType = (el.type || 'text').toLowerCase();
+    return !['button', 'submit', 'reset', 'checkbox', 'radio', 'range', 'file', 'color', 'hidden'].includes(inputType);
+  }
+
+  _setTvInputEditing(el, editing, moveFocusDirection = null) {
+    if (!el || !this._isTextEntryElement(el)) return;
+    if (editing) {
+      el.readOnly = false;
+      el.dataset.tvEditing = 'true';
+      el.focus();
+      try {
+        if (typeof el.value === 'string' && typeof el.setSelectionRange === 'function') {
+          const len = el.value.length;
+          el.setSelectionRange(len, len);
+        }
+      } catch (_) { /* ignore non-selectable input types */ }
+      try { window.androidBridge?.showKeyboard?.(); } catch (_) { /* ignore */ }
+      return;
+    }
+
+    el.dataset.tvEditing = 'false';
+    if (this._isTvNavigationMode()) {
+      el.readOnly = true;
+    }
+    try { window.androidBridge?.hideKeyboard?.(); } catch (_) { /* ignore */ }
+    if (moveFocusDirection) {
+      const isModalOpen = Boolean(document.querySelector('.modal-backdrop:not(.hidden)'));
+      this.moveSpatialFocus(moveFocusDirection, isModalOpen);
+    }
+  }
+
+  _ensureScreenFocus(screenName) {
+    if (typeof document === 'undefined' || !this._isTvNavigationMode()) return;
+    if (document.querySelector('.modal-backdrop:not(.hidden)')) return;
+    const active = document.activeElement;
+    if (active && active !== document.body && !active.closest('.hidden') && active.offsetWidth > 0) return;
+
+    let target = null;
+    if (screenName === 'empty') {
+      target = this.dom.btnEmptyImport || this.dom.emptyState?.querySelector('button');
+    } else if (screenName === 'settings') {
+      target = this.dom.settingsHubView?.querySelector('.settings-tile, button');
+    } else if (screenName === 'epg') {
+      target = this.dom.epgSettingsView?.querySelector('button, select, input');
+    } else if (screenName === 'notifications') {
+      target = this.dom.notificationsView?.querySelector('button');
+    } else if (screenName === 'multiscreen') {
+      target = this.dom.multiscreenView?.querySelector('.multiscreen-slot-actions button, .multiscreen-slot-empty, #btn-multiscreen-back, button');
+    } else if (screenName === 'home') {
+      target = this.dom.homeHubView?.querySelector('.gradient-tile, .bento-card, button')
+        || Array.from(this.dom.navTabs || []).find(t => t.classList.contains('active'));
+    } else {
+      target = Array.from(this.dom.navTabs || []).find(t => t.classList.contains('active'))
+        || document.querySelector('#content-view button');
+    }
+
+    if (target && typeof target.focus === 'function' && target.offsetWidth > 0) {
+      target.focus();
+    }
   }
 
   initI18n() {
@@ -746,6 +853,12 @@ class FluiStreamApp {
       i18n.applyToDOM();
       this.updateClock();
       this.updateSettingsTileSubtitles();
+      if (this.dom.settingsPlayerEngineSelect && this.dom.settingsPlayerEngineNotice) {
+        this.updatePlayerEngineNotice(this.dom.settingsPlayerEngineSelect.value, this.dom.settingsPlayerEngineNotice);
+      }
+      if (this.dom.selectEditPlayerEngine && this.dom.editPlayerEngineNotice) {
+        this.updatePlayerEngineNotice(this.dom.selectEditPlayerEngine.value, this.dom.editPlayerEngineNotice);
+      }
       if (this.activeScreen === 'home') this.renderHomeHub();
       if (this.activeScreen === 'browse') this.renderBrowseView();
       if (this.activeScreen === 'epg') this.renderEpgSubscreen();
@@ -971,15 +1084,74 @@ class FluiStreamApp {
           playCard.click();
         }
       });
+      this.dom.playerEpgExtendedList.addEventListener('scroll', () => {
+        if (this.browseEpgMode !== 'all') return;
+        const el = this.dom.playerEpgExtendedList;
+        if (el.scrollTop + el.clientHeight >= el.scrollHeight - 220) {
+          this.maybeAutoLoadMoreBrowseEpg();
+        }
+      }, { passive: true });
     }
 
-    // Player Controls
+    // Player Controls & Internal Tools Menu
+    const stopPointerBubble = (el) => {
+      if (!el) return;
+      ['pointerdown', 'mousedown'].forEach(evt => el.addEventListener(evt, (e) => e.stopPropagation()));
+    };
+    const openOrTogglePlayerTools = (e) => {
+      e.stopPropagation();
+      this.wakePlayerControls();
+      const inHtml5Fs = Boolean(document.fullscreenElement || document.webkitFullscreenElement);
+      if (!inHtml5Fs && this.player?.currentEngine === 'vlc' && typeof window !== 'undefined' && window.chrome?.webview) {
+        this.player.notifyNativeVlc('TOGGLE_TOOLS_MENU');
+        return;
+      }
+      this.togglePlayerToolsMenu();
+    };
+    if (this.dom.btnPlayerTools) {
+      stopPointerBubble(this.dom.btnPlayerTools);
+      this.dom.btnPlayerTools.addEventListener('click', openOrTogglePlayerTools);
+    }
+    if (this.dom.playerToolsMenu) {
+      stopPointerBubble(this.dom.playerToolsMenu);
+    }
+    if (this.dom.btnMetaPlayerTools) {
+      this.dom.btnMetaPlayerTools.addEventListener('click', openOrTogglePlayerTools);
+    }
+    if (this.dom.btnMetaPlayerFullscreen) {
+      this.dom.btnMetaPlayerFullscreen.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.player?.toggleFullscreen();
+      });
+    }
+    if (this.dom.btnPlayerToolsClose) {
+      this.dom.btnPlayerToolsClose.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.closePlayerToolsMenu(true);
+      });
+    }
+    document.addEventListener('click', (e) => {
+      if (!this.dom.playerToolsMenu || this.dom.playerToolsMenu.classList.contains('hidden')) return;
+      if (e.target.closest('#player-tools-menu, #btn-player-tools, #btn-meta-player-tools')) return;
+      this.closePlayerToolsMenu(false);
+    });
     if (this.dom.btnPlayerPlayPause) this.dom.btnPlayerPlayPause.addEventListener('click', () => this.player.togglePlay());
     if (this.dom.playerCenterHit) {
       let centerClickTimer = null;
       this.dom.playerCenterHit.addEventListener('click', (e) => {
         if (!this.currentPlayingItem) return;
+        this.wakePlayerControls();
+        if (this.dom.playerToolsMenu && !this.dom.playerToolsMenu.classList.contains('hidden')) {
+          this.closePlayerToolsMenu(false);
+          e.stopPropagation();
+          return;
+        }
         e.stopPropagation();
+        if (e.target.closest('#btn-player-center-toggle')) {
+          clearTimeout(centerClickTimer);
+          this.player.togglePlay();
+          return;
+        }
         if (this.isSingleClickFullscreenMode()) {
           clearTimeout(centerClickTimer);
           this.player.toggleFullscreen();
@@ -999,14 +1171,37 @@ class FluiStreamApp {
     }
     if (this.dom.playerContainer) {
       this.dom.playerContainer.addEventListener('click', (e) => {
-        if (!this.currentPlayingItem || !this.isSingleClickFullscreenMode()) return;
-        if (e.target.closest('.player-error-overlay, #player-center-hit, button, select, input, a')) return;
+        if (!this.currentPlayingItem) return;
+        this.wakePlayerControls();
+        if (!this.isSingleClickFullscreenMode()) return;
+        if (e.target.closest('.player-error-overlay, #player-center-hit, #btn-player-tools, #player-tools-menu, button, select, input, a')) return;
+        this.player.toggleFullscreen();
+      });
+      ['mousemove', 'pointermove', 'pointerdown', 'touchstart'].forEach(evt => {
+        this.dom.playerContainer.addEventListener(evt, () => {
+          if (this.currentPlayingItem) this.wakePlayerControls();
+        }, { passive: true });
+      });
+      this.dom.playerContainer.addEventListener('mouseleave', () => {
+        if (this._isPlayerPlaying && this.dom.playerToolsMenu?.classList.contains('hidden') && !document.fullscreenElement && !document.webkitFullscreenElement) {
+          clearTimeout(this._playerIdleTimer);
+          this.dom.playerContainer?.classList.add('is-user-idle');
+        }
+      });
+    }
+    const onFsWake = () => {
+      if (this.currentPlayingItem) this.wakePlayerControls();
+    };
+    document.addEventListener('fullscreenchange', onFsWake);
+    document.addEventListener('webkitfullscreenchange', onFsWake);
+    if (this.dom.btnPlayerStop) this.dom.btnPlayerStop.addEventListener('click', () => this.stopPlayback());
+    if (this.dom.btnPlayerClose) this.dom.btnPlayerClose.addEventListener('click', () => this.closePlayerAndReset());
+    if (this.dom.btnPlayerFullscreen) {
+      this.dom.btnPlayerFullscreen.addEventListener('click', () => {
+        this.closePlayerToolsMenu(false);
         this.player.toggleFullscreen();
       });
     }
-    if (this.dom.btnPlayerStop) this.dom.btnPlayerStop.addEventListener('click', () => this.stopPlayback());
-    if (this.dom.btnPlayerClose) this.dom.btnPlayerClose.addEventListener('click', () => this.closePlayerAndReset());
-    if (this.dom.btnPlayerFullscreen) this.dom.btnPlayerFullscreen.addEventListener('click', () => this.player.toggleFullscreen());
     if (this.dom.btnPlayerPip) this.dom.btnPlayerPip.addEventListener('click', () => this.player.togglePip());
     if (this.dom.selectPlayerAudio) {
       this.dom.selectPlayerAudio.addEventListener('change', (e) => this.player.setAudioTrack(parseInt(e.target.value, 10)));
@@ -1097,6 +1292,25 @@ class FluiStreamApp {
           row.click();
         }
       });
+      this.dom.sidebarCategoryList.addEventListener('scroll', () => {
+        const el = this.dom.sidebarCategoryList;
+        if (el.scrollTop + el.clientHeight >= el.scrollHeight - 260) {
+          this.maybeAutoLoadMoreSidebarItems();
+        }
+      }, { passive: true });
+      this.dom.sidebarCategoryList.addEventListener('error', (e) => {
+        const img = e.target;
+        if (!img || img.tagName !== 'IMG' || !img.classList.contains('sidebar-item-thumb')) return;
+        const itemId = img.getAttribute('data-thumb-id');
+        if (!itemId) return;
+        const isSeries = this._isSeriesGroupingActive();
+        const pool = isSeries ? (this.currentFilteredSeries || []) : (this.currentFilteredItems || []);
+        const entry = pool.find(x => String(x.id) === String(itemId));
+        if (entry && !entry._logoFailed) {
+          entry._logoFailed = true;
+          this._enqueuePosterPreload([entry], isSeries);
+        }
+      }, true);
     }
 
     // Settings Hub & Tiles
@@ -1117,9 +1331,19 @@ class FluiStreamApp {
     }
 
     if (this.dom.btnCloseSettings) this.dom.btnCloseSettings.addEventListener('click', () => this.closeModal(this.dom.modalSettings));
+    if (this.dom.settingsPlayerEngineSelect) {
+      this.dom.settingsPlayerEngineSelect.addEventListener('change', (e) => {
+        this.updatePlayerEngineNotice(e.target.value, this.dom.settingsPlayerEngineNotice);
+      });
+    }
+    if (this.dom.selectEditPlayerEngine) {
+      this.dom.selectEditPlayerEngine.addEventListener('change', (e) => {
+        this.updatePlayerEngineNotice(e.target.value, this.dom.editPlayerEngineNotice);
+      });
+    }
     if (this.dom.settingsAdvancedDetails) {
       this.dom.settingsAdvancedDetails.addEventListener('toggle', () => {
-        if (this.dom.settingsAdvancedDetails.open && !this.isNativeApp()) this.detectLocalProxy();
+        if (this.dom.settingsAdvancedDetails.open) this.ensureLocalProxyStarted();
       });
     }
     if (this.dom.btnUseLocalProxy) {
@@ -1136,6 +1360,9 @@ class FluiStreamApp {
           if (isDesktop || this.dom.settingsPlayerEngineSelect.value !== 'vlc') {
             cfg.playerEngine = this.dom.settingsPlayerEngineSelect.value;
           }
+        }
+        if (cfg.playerEngine === 'hls') {
+          this.ensureLocalProxyStarted();
         }
         if (this.dom.settingsHistoryLimitSelect) {
           cfg.historyLimit = parseInt(this.dom.settingsHistoryLimitSelect.value, 10) || 30;
@@ -1205,6 +1432,14 @@ class FluiStreamApp {
         this.renderEpgTimeline();
       });
     }
+    if (this.dom.epgTimelineContainer) {
+      this.dom.epgTimelineContainer.addEventListener('scroll', () => {
+        const el = this.dom.epgTimelineContainer;
+        if (el.scrollTop + el.clientHeight >= el.scrollHeight - 240) {
+          this.maybeAutoLoadMoreEpgTimeline();
+        }
+      }, { passive: true });
+    }
     if (this.dom.inputEpgTimeshift) {
       this.dom.inputEpgTimeshift.addEventListener('input', (e) => this.applyEpgTimeshift(parseInt(e.target.value, 10) || 0));
     }
@@ -1270,19 +1505,36 @@ class FluiStreamApp {
     // Import / Profiles / Account / Edit / Series / About Modals
     if (this.dom.btnEmptyImport) this.dom.btnEmptyImport.addEventListener('click', () => this.openModal(this.dom.modalImport));
     if (this.dom.btnCloseImport) this.dom.btnCloseImport.addEventListener('click', () => this.closeModal(this.dom.modalImport));
+    if (this.dom.btnCancelImport) this.dom.btnCancelImport.addEventListener('click', () => this.closeModal(this.dom.modalImport));
     if (this.dom.btnOpenAbout) this.dom.btnOpenAbout.addEventListener('click', () => this.openModal(this.dom.modalAbout));
     if (this.dom.btnEmptyAbout) this.dom.btnEmptyAbout.addEventListener('click', () => this.openModal(this.dom.modalAbout));
     if (this.dom.btnCloseAbout) this.dom.btnCloseAbout.addEventListener('click', () => this.closeModal(this.dom.modalAbout));
     if (this.dom.btnLoadDemo) this.dom.btnLoadDemo.addEventListener('click', () => this.loadDemoPlaylist());
     if (this.dom.btnSubmitImport) this.dom.btnSubmitImport.addEventListener('click', () => this.handleImportSubmit());
 
+    const activateImportTab = (btn, focusPanelInput = false) => {
+      if (!btn) return;
+      this.dom.importTabs?.forEach(b => b.classList.remove('active'));
+      this.dom.importPanels?.forEach(p => p.classList.add('hidden'));
+      btn.classList.add('active');
+      const panel = document.getElementById(btn.getAttribute('data-panel'));
+      panel?.classList.remove('hidden');
+      if (focusPanelInput && panel) {
+        const nextField = panel.querySelector('input:not([type="hidden"]):not([disabled]), select:not([disabled]), button:not([disabled])');
+        if (nextField) {
+          if (this._isTvNavigationMode() && this._isTextEntryElement(nextField)) {
+            nextField.dataset.tvEditing = 'false';
+            nextField.readOnly = true;
+          }
+          nextField.focus();
+        }
+      }
+    };
+
     if (this.dom.importTabs && this.dom.importPanels) {
       this.dom.importTabs.forEach(btn => {
-        btn.addEventListener('click', () => {
-          this.dom.importTabs.forEach(b => b.classList.remove('active'));
-          this.dom.importPanels.forEach(p => p.classList.add('hidden'));
-          btn.classList.add('active');
-          document.getElementById(btn.getAttribute('data-panel'))?.classList.remove('hidden');
+        btn.addEventListener('click', (e) => {
+          activateImportTab(btn, e.detail === 0 && this._isTvNavigationMode());
         });
       });
     }
@@ -1344,9 +1596,10 @@ class FluiStreamApp {
       this.dom.btnCloseSeasonsPopup.addEventListener('click', () => this.dom.seasonsPopup?.classList.add('hidden'));
     }
 
-    // Escape closes top modal or mobile drawer
+    // Escape closes top modal or mobile drawer (unless exiting TV text-edit mode)
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') {
+        if (e.target && e.target.dataset?.tvEditing === 'true') return;
         if (this.dom.seasonsPopup && !this.dom.seasonsPopup.classList.contains('hidden')) {
           this.dom.seasonsPopup.classList.add('hidden');
           return;
@@ -1359,6 +1612,16 @@ class FluiStreamApp {
         if (this.dom.splitSidebar?.classList.contains('open-mobile')) {
           this.setMobileSidebarOpen(false);
         }
+      }
+    });
+
+    // Pointer/touch tap unlocks TV D-Pad readOnly safeguard so touch/mouse typing works immediately
+    document.addEventListener('pointerdown', (e) => {
+      const target = e.target;
+      if (this._isTextEntryElement(target) && target.readOnly && target.dataset?.tvEditing !== 'true') {
+        target.readOnly = false;
+        target.dataset.tvEditing = 'true';
+        try { window.androidBridge?.showKeyboard?.(); } catch (_) { /* ignore */ }
       }
     });
 
@@ -1376,14 +1639,117 @@ class FluiStreamApp {
   }
 
   handleGlobalKeyDown(e) {
-    if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA') return;
-
     const isModalOpen = Boolean(document.querySelector('.modal-backdrop:not(.hidden)'));
+    if (!isModalOpen && this.activeScreen === 'browse' && this.currentPlayingItem) {
+      this.wakePlayerControls();
+    }
     const isArrow = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key);
+    const target = e.target;
+    const tag = target?.tagName;
+    const inputType = tag === 'INPUT' ? (target.type || 'text').toLowerCase() : '';
+
+    if (this._isTextEntryElement(target)) {
+      if (e.key === 'Escape') {
+        if (target.dataset?.tvEditing === 'true') {
+          e.preventDefault();
+          e.stopPropagation();
+          this._setTvInputEditing(target, false);
+        }
+        return;
+      }
+
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        if (target.id === 'input-master-search') {
+          if (target.dataset?.tvEditing !== 'true' && this._isTvNavigationMode()) {
+            this._setTvInputEditing(target, true);
+          } else {
+            this._setTvInputEditing(target, false, 'ArrowDown');
+          }
+          return;
+        }
+
+        if (target.dataset?.tvEditing !== 'true') {
+          this._setTvInputEditing(target, true);
+        } else {
+          this._setTvInputEditing(target, false, 'ArrowDown');
+        }
+        return;
+      }
+
+      if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+        const canLeaveVertical = tag !== 'TEXTAREA' || target.dataset?.tvEditing !== 'true';
+        if (canLeaveVertical) {
+          this._setTvInputEditing(target, false);
+          if (this.moveSpatialFocus(e.key, isModalOpen)) {
+            e.preventDefault();
+          }
+        }
+        return;
+      }
+
+      if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+        const isEditing = target.dataset?.tvEditing === 'true' && !target.readOnly;
+        const selStart = typeof target.selectionStart === 'number' ? target.selectionStart : null;
+        const selEnd = typeof target.selectionEnd === 'number' ? target.selectionEnd : null;
+        const valLen = typeof target.value === 'string' ? target.value.length : 0;
+        const atLeftBoundary = selStart === null || (selStart === 0 && selEnd === 0);
+        const atRightBoundary = selStart === null || (selStart === valLen && selEnd === valLen);
+        if (!isEditing || (e.key === 'ArrowLeft' && atLeftBoundary) || (e.key === 'ArrowRight' && atRightBoundary)) {
+          if (this.moveSpatialFocus(e.key, isModalOpen)) {
+            e.preventDefault();
+          }
+        }
+        return;
+      }
+
+      if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        target.readOnly = false;
+        target.dataset.tvEditing = 'true';
+      }
+      return;
+    }
+
+    if (tag === 'INPUT' && (inputType === 'checkbox' || inputType === 'radio' || inputType === 'file')) {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        target.click();
+        return;
+      }
+      if (!isArrow) return;
+    }
+
+    if (tag === 'INPUT' && inputType === 'range') {
+      if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+        if (this.moveSpatialFocus(e.key, isModalOpen)) {
+          e.preventDefault();
+        }
+      }
+      return;
+    }
+
+    if (tag === 'SELECT') {
+      if (isArrow) {
+        if (this.moveSpatialFocus(e.key, isModalOpen)) {
+          e.preventDefault();
+        }
+        return;
+      }
+      if (e.key === 'Enter' || e.key === ' ') {
+        if (typeof target.showPicker === 'function') {
+          try {
+            e.preventDefault();
+            target.showPicker();
+          } catch (_) { /* fallback to native browser select behavior */ }
+        }
+        return;
+      }
+      return;
+    }
 
     if (isArrow) {
       // Se foco está dentro da área de vídeo/slider, controla canal/seek; nos controles/botões usa navegação espacial
-      const inPlayerRange = Boolean(e.target.closest('[role="slider"], #player-center-hit, #btn-player-center-toggle'));
+      const inPlayerRange = Boolean(target.closest('[role="slider"], #player-center-hit, #btn-player-center-toggle'));
       if (inPlayerRange && !isModalOpen) {
         if (e.key === 'ArrowUp') { e.preventDefault(); this.navigateChannel(-1); }
         else if (e.key === 'ArrowDown') { e.preventDefault(); this.navigateChannel(1); }
@@ -1398,6 +1764,12 @@ class FluiStreamApp {
       }
     }
 
+    if ((e.key === 'Escape') && !isModalOpen && this.dom.playerToolsMenu && !this.dom.playerToolsMenu.classList.contains('hidden')) {
+      e.preventDefault();
+      this.closePlayerToolsMenu(true);
+      return;
+    }
+
     if ((e.key === 'Backspace' || e.key === 'GoBack' || e.key === 'BrowserBack') && !isModalOpen) {
       e.preventDefault();
       this.handleNativeBack();
@@ -1405,7 +1777,7 @@ class FluiStreamApp {
     }
 
     if (e.key === ' ' || e.code === 'Space') {
-      if (isModalOpen || e.target.closest('button, a, summary, [tabindex="0"]')) return;
+      if (isModalOpen || target.closest('button, a, summary, [tabindex="0"]')) return;
       e.preventDefault();
       this.player.togglePlay();
     } else if ((e.key === 'm' || e.key === 'M') && !isModalOpen) {
@@ -1415,10 +1787,72 @@ class FluiStreamApp {
     }
   }
 
+  clearPlayerIdleTimer() {
+    clearTimeout(this._playerIdleTimer);
+    this._playerIdleTimer = null;
+    this.dom.playerContainer?.classList.remove('is-user-idle');
+  }
+
+  wakePlayerControls() {
+    clearTimeout(this._playerIdleTimer);
+    this._playerIdleTimer = null;
+    this.dom.playerContainer?.classList.remove('is-user-idle');
+
+    const menuClosed = !this.dom.playerToolsMenu || this.dom.playerToolsMenu.classList.contains('hidden');
+    if (this._isPlayerPlaying && this.currentPlayingItem && menuClosed) {
+      this._playerIdleTimer = setTimeout(() => {
+        const stillClosed = !this.dom.playerToolsMenu || this.dom.playerToolsMenu.classList.contains('hidden');
+        if (!this._isPlayerPlaying || !this.currentPlayingItem || !stillClosed) return;
+        this.dom.playerContainer?.classList.add('is-user-idle');
+        const active = typeof document !== 'undefined' ? document.activeElement : null;
+        if (active && (active === this.dom.btnPlayerTools || active === this.dom.btnPlayerCenterToggle)) {
+          active.blur?.();
+        }
+      }, 2500);
+    }
+  }
+
+  togglePlayerToolsMenu(forceState = null) {
+    if (!this.dom.playerToolsMenu) return;
+    const isCurrentlyOpen = !this.dom.playerToolsMenu.classList.contains('hidden');
+    const shouldOpen = forceState === null ? !isCurrentlyOpen : Boolean(forceState);
+    this.dom.playerToolsMenu.classList.toggle('hidden', !shouldOpen);
+    if (this.dom.btnPlayerTools) {
+      this.dom.btnPlayerTools.setAttribute('aria-expanded', shouldOpen ? 'true' : 'false');
+    }
+    if (shouldOpen) {
+      this.clearPlayerIdleTimer();
+      const firstCtrl = this.dom.btnPlayerPlayPause
+        || this.dom.btnMute
+        || this.dom.playerToolsMenu.querySelector('button, select, input');
+      setTimeout(() => firstCtrl?.focus(), 20);
+    } else {
+      this.wakePlayerControls();
+    }
+  }
+
+  closePlayerToolsMenu(restoreFocus = false) {
+    if (!this.dom.playerToolsMenu || this.dom.playerToolsMenu.classList.contains('hidden')) return;
+    this.dom.playerToolsMenu.classList.add('hidden');
+    if (this.dom.btnPlayerTools) {
+      this.dom.btnPlayerTools.setAttribute('aria-expanded', 'false');
+      if (restoreFocus) {
+        setTimeout(() => this.dom.btnPlayerTools?.focus(), 20);
+      }
+    }
+    this.wakePlayerControls();
+  }
+
   moveSpatialFocus(direction, isModalOpen) {
-    const scopeRoot = isModalOpen
-      ? Array.from(document.querySelectorAll('.modal-backdrop:not(.hidden)')).pop()
-      : document.body;
+    const seasonsPopupOpen = this.dom.seasonsPopup && !this.dom.seasonsPopup.classList.contains('hidden');
+    const toolsMenuOpen = !isModalOpen && Boolean(this.dom.playerToolsMenu && !this.dom.playerToolsMenu.classList.contains('hidden'));
+    const modalRoot = isModalOpen
+      ? (seasonsPopupOpen
+        ? this.dom.seasonsPopup
+        : Array.from(document.querySelectorAll('.modal-backdrop:not(.hidden)')).pop())
+      : (toolsMenuOpen ? this.dom.playerToolsMenu : null);
+    const scopeRoot = modalRoot || document.body;
+    const isScopedOverlay = Boolean(isModalOpen || toolsMenuOpen);
     if (!scopeRoot) return false;
 
     const selector = [
@@ -1426,14 +1860,22 @@ class FluiStreamApp {
       '.header-actions button',
       '#btn-brand-home',
       '#btn-master-search',
+      '.subscreen-topbar button',
       '.bento-card',
       '.gradient-tile',
       '.featured-item-row',
       '.settings-tile',
+      '.empty-state-actions button',
       '.sidebar-cat-btn',
       '.sidebar-item-row',
       '.split-sidebar-header button',
       '.category-nav-bar button',
+      '.category-nav-bar input',
+      '.category-nav-bar select',
+      '#btn-player-tools',
+      '#player-tools-menu button',
+      '#player-tools-menu select',
+      '#player-tools-menu input:not([type="hidden"])',
       '.player-meta-bar button',
       '.player-meta-bar select',
       '.player-controls-bar button',
@@ -1441,25 +1883,65 @@ class FluiStreamApp {
       '#btn-player-center-toggle',
       '.layout-template-card',
       '.profile-card',
+      '.profile-card-actions button',
       '.episode-item-row',
+      '.season-select-item',
       '.series-hero-actions button',
       '.movie-trailer-header button',
       '.epg-rail-btn',
       '.epg-source-item button',
-      '.multiscreen-slot',
+      '[data-play-id]',
+      '[data-browse-epg-play-id]',
+      '.multiscreen-slot-empty',
+      '.multiscreen-slot-actions button',
       '.btn-notif-update',
+      '.import-tab-btn',
+      '.master-search-row',
       '.modal-header button',
-      '.modal-footer button'
+      '.modal-body button',
+      '.modal-body input:not([type="hidden"])',
+      '.modal-body select',
+      '.modal-body textarea',
+      '.modal-body a[href]',
+      '.modal-body summary',
+      '.modal-footer button',
+      'summary',
+      'input:not([type="hidden"])',
+      'select',
+      'textarea'
     ].join(', ');
 
-    const headerEl = !isModalOpen ? document.getElementById('app-header') : null;
-    const mainEl = !isModalOpen ? document.getElementById('main-layout') : scopeRoot;
+    const headerEl = !isScopedOverlay ? document.getElementById('app-header') : null;
+    const mainEl = !isScopedOverlay ? document.getElementById('main-layout') : scopeRoot;
+    const seen = new Set();
     const rawElements = [];
-    if (headerEl) rawElements.push(...headerEl.querySelectorAll(selector));
-    if (mainEl) rawElements.push(...mainEl.querySelectorAll(selector));
+    const pushAll = (rootEl) => {
+      if (!rootEl) return;
+      rootEl.querySelectorAll(selector).forEach(el => {
+        if (!seen.has(el)) {
+          seen.add(el);
+          rawElements.push(el);
+        }
+      });
+    };
+    pushAll(headerEl);
+    pushAll(mainEl);
+
+    const getNavRect = (el) => {
+      if (el?.tagName === 'INPUT' && (el.type === 'checkbox' || el.type === 'radio')) {
+        const lbl = el.closest('.checkbox-label');
+        if (lbl) {
+          const lr = lbl.getBoundingClientRect();
+          if (lr && lr.width > 0 && lr.height > 0) return lr;
+        }
+      }
+      return el.getBoundingClientRect();
+    };
 
     const candidates = rawElements.filter(el => {
-      if (el.disabled || el.closest('.hidden')) return false;
+      if (el.disabled || el.closest('.hidden, [hidden], [inert]')) return false;
+      const closedDetails = el.closest('details:not([open])');
+      if (closedDetails && !el.closest('summary')) return false;
       const rect = el.getBoundingClientRect();
       return rect.width > 0 && rect.height > 0;
     });
@@ -1467,44 +1949,111 @@ class FluiStreamApp {
 
     const current = document.activeElement;
     if (!current || !scopeRoot.contains(current) || !current.matches(selector)) {
-      candidates[0].focus();
+      const initial = (isModalOpen
+        ? candidates.find(c => !c.closest('.modal-header')) || candidates[0]
+        : candidates[0]);
+      if (this._isTvNavigationMode() && this._isTextEntryElement(initial)) {
+        initial.dataset.tvEditing = 'false';
+        initial.readOnly = true;
+      }
+      initial.focus({ preventScroll: false });
+      initial.scrollIntoView({ block: 'nearest', inline: 'nearest' });
       return true;
     }
 
-    const curRect = current.getBoundingClientRect();
+    const curRect = getNavRect(current);
     const curX = curRect.left + curRect.width / 2;
     const curY = curRect.top + curRect.height / 2;
+    const isVertical = direction === 'ArrowUp' || direction === 'ArrowDown';
+    const getModalZone = (el) => {
+      if (!isModalOpen) return 1;
+      if (el.closest('.modal-header')) return 0;
+      if (el.closest('.modal-footer')) return 2;
+      return 1;
+    };
+    const curZone = getModalZone(current);
 
-    let best = null;
-    let bestScore = Infinity;
-
+    let validCandidates = [];
     for (const el of candidates) {
       if (el === current) continue;
-      const r = el.getBoundingClientRect();
+      if (isVertical && (current.contains(el) || el.contains(current))) continue;
+      const elZone = getModalZone(el);
+      if (direction === 'ArrowDown' && elZone < curZone) continue;
+      if (direction === 'ArrowUp' && elZone > curZone) continue;
+
+      const r = getNavRect(el);
       const x = r.left + r.width / 2;
       const y = r.top + r.height / 2;
       const dx = x - curX;
       const dy = y - curY;
 
+      const overlapX = Math.min(curRect.right, r.right) - Math.max(curRect.left, r.left);
+      const overlapY = Math.min(curRect.bottom, r.bottom) - Math.max(curRect.top, r.top);
+
       let valid = false;
-      let primary = 0;
-      let secondary = 0;
-      if (direction === 'ArrowRight' && dx > 12) { valid = true; primary = dx; secondary = Math.abs(dy); }
-      if (direction === 'ArrowLeft' && dx < -12) { valid = true; primary = -dx; secondary = Math.abs(dy); }
-      if (direction === 'ArrowDown' && dy > 12) { valid = true; primary = dy; secondary = Math.abs(dx); }
-      if (direction === 'ArrowUp' && dy < -12) { valid = true; primary = -dy; secondary = Math.abs(dx); }
+      let edgeGap = 0;
+      let perpGap = 0;
+      let centerDrift = 0;
+
+      const inMsGrid = Boolean(current.closest('.multiscreen-grid') && el.closest('.multiscreen-grid'));
+      if (direction === 'ArrowRight' && x > curX + 4 && r.right > curRect.right - 2) {
+        perpGap = overlapY > 0 ? 0 : (r.top >= curRect.bottom ? r.top - curRect.bottom : curRect.top - r.bottom);
+        if ((!inMsGrid && perpGap > 72) || (isModalOpen && current.closest('.modal-body, .modal-footer') && el.closest('.modal-header'))) continue;
+        valid = true;
+        edgeGap = r.left - curRect.right;
+        centerDrift = Math.abs(dy);
+      } else if (direction === 'ArrowLeft' && x < curX - 4 && r.left < curRect.left + 2) {
+        perpGap = overlapY > 0 ? 0 : (r.top >= curRect.bottom ? r.top - curRect.bottom : curRect.top - r.bottom);
+        if ((!inMsGrid && perpGap > 72) || (isModalOpen && current.closest('.modal-body, .modal-footer') && el.closest('.modal-header'))) continue;
+        valid = true;
+        edgeGap = curRect.left - r.right;
+        centerDrift = Math.abs(dy);
+      } else if (direction === 'ArrowDown' && (elZone > curZone || (y > curY + 4 && r.bottom > curRect.bottom - 2))) {
+        valid = true;
+        edgeGap = r.top - curRect.bottom;
+        perpGap = overlapX > 0 ? 0 : (r.left >= curRect.right ? r.left - curRect.right : curRect.left - r.right);
+        centerDrift = Math.abs(dx);
+      } else if (direction === 'ArrowUp' && (elZone < curZone || (y < curY - 4 && r.top < curRect.top + 2))) {
+        valid = true;
+        edgeGap = curRect.top - r.bottom;
+        perpGap = overlapX > 0 ? 0 : (r.left >= curRect.right ? r.left - curRect.right : curRect.left - r.right);
+        centerDrift = Math.abs(dx);
+      }
       if (!valid) continue;
 
-      const score = primary + secondary * 2.2;
-      if (score < bestScore) {
-        bestScore = score;
-        best = el;
+      validCandidates.push({ el, edgeGap, perpGap, centerDrift, zone: elZone });
+    }
+
+    if (isModalOpen && isVertical && validCandidates.length > 0) {
+      if (validCandidates.some(c => c.zone === 1)) {
+        validCandidates = validCandidates.filter(c => c.zone === 1);
+      }
+    }
+
+    let best = null;
+    let bestScore = Infinity;
+    if (validCandidates.length > 0) {
+      const minPrimaryGap = Math.min(...validCandidates.map(c => Math.max(0, c.edgeGap)));
+      for (const c of validCandidates) {
+        const primary = Math.max(0, c.edgeGap);
+        const overlapPenalty = c.edgeGap < -4 ? 400 : 0;
+        const rowSkipPenalty = (isModalOpen && isVertical && primary > minPrimaryGap + 24) ? 1000 : 0;
+        const score = primary + c.perpGap * 2.5 + c.centerDrift * 0.15 + overlapPenalty + rowSkipPenalty;
+        if (score < bestScore) {
+          bestScore = score;
+          best = c.el;
+        }
       }
     }
 
     if (best) {
+      if (this._isTvNavigationMode() && this._isTextEntryElement(best) && best.dataset?.tvEditing !== 'true') {
+        best.dataset.tvEditing = 'false';
+        best.readOnly = true;
+      }
       best.focus({ preventScroll: false });
       best.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+      this.maybeAutoLoadMoreForElement?.(best);
       return true;
     }
     return false;
@@ -1681,12 +2230,10 @@ class FluiStreamApp {
     } else {
       this.selectedGroup = null;
       this.sidebarDrillMode = 'categories';
-      if (this.currentPlayingItem && this.currentPlayingItem.type !== viewType) {
+      if (this.currentPlayingItem) {
         this.stopPlayback();
       }
-      this.browseEpgMode = (this.currentPlayingItem && this.currentPlayingItem.type === ItemType.LIVE)
-        ? this.browseEpgMode
-        : 'all';
+      this.browseEpgMode = 'all';
     }
 
     this.navigateToScreen('browse');
@@ -1695,9 +2242,21 @@ class FluiStreamApp {
   syncBrowseViewLayout() {
     const playing = Boolean(this.currentPlayingItem);
     const inItemsMode = this.sidebarDrillMode === 'items';
+    const catalogMaximized = !playing;
 
-    this.dom.playerSection?.classList.remove('hidden');
+    this.dom.contentView?.classList.toggle('catalog-maximized', catalogMaximized);
+    this.dom.splitPaneShell?.classList.toggle('catalog-maximized', catalogMaximized);
+    this.dom.splitPaneShell?.classList.toggle('mode-items', inItemsMode);
+    this.dom.splitPaneShell?.classList.toggle('mode-categories', !inItemsMode);
+    if (this.dom.splitPaneShell) {
+      this.dom.splitPaneShell.setAttribute('data-browse-type', this.currentView || 'live');
+    }
+
+    this.dom.playerSection?.classList.toggle('hidden', !playing);
     this.dom.playerIdleOverlay?.classList.toggle('hidden', playing);
+    if (!playing) {
+      this.closePlayerToolsMenu(false);
+    }
     this.dom.sidebarItemsToolbar?.classList.toggle('hidden', !inItemsMode);
     if (this.dom.btnSidebarClearHistory) {
       const showSidebarClear = inItemsMode
@@ -1988,6 +2547,141 @@ class FluiStreamApp {
     this.appendSidebarItemsBatch(this.PAGE_SIZE);
   }
 
+  _loadPosterCache() {
+    try {
+      const raw = typeof localStorage !== 'undefined' ? localStorage.getItem('flui_poster_cache_v1') : null;
+      if (!raw) return new Map();
+      const entries = JSON.parse(raw);
+      return Array.isArray(entries) ? new Map(entries.slice(-800)) : new Map();
+    } catch {
+      return new Map();
+    }
+  }
+
+  _savePosterCache() {
+    try {
+      if (typeof localStorage === 'undefined') return;
+      const arr = Array.from(this._posterCacheMap.entries()).slice(-800);
+      localStorage.setItem('flui_poster_cache_v1', JSON.stringify(arr));
+    } catch {}
+  }
+
+  _getPosterCacheKey(entry, isSeries) {
+    const kind = isSeries || entry?.type === ItemType.SERIES ? 'series' : 'movie';
+    const raw = isSeries ? (entry?.seriesTitle || entry?.name || '') : (entry?.name || '');
+    return `${kind}:${String(raw).toLowerCase().trim()}`;
+  }
+
+  _getCachedPoster(entry, isSeries) {
+    if (!entry) return '';
+    if (entry.logo && entry.logo !== 'assets/logo.svg' && !entry._logoFailed) return entry.logo;
+    const key = this._getPosterCacheKey(entry, isSeries);
+    const cached = this._posterCacheMap.get(key) || '';
+    if (cached) entry.logo = cached;
+    return cached;
+  }
+
+  _enqueuePosterPreload(batch, isSeries) {
+    if (!Array.isArray(batch) || batch.length === 0) return;
+    for (const entry of batch) {
+      const kind = isSeries || entry?.type === ItemType.SERIES
+        ? 'series'
+        : (entry?.type === ItemType.MOVIE ? 'movie' : null);
+      if (!kind) continue;
+      if (this._getCachedPoster(entry, isSeries)) continue;
+      const key = `${this._getPosterCacheKey(entry, isSeries)}|${entry.id}`;
+      if (this._posterPreloadQueuedKeys.has(key)) continue;
+      this._posterPreloadQueuedKeys.add(key);
+      this._posterPreloadQueue.push({ entry, isSeries, kind });
+    }
+    this._drainPosterPreloadQueue();
+  }
+
+  _drainPosterPreloadQueue() {
+    const maxConcurrency = 3;
+    while (this._posterPreloadInFlight < maxConcurrency && this._posterPreloadQueue.length > 0) {
+      const task = this._posterPreloadQueue.shift();
+      this._posterPreloadInFlight += 1;
+      resolveMediaMetadata(task.entry, {
+        kind: task.kind,
+        xtreamApi: this._buildActiveXtreamApi()
+      }).then((meta) => {
+        if (meta?.poster) {
+          task.entry.logo = meta.poster;
+          task.entry._logoFailed = false;
+          this._posterCacheMap.set(this._getPosterCacheKey(task.entry, task.isSeries), meta.poster);
+          if (this._posterPreloadQueue.length === 0) this._savePosterCache();
+          if (this.dom.sidebarCategoryList) {
+            const imgs = this.dom.sidebarCategoryList.querySelectorAll('img.sidebar-item-thumb');
+            imgs.forEach(img => {
+              if (img.getAttribute('data-thumb-id') === String(task.entry.id)) {
+                img.src = meta.poster;
+              }
+            });
+          }
+        }
+      }).catch(() => {}).finally(() => {
+        this._posterPreloadInFlight = Math.max(0, this._posterPreloadInFlight - 1);
+        if (this._posterPreloadQueue.length > 0) {
+          this._drainPosterPreloadQueue();
+        } else if (this._posterPreloadInFlight === 0) {
+          this._savePosterCache();
+        }
+      });
+    }
+  }
+
+  maybeAutoLoadMoreSidebarItems() {
+    if (this.sidebarDrillMode !== 'items') return false;
+    const isSeries = this._isSeriesGroupingActive();
+    const list = isSeries ? this.currentFilteredSeries : this.currentFilteredItems;
+    if (!Array.isArray(list) || this.renderedCount >= list.length) return false;
+    this.appendSidebarItemsBatch(this.PAGE_SIZE);
+    return true;
+  }
+
+  maybeAutoLoadMoreBrowseEpg() {
+    if (this.browseEpgMode !== 'all') return false;
+    const nextLimit = (this.browseEpgAllLimit || 60) + this.PAGE_SIZE;
+    this.browseEpgAllLimit = nextLimit;
+    this._lastExtendedEpgSig = '';
+    this.updateCurrentEpgDisplay();
+    return true;
+  }
+
+  maybeAutoLoadMoreEpgTimeline() {
+    this.epgTimelineLimit = (this.epgTimelineLimit || 60) + 60;
+    this.renderEpgTimeline();
+    return true;
+  }
+
+  maybeAutoLoadMoreForElement(el) {
+    if (!el) return;
+    if (el.classList?.contains('sidebar-item-row') && this.dom.sidebarCategoryList) {
+      const rows = this.dom.sidebarCategoryList.querySelectorAll('.sidebar-item-row');
+      const idx = Array.prototype.indexOf.call(rows, el);
+      if (idx >= 0 && idx >= rows.length - 8) {
+        this.maybeAutoLoadMoreSidebarItems();
+      }
+      return;
+    }
+    if (el.hasAttribute?.('data-browse-epg-play-id') && this.dom.playerEpgExtendedList) {
+      const cards = this.dom.playerEpgExtendedList.querySelectorAll('[data-browse-epg-play-id]');
+      const idx = Array.prototype.indexOf.call(cards, el);
+      if (idx >= 0 && idx >= cards.length - 4 && this.dom.browseEpgLoadMoreWrap && !this.dom.browseEpgLoadMoreWrap.classList.contains('hidden')) {
+        this.maybeAutoLoadMoreBrowseEpg();
+      }
+      return;
+    }
+    if (el.hasAttribute?.('data-play-id') && this.dom.epgTimelineContainer) {
+      const cards = this.dom.epgTimelineContainer.querySelectorAll('[data-play-id]');
+      const idx = Array.prototype.indexOf.call(cards, el);
+      if (idx >= 0 && idx >= cards.length - 4 && this.dom.epgTimelineLoadMoreWrap && !this.dom.epgTimelineLoadMoreWrap.classList.contains('hidden')) {
+        this.maybeAutoLoadMoreEpgTimeline();
+      }
+    }
+  }
+
   appendSidebarItemsBatch(count = 60) {
     if (!this.dom.sidebarCategoryList) return;
     const isSeries = this._isSeriesGroupingActive();
@@ -1997,7 +2691,7 @@ class FluiStreamApp {
 
     const html = nextBatch.map(entry => {
       if (isSeries) {
-        const logoUrl = entry.logo || 'assets/logo.svg';
+        const logoUrl = this._getCachedPoster(entry, true) || 'assets/logo.svg';
         const seasonText = entry.totalSeasons === 1
           ? i18n.get('seasonLabel', { num: 1 })
           : i18n.get('seasonsCount', { count: entry.totalSeasons });
@@ -2005,7 +2699,7 @@ class FluiStreamApp {
         const isPlayingSeries = Boolean(this.currentPlayingItem && this.activeSeries?.id === entry.id);
         return `
           <div class="sidebar-item-row ${isPlayingSeries ? 'playing' : ''}" data-id="${this.escapeHtml(entry.id)}" tabindex="0" role="button">
-            <img class="sidebar-item-thumb" src="${logoUrl}" alt="" loading="lazy" onerror="this.src='assets/logo.svg'" />
+            <img class="sidebar-item-thumb" data-thumb-id="${this.escapeHtml(entry.id)}" src="${logoUrl}" alt="" loading="lazy" onerror="this.onerror=null;this.src='assets/logo.svg'" />
             <div class="sidebar-item-meta">
               <div class="sidebar-item-name">${this.escapeHtml(entry.seriesTitle)}</div>
               <div class="sidebar-item-sub">${this.escapeHtml(seasonText)} • ${this.escapeHtml(epText)}</div>
@@ -2016,7 +2710,7 @@ class FluiStreamApp {
 
       const isFav = storage.isFavorite(entry.id);
       const isPlaying = Boolean(this.currentPlayingItem && String(this.currentPlayingItem.id) === String(entry.id));
-      const logoUrl = entry.logo || 'assets/logo.svg';
+      const logoUrl = this._getCachedPoster(entry, false) || 'assets/logo.svg';
       let subText = entry.group || '';
       if (entry.type === ItemType.LIVE) {
         const curProg = this.epg.getCurrentProgram(entry.tvgId, entry.name);
@@ -2028,7 +2722,7 @@ class FluiStreamApp {
 
       return `
         <div class="sidebar-item-row ${isPlaying ? 'playing' : ''}" data-id="${this.escapeHtml(entry.id)}" tabindex="0" role="button">
-          <img class="sidebar-item-thumb" src="${logoUrl}" alt="" loading="lazy" onerror="this.src='assets/logo.svg'" />
+          <img class="sidebar-item-thumb" data-thumb-id="${this.escapeHtml(entry.id)}" src="${logoUrl}" alt="" loading="lazy" onerror="this.onerror=null;this.src='assets/logo.svg'" />
           <div class="sidebar-item-meta">
             <div class="sidebar-item-name">${this.escapeHtml(entry.name)}</div>
             <div class="sidebar-item-sub">${this.escapeHtml(subText)}</div>
@@ -2041,17 +2735,15 @@ class FluiStreamApp {
     this.dom.sidebarCategoryList.insertAdjacentHTML('beforeend', html);
     this.renderedCount += nextBatch.length;
     this.toggleLoadMore(this.renderedCount, list.length);
+    this._enqueuePosterPreload(nextBatch, isSeries);
   }
 
   toggleLoadMore(rendered, total) {
     if (!this.dom.loadMoreWrap) return;
-    if (rendered < total) {
-      this.dom.loadMoreWrap.classList.remove('hidden');
-      if (this.dom.btnLoadMore) {
-        this.dom.btnLoadMore.textContent = i18n.get('btnLoadMore', { shown: rendered, total });
-      }
-    } else {
-      this.dom.loadMoreWrap.classList.add('hidden');
+    // Carregamento automático por scroll/D-Pad substitui clique manual em Carregar Mais
+    this.dom.loadMoreWrap.classList.add('hidden');
+    if (rendered < total && this.dom.btnLoadMore) {
+      this.dom.btnLoadMore.textContent = i18n.get('btnLoadMore', { shown: rendered, total });
     }
   }
 
@@ -2081,9 +2773,10 @@ class FluiStreamApp {
         if (!isDesktop) vlcOpt.textContent = `Player VLC (${i18n.get('playerEngineWebOnlyHint')})`;
       }
       this.dom.settingsPlayerEngineSelect.value = (!isDesktop && cfg.playerEngine === 'vlc') ? 'hls' : (cfg.playerEngine || 'hls');
+      this.updatePlayerEngineNotice(this.dom.settingsPlayerEngineSelect.value, this.dom.settingsPlayerEngineNotice);
     }
     this.openModal(this.dom.modalSettings);
-    if (!this.isNativeApp()) this.detectLocalProxy();
+    this.ensureLocalProxyStarted();
   }
 
   clearWatchHistory() {
@@ -2727,19 +3420,25 @@ class FluiStreamApp {
     this.dom.epgTimelineContainer.innerHTML = this._buildLiveEpgChannelRowsHtml(visible, 'data-play-id');
 
     if (this.dom.epgTimelineLoadMoreWrap && this.dom.btnEpgTimelineLoadMore) {
-      const hasMore = visible.length < total;
-      this.dom.epgTimelineLoadMoreWrap.classList.toggle('hidden', !hasMore);
-      if (hasMore) {
+      this.dom.epgTimelineLoadMoreWrap.classList.add('hidden');
+      if (visible.length < total) {
         this.dom.btnEpgTimelineLoadMore.textContent = i18n.get('btnLoadMore', { shown: visible.length, total });
       }
     }
 
     this.dom.epgTimelineContainer.querySelectorAll('[data-play-id]').forEach(el => {
-      el.addEventListener('click', () => {
+      const playEntry = () => {
         const item = this.playlist.items.find(x => x.id === el.getAttribute('data-play-id'));
         if (item) {
           this.openBrowseView(ItemType.LIVE, item.group || 'all', true);
           this.playChannel(item);
+        }
+      };
+      el.addEventListener('click', playEntry);
+      el.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          playEntry();
         }
       });
     });
@@ -2805,6 +3504,9 @@ class FluiStreamApp {
         e.stopPropagation();
         const idx = parseInt(btn.getAttribute('data-ms-retry'), 10);
         this.renderMultiScreenSlot(idx, true);
+        setTimeout(() => {
+          this.dom.multiscreenGrid?.querySelector(`[data-ms-retry="${idx}"]`)?.focus();
+        }, 20);
       });
     });
     slotEl.querySelectorAll('[data-ms-clear]').forEach(btn => {
@@ -2814,6 +3516,9 @@ class FluiStreamApp {
         this.multiScreenSlots[idx] = null;
         this.multiScreen.clearSlot(idx);
         this.renderMultiScreenSlot(idx, true);
+        setTimeout(() => {
+          this.dom.multiscreenGrid?.querySelector(`.multiscreen-slot[data-slot-index="${idx}"] .multiscreen-slot-empty`)?.focus();
+        }, 20);
       });
     });
   }
@@ -2904,7 +3609,7 @@ class FluiStreamApp {
     for (let i = 0; i < slotCount; i++) {
       const item = this.multiScreenSlots[i];
       const activeClass = i === this.activeMultiSlot ? 'slot-active' : '';
-      html += `<div class="multiscreen-slot ${activeClass}" data-slot-index="${i}" tabindex="0">${this._buildMultiScreenSlotInnerHtml(i, item)}</div>`;
+      html += `<div class="multiscreen-slot ${activeClass}" data-slot-index="${i}">${this._buildMultiScreenSlotInnerHtml(i, item)}</div>`;
     }
     this.dom.multiscreenGrid.innerHTML = html;
 
@@ -2920,6 +3625,11 @@ class FluiStreamApp {
       if (item && vid) {
         this.multiScreen.attachSlot(i, vid, item, cfg.corsProxy, cfg.streamMode, cfg.playerEngine || 'hls', stage);
       }
+    }
+
+    if (this._isTvNavigationMode()) {
+      const firstCtrl = this.dom.multiscreenGrid.querySelector('.multiscreen-slot-actions button, .multiscreen-slot-empty');
+      setTimeout(() => firstCtrl?.focus(), 30);
     }
   }
 
@@ -2983,6 +3693,9 @@ class FluiStreamApp {
           this.renderMultiScreenSlot(slotIdx, true);
           this.selectMultiScreenAudioSlot(slotIdx);
         }
+        setTimeout(() => {
+          this.dom.multiscreenGrid?.querySelector(`[data-ms-audio="${slotIdx}"]`)?.focus();
+        }, 40);
       }
     };
 
@@ -3244,8 +3957,27 @@ class FluiStreamApp {
     modal.setAttribute('data-modal-open', 'true');
     this.setBackgroundInert(true);
 
-    const firstFocusable = modal.querySelector('button, input, select, [tabindex="0"]');
-    if (firstFocusable) firstFocusable.focus();
+    const modalSelector = 'button:not([disabled]), input:not([type="hidden"]):not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href], [tabindex="0"]';
+    const isVisibleFocusable = (el) => {
+      if (!el || el.closest('.hidden, [hidden]')) return false;
+      const closedDetails = el.closest('details:not([open])');
+      if (closedDetails && !el.closest('summary')) return false;
+      return true;
+    };
+    const bodyCandidates = Array.from(modal.querySelectorAll(`.modal-body ${modalSelector}`)).filter(isVisibleFocusable);
+    const footerCandidates = Array.from(modal.querySelectorAll(`.modal-footer ${modalSelector}`)).filter(isVisibleFocusable);
+    const headerCandidates = Array.from(modal.querySelectorAll(`.modal-header ${modalSelector}`)).filter(isVisibleFocusable);
+    const firstFocusable = bodyCandidates[0] || footerCandidates[0] || headerCandidates[0] || modal.querySelector(modalSelector);
+    if (firstFocusable) {
+      if (this._isTvNavigationMode() && this._isTextEntryElement(firstFocusable)) {
+        firstFocusable.dataset.tvEditing = 'false';
+        firstFocusable.readOnly = true;
+      }
+      firstFocusable.focus({ preventScroll: false });
+      if (typeof firstFocusable.scrollIntoView === 'function') {
+        firstFocusable.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+      }
+    }
 
     this.updateNativeOverlayVisibility();
   }
@@ -3255,6 +3987,7 @@ class FluiStreamApp {
     if (modal === this.dom.modalSeries) {
       this.closeInlineTrailer();
     }
+    try { window.androidBridge?.hideKeyboard?.(); } catch (_) { /* ignore */ }
     modal.classList.add('hidden');
     modal.removeAttribute('data-modal-open');
 
@@ -3693,6 +4426,13 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
           if (e.target.closest('.profile-card-actions')) return;
           await this.switchProfile(card.getAttribute('data-profile-id'));
         });
+        card.addEventListener('keydown', async (e) => {
+          if (e.target !== card) return;
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            await this.switchProfile(card.getAttribute('data-profile-id'));
+          }
+        });
       });
       this.dom.profilesGrid.querySelectorAll('.btn-profile-info').forEach(btn => {
         btn.addEventListener('click', (e) => {
@@ -3783,6 +4523,7 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
     this.dom.inputEditExternalEpg.value = prof.epgUrl || '';
     this.dom.selectEditStreamMode.value = prof.streamMode || 'auto';
     this.dom.selectEditPlayerEngine.value = prof.playerEngine || 'hls';
+    this.updatePlayerEngineNotice(this.dom.selectEditPlayerEngine.value, this.dom.editPlayerEngineNotice);
     if (this.dom.editProfileAdvancedDetails) this.dom.editProfileAdvancedDetails.open = false;
     this.dom.inputEditCorsProxy.value = prof.corsProxy || '';
     this.dom.editProfileStatus.textContent = '';
@@ -3801,6 +4542,9 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
     prof.epgUrl = newEpgUrl;
     prof.streamMode = this.dom.selectEditStreamMode?.value || 'auto';
     prof.playerEngine = this.dom.selectEditPlayerEngine?.value || 'hls';
+    if (prof.playerEngine === 'hls') {
+      this.ensureLocalProxyStarted();
+    }
     prof.corsProxy = this.dom.inputEditCorsProxy?.value.trim() || '';
 
     let sourceChanged = false;
@@ -3954,7 +4698,14 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
     if (meta.synopsis && this.dom.seriesDesc) this.dom.seriesDesc.textContent = meta.synopsis;
     if (meta.poster) {
       series.logo = meta.poster;
+      this._posterCacheMap.set(this._getPosterCacheKey(series, true), meta.poster);
+      this._savePosterCache();
       if (this.dom.seriesPoster) this.dom.seriesPoster.src = meta.poster;
+      if (this.dom.sidebarCategoryList) {
+        this.dom.sidebarCategoryList.querySelectorAll('img.sidebar-item-thumb').forEach(img => {
+          if (img.getAttribute('data-thumb-id') === String(series.id)) img.src = meta.poster;
+        });
+      }
     }
     if (meta.genre && this.dom.seriesGenre) this.dom.seriesGenre.textContent = meta.genre;
   }
@@ -4019,7 +4770,14 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
     if (meta.synopsis && this.dom.seriesDesc) this.dom.seriesDesc.textContent = meta.synopsis;
     if (meta.poster) {
       movie.logo = meta.poster;
+      this._posterCacheMap.set(this._getPosterCacheKey(movie, false), meta.poster);
+      this._savePosterCache();
       if (this.dom.seriesPoster) this.dom.seriesPoster.src = meta.poster;
+      if (this.dom.sidebarCategoryList) {
+        this.dom.sidebarCategoryList.querySelectorAll('img.sidebar-item-thumb').forEach(img => {
+          if (img.getAttribute('data-thumb-id') === String(movie.id)) img.src = meta.poster;
+        });
+      }
     }
     const parts = [];
     if (meta.year) parts.push(meta.year);
@@ -4099,9 +4857,13 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
     const cfg = storage.getSettings();
     const activeStreamMode = this.dom.streamModeSelect?.value || cfg.streamMode || 'auto';
     const activeEngine = this.dom.playerEngineSelect?.value || cfg.playerEngine || (window.chrome?.webview ? 'vlc' : 'hls');
+    if (activeEngine === 'hls') {
+      this.ensureLocalProxyStarted();
+    }
 
     this.player.playStream(item, cfg.corsProxy, activeStreamMode, activeEngine);
     this.dom.playerCenterHit?.classList.toggle('hidden', activeEngine === 'vlc' && Boolean(window.chrome?.webview));
+    this.clearPlayerIdleTimer();
     this.syncVolumeUi();
 
     if (this.dom.currentChannelName) this.dom.currentChannelName.textContent = item.name;
@@ -4132,8 +4894,11 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
       this.player.setOverlayVisible(false);
     }
     this.currentPlayingItem = null;
+    this._isPlayerPlaying = false;
+    this.clearPlayerIdleTimer();
     this.browseEpgMode = 'all';
     this._lastExtendedEpgSig = '';
+    this.closePlayerToolsMenu(false);
     this.updatePlayPauseUi(false);
     this.dom.playerCenterHit?.classList.add('hidden');
     this.dom.playerCenterHit?.classList.remove('is-paused');
@@ -4147,11 +4912,18 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
     if (this.dom.currentProgramProgress) this.dom.currentProgramProgress.style.width = '0%';
     if (this.dom.progressThumb) this.dom.progressThumb.style.left = '0%';
     document.querySelectorAll('.sidebar-item-row.playing').forEach(r => r.classList.remove('playing'));
-    this.updateCurrentEpgDisplay();
+    if (this.activeScreen === 'browse') {
+      this.syncBrowseViewLayout();
+    } else {
+      this.updateCurrentEpgDisplay();
+    }
   }
 
   closePlayerAndReset() {
     this.stopPlayback();
+    const fallbackTarget = this.dom.sidebarCategoryList?.querySelector('.sidebar-item-row, .sidebar-cat-btn')
+      || this.dom.btnBackCategories;
+    setTimeout(() => fallbackTarget?.focus(), 20);
   }
 
   navigateChannel(delta) {
@@ -4185,6 +4957,8 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
     switch (state) {
       case 'loading':
       case 'buffering':
+        this._isPlayerPlaying = false;
+        this.clearPlayerIdleTimer();
         this.dom.playerLoadingOverlay.classList.remove('hidden');
         this.dom.playerErrorOverlay.classList.add('hidden');
         hideCorsErrorHint();
@@ -4193,20 +4967,30 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
         }
         break;
       case 'playing':
+        this._isPlayerPlaying = true;
         this.dom.playerLoadingOverlay.classList.add('hidden');
         this.dom.playerErrorOverlay.classList.add('hidden');
         hideCorsErrorHint();
+        if (this.player?.currentEngine === 'vlc' && typeof window !== 'undefined' && window.chrome?.webview) {
+          this.dom.playerCenterHit?.classList.add('hidden');
+          this.closePlayerToolsMenu(false);
+        }
         this.updatePlayPauseUi(true);
+        this.wakePlayerControls();
         break;
       case 'paused':
       case 'idle':
       case 'ready':
+        this._isPlayerPlaying = false;
         this.dom.playerLoadingOverlay.classList.add('hidden');
         this.dom.playerErrorOverlay.classList.add('hidden');
         hideCorsErrorHint();
         this.updatePlayPauseUi(false);
+        this.clearPlayerIdleTimer();
         break;
       case 'error':
+        this._isPlayerPlaying = false;
+        this.clearPlayerIdleTimer();
         this.dom.playerLoadingOverlay.classList.add('hidden');
         this.dom.playerErrorOverlay.classList.remove('hidden');
         this.updatePlayPauseUi(false);
@@ -4256,9 +5040,7 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
 
   updateCurrentEpgDisplay() {
     const hasPlayingLive = Boolean(this.currentPlayingItem && this.currentPlayingItem.type === ItemType.LIVE);
-    const shouldShowEpg = this.currentPlayingItem
-      ? (this.currentPlayingItem.type === ItemType.LIVE)
-      : (this.currentView === ItemType.LIVE);
+    const shouldShowEpg = hasPlayingLive;
 
     if (!shouldShowEpg) {
       // Filmes e Séries: não exibir nada de EPG abaixo do player
@@ -4373,9 +5155,8 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
     );
 
     if (this.dom.browseEpgLoadMoreWrap && this.dom.btnBrowseEpgLoadMore) {
-      const hasMore = visible.length < ordered.length;
-      this.dom.browseEpgLoadMoreWrap.classList.toggle('hidden', !hasMore);
-      if (hasMore) {
+      this.dom.browseEpgLoadMoreWrap.classList.add('hidden');
+      if (visible.length < ordered.length) {
         this.dom.btnBrowseEpgLoadMore.textContent = i18n.get('btnLoadMore', { shown: visible.length, total: ordered.length });
       }
     }
@@ -4438,28 +5219,104 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
     }
   }
 
-  async detectLocalProxy() {
-    if (this.isNativeApp()) return;
+  updatePlayerEngineNotice(engine, targetEl, ensureProxy = true) {
+    if (!targetEl) return;
+    const isVlc = engine === 'vlc';
+    targetEl.classList.toggle('is-vlc', isVlc);
+    const mainMsg = i18n.get(isVlc ? 'playerEngineVlcNotice' : 'playerEngineHlsNotice');
+    const proxyUrl = (typeof window !== 'undefined' && typeof window.__fluiLocalProxyUrl === 'string') ? window.__fluiLocalProxyUrl : '';
+    const subHtml = (!isVlc && proxyUrl)
+      ? `<div class="engine-choice-notice-sub">${this.escapeHtml(i18n.get('localProxyAutoActive', { url: proxyUrl }))}</div>`
+      : '';
+    targetEl.innerHTML = `<div>${this.escapeHtml(mainMsg)}</div>${subHtml}`;
+    if (!isVlc && ensureProxy && !proxyUrl) {
+      this.ensureLocalProxyStarted();
+    }
+  }
+
+  handleLocalProxyStatus(status) {
+    if (!status?.active || !status?.url) return;
+    if (typeof window !== 'undefined') {
+      window.__fluiLocalProxyUrl = status.url;
+    }
+    if (this.dom.localProxyDetectStatus) {
+      this.dom.localProxyDetectStatus.innerHTML = `<span style="color: var(--accent-green); font-weight: 600;">${this.escapeHtml(i18n.get('localProxyAutoActive', { url: status.url }))}</span>`;
+    }
+    if (this.dom.settingsPlayerEngineSelect?.value === 'hls' && this.dom.settingsPlayerEngineNotice) {
+      this.updatePlayerEngineNotice('hls', this.dom.settingsPlayerEngineNotice, false);
+    }
+    if (this.dom.selectEditPlayerEngine?.value === 'hls' && this.dom.editPlayerEngineNotice) {
+      this.updatePlayerEngineNotice('hls', this.dom.editPlayerEngineNotice, false);
+    }
+  }
+
+  async ensureLocalProxyStarted() {
+    if (typeof window === 'undefined' || window.androidBridge) return;
+    if (window.chrome?.webview) {
+      if (window.__fluiLocalProxyUrl) {
+        this.handleLocalProxyStatus({ active: true, url: window.__fluiLocalProxyUrl });
+        return;
+      }
+      if (!this._localProxyRequested) {
+        this._localProxyRequested = true;
+        this.player?.notifyNativeVlc?.('ENSURE_LOCAL_PROXY');
+      }
+      return;
+    }
+
+    if (window.__fluiLocalProxyUrl) {
+      this.handleLocalProxyStatus({ active: true, url: window.__fluiLocalProxyUrl });
+      return;
+    }
+    if (this._localProxyProbeInFlight) return;
+    this._localProxyProbeInFlight = true;
     try {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 1200);
-      const res = await fetch('http://127.0.0.1:8787/health', { signal: controller.signal });
-      clearTimeout(timer);
-      if (res.ok) {
+      await this.detectLocalProxy();
+    } finally {
+      this._localProxyProbeInFlight = false;
+    }
+  }
+
+  async detectLocalProxy() {
+    if (typeof window === 'undefined' || window.androidBridge || window.chrome?.webview) return;
+    const probeUrls = [];
+    const loc = window.location;
+    if (loc && (loc.hostname === '127.0.0.1' || loc.hostname === 'localhost')) {
+      probeUrls.push(`${loc.origin}/health`);
+    }
+    if (!probeUrls.includes('http://127.0.0.1:5055/health')) {
+      probeUrls.push('http://127.0.0.1:5055/health');
+    }
+    probeUrls.push('http://127.0.0.1:8787/health');
+
+    for (const healthUrl of probeUrls) {
+      try {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 1100);
+        const res = await fetch(healthUrl, { signal: controller.signal });
+        clearTimeout(timer);
+        if (!res.ok) continue;
         const data = await res.json();
-        if (data.status === 'ok') {
-          if (this.dom.localProxyDetectStatus) {
-            this.dom.localProxyDetectStatus.innerHTML = `<span style="color: var(--accent-green); font-weight: 600;">${this.escapeHtml(i18n.get('localBridgeActive'))}</span>`;
+        if (data?.status === 'ok') {
+          if (data.proxyUrl) {
+            this.handleLocalProxyStatus({ active: true, url: data.proxyUrl });
+            return;
           }
-          const cfg = storage.getSettings();
-          if (!cfg.corsProxy) {
-            cfg.corsProxy = 'http://127.0.0.1:8787/?';
-            storage.saveSettings(cfg);
-            if (this.dom.corsInput) this.dom.corsInput.value = cfg.corsProxy;
+          if (healthUrl.includes(':8787')) {
+            if (this.dom.localProxyDetectStatus) {
+              this.dom.localProxyDetectStatus.innerHTML = `<span style="color: var(--accent-green); font-weight: 600;">${this.escapeHtml(i18n.get('localBridgeActive'))}</span>`;
+            }
+            const cfg = storage.getSettings();
+            if (!cfg.corsProxy) {
+              cfg.corsProxy = 'http://127.0.0.1:8787/?';
+              storage.saveSettings(cfg);
+              if (this.dom.corsInput) this.dom.corsInput.value = cfg.corsProxy;
+            }
+            return;
           }
         }
-      }
-    } catch {}
+      } catch {}
+    }
   }
 
   formatDuration(seconds) {

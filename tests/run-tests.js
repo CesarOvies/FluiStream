@@ -13,7 +13,15 @@ import { XtreamApi } from '../src/web/js/xtream-api.js';
 import { translations, SupportedLanguages, i18n } from '../src/web/js/localization.js';
 import { APP_VERSION, getCurrentVersion, parseCleanVersion, isNewerVersion, selectReleaseAssets, checkForUpdate } from '../src/web/js/version.js';
 import { VideoPlayerController, computeOverlayLayout } from '../src/web/js/player.js';
-import { cleanMediaTitle, parseAdoroCinemaHtml, resolveTrailerPlayback } from '../src/web/js/media-metadata.js';
+import {
+  cleanMediaTitle,
+  parseAdoroCinemaHtml,
+  scoreTitleMatch,
+  selectBestYouTubeTrailerFromHtml,
+  resolveYouTubeTrailerId,
+  resolveTrailerPlayback,
+  resolveMediaMetadata
+} from '../src/web/js/media-metadata.js';
 import { StorageService } from '../src/web/js/storage.js';
 import { applyCorsProxy } from '../src/web/js/network.js';
 
@@ -118,7 +126,7 @@ await test('Todos os 3 idiomas (pt-BR, en-US, es) devem possuir o mesmo conjunto
   const enKeys = Object.keys(translations['en-US']).sort();
   const esKeys = Object.keys(translations['es']).sort();
 
-  assert.equal(ptKeys.length, 251, `Esperado exatamente 251 chaves i18n em pt-BR, obtido ${ptKeys.length}`);
+  assert.equal(ptKeys.length, 257, `Esperado exatamente 257 chaves i18n em pt-BR, obtido ${ptKeys.length}`);
   assert.deepEqual(ptKeys, enKeys, 'Chaves pt-BR e en-US devem ser idênticas');
   assert.deepEqual(ptKeys, esKeys, 'Chaves pt-BR e es devem ser idênticas');
 
@@ -1249,6 +1257,745 @@ await test('Mobile não entra em fullscreen automático ao dar play/tocar e reto
 
   assert.equal(playCalls >= 1, true, 'Deve chamar video.play() ao sair do fullscreen nativo');
   clearTimeout(ctrl._fullscreenResumeTimer);
+});
+
+await test('Android TV D-Pad navega por tabs, inputs de texto, checkboxes, selects e teclado IME sem ficar preso', async () => {
+  const { runInNewContext } = await import('node:vm');
+  const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+  const appJs = readFileSync(resolve(rootDir, 'src/web/js/app.js'), 'utf8');
+  const html = readFileSync(resolve(rootDir, 'src/web/index.html'), 'utf8');
+  const css = readFileSync(resolve(rootDir, 'src/web/css/style.css'), 'utf8');
+  const bridgeKt = readFileSync(resolve(rootDir, 'src/android/app/src/main/java/com/cesarovies/fluistream/NativeBridge.kt'), 'utf8');
+  const activityKt = readFileSync(resolve(rootDir, 'src/android/app/src/main/java/com/cesarovies/fluistream/MainActivity.kt'), 'utf8');
+
+  assert.match(bridgeKt, /@JavascriptInterface\s+fun isTv\(\): Boolean/);
+  assert.match(bridgeKt, /@JavascriptInterface\s+fun showKeyboard\(\)/);
+  assert.match(bridgeKt, /@JavascriptInterface\s+fun hideKeyboard\(\)/);
+  assert.match(activityKt, /SOFT_INPUT_ADJUST_RESIZE/);
+
+  for (const rel of ['index.html', 'css/style.css', 'js/app.js']) {
+    assert.equal(
+      readFileSync(resolve(rootDir, 'src/web', rel), 'utf8'),
+      readFileSync(resolve(rootDir, 'src/android/app/src/main/assets/web', rel), 'utf8'),
+      `Asset Android dessincronizado: ${rel}`
+    );
+  }
+  assert.match(html, /class="xtream-credentials-grid"/);
+  assert.match(html, /id="btn-cancel-import"/);
+  assert.match(css, /\.xtream-credentials-grid/);
+  assert.match(css, /\[data-tv-editing="true"\]:focus/);
+
+  const extractMethod = (name) => {
+    const start = appJs.indexOf(`  ${name}(`);
+    assert.ok(start !== -1, `Método ${name} deve existir em app.js`);
+    let i = appJs.indexOf('{', start);
+    let depth = 0;
+    for (; i < appJs.length; i++) {
+      const ch = appJs[i];
+      if (ch === '{') depth++;
+      else if (ch === '}') {
+        depth--;
+        if (depth === 0) return appJs.slice(start, i + 1);
+      }
+    }
+    throw new Error(`Fechamento de chaves não encontrado para ${name}`);
+  };
+
+  let activeEl = null;
+  let showKbCount = 0;
+  let hideKbCount = 0;
+
+  const makeEl = ({ id = '', tagName = 'DIV', type = 'text', classes = [], rect, parent = null }) => {
+    const classSet = new Set(classes);
+    const el = {
+      id,
+      tagName,
+      type,
+      value: '',
+      readOnly: false,
+      disabled: false,
+      clicked: 0,
+      selectionStart: 0,
+      selectionEnd: 0,
+      children: [],
+      attributes: new Map(),
+      dataset: {},
+      classList: {
+        contains: (c) => classSet.has(c),
+        add: (c) => classSet.add(c),
+        remove: (c) => classSet.delete(c),
+        toggle: (c, force) => {
+          if (force === undefined) classSet.has(c) ? classSet.delete(c) : classSet.add(c);
+          else if (force) classSet.add(c);
+          else classSet.delete(c);
+        }
+      },
+      setAttribute: (k, v) => el.attributes.set(k, v),
+      removeAttribute: (k) => el.attributes.delete(k),
+      getBoundingClientRect: () => rect,
+      focus: () => { activeEl = el; },
+      scrollIntoView: () => {},
+      click: () => { el.clicked++; },
+      setSelectionRange: (s, e) => { el.selectionStart = s; el.selectionEnd = e; },
+      contains: (other) => {
+        let cur = other;
+        while (cur) {
+          if (cur === el) return true;
+          cur = cur.parent;
+        }
+        return false;
+      },
+      closest: (sel) => {
+        const tokens = sel.split(',').map(s => s.trim());
+        let cur = el;
+        while (cur) {
+          if (tokens.some(t => t === '.hidden' && cur.classList.contains('hidden')) ||
+              tokens.some(t => t === '.modal-header' && cur.classList.contains('modal-header')) ||
+              tokens.some(t => t === '.modal-body' && cur.classList.contains('modal-body')) ||
+              tokens.some(t => t === '.modal-footer' && cur.classList.contains('modal-footer'))) {
+            return cur;
+          }
+          cur = cur.parent;
+        }
+        return null;
+      },
+      matches: (sel) => sel.split(',').map(s => s.trim()).some(part => {
+        if (part.startsWith('.')) return el.classList.contains(part.slice(1));
+        if (part.startsWith('#')) return el.id === part.slice(1);
+        if (part.startsWith('input')) return el.tagName === 'INPUT' && el.type !== 'hidden';
+        if (part === 'select') return el.tagName === 'SELECT';
+        if (part === 'textarea') return el.tagName === 'TEXTAREA';
+        if (part === 'button') return el.tagName === 'BUTTON';
+        return false;
+      }),
+      querySelectorAll: (sel) => {
+        const out = [];
+        const tokens = sel.split(',').map(s => s.trim());
+        const walk = (node) => {
+          for (const child of node.children) {
+            const matched = tokens.some(tok => {
+              if (tok.startsWith('.modal-header ')) return child.closest('.modal-header') && child.matches(tok.replace('.modal-header ', ''));
+              if (tok.startsWith('.modal-body ')) return child.closest('.modal-body') && child.matches(tok.replace('.modal-body ', ''));
+              if (tok.startsWith('.modal-footer ')) return child.closest('.modal-footer') && child.matches(tok.replace('.modal-footer ', ''));
+              return child.matches(tok);
+            });
+            if (matched) out.push(child);
+            walk(child);
+          }
+        };
+        walk(el);
+        return out;
+      },
+      querySelector: (sel) => el.querySelectorAll(sel)[0] || null,
+      parent
+    };
+    if (parent) parent.children.push(el);
+    return el;
+  };
+
+  const zeroRect = { left: 0, right: 0, top: 0, bottom: 0, width: 0, height: 0 };
+  const modal = makeEl({ id: 'modal-import', classes: ['modal-backdrop'], rect: zeroRect });
+  const header = makeEl({ classes: ['modal-header'], rect: zeroRect, parent: modal });
+  const body = makeEl({ classes: ['modal-body'], rect: zeroRect, parent: modal });
+  const footer = makeEl({ classes: ['modal-footer'], rect: zeroRect, parent: modal });
+
+  const btnClose = makeEl({ id: 'btn-close-import', tagName: 'BUTTON', rect: { left: 680, right: 716, top: 40, bottom: 76, width: 36, height: 36 }, parent: header });
+  const inputProfile = makeEl({ id: 'input-profile-name', tagName: 'INPUT', type: 'text', rect: { left: 240, right: 696, top: 96, bottom: 140, width: 456, height: 44 }, parent: body });
+  const tabFile = makeEl({ id: 'tab-file', tagName: 'BUTTON', classes: ['import-tab-btn'], rect: { left: 240, right: 388, top: 152, bottom: 196, width: 148, height: 44 }, parent: body });
+  const tabUrl = makeEl({ id: 'tab-url', tagName: 'BUTTON', classes: ['import-tab-btn'], rect: { left: 396, right: 544, top: 152, bottom: 196, width: 148, height: 44 }, parent: body });
+  const tabXtream = makeEl({ id: 'tab-xtream', tagName: 'BUTTON', classes: ['import-tab-btn', 'active'], rect: { left: 552, right: 696, top: 152, bottom: 196, width: 144, height: 44 }, parent: body });
+  const inputXtreamServer = makeEl({ id: 'input-xtream-server', tagName: 'INPUT', type: 'text', rect: { left: 240, right: 696, top: 208, bottom: 252, width: 456, height: 44 }, parent: body });
+  const inputXtreamUser = makeEl({ id: 'input-xtream-user', tagName: 'INPUT', type: 'text', rect: { left: 240, right: 462, top: 264, bottom: 308, width: 222, height: 44 }, parent: body });
+  const inputXtreamPass = makeEl({ id: 'input-xtream-pass', tagName: 'INPUT', type: 'password', rect: { left: 474, right: 696, top: 264, bottom: 308, width: 222, height: 44 }, parent: body });
+  const checkEpg = makeEl({ id: 'check-use-embedded-epg', tagName: 'INPUT', type: 'checkbox', rect: { left: 240, right: 260, top: 324, bottom: 344, width: 20, height: 20 }, parent: body });
+  // Simula campo abaixo da dobra de scroll do .modal-body (top maior que o rodapé fixo)
+  const selectTest = makeEl({ id: 'select-test', tagName: 'SELECT', rect: { left: 240, right: 696, top: 480, bottom: 524, width: 456, height: 44 }, parent: body });
+  const btnCancel = makeEl({ id: 'btn-cancel-import', tagName: 'BUTTON', rect: { left: 430, right: 550, top: 420, bottom: 466, width: 120, height: 46 }, parent: footer });
+  const btnSubmit = makeEl({ id: 'btn-submit-import', tagName: 'BUTTON', rect: { left: 560, right: 696, top: 420, bottom: 466, width: 136, height: 46 }, parent: footer });
+
+  const mockDocument = {
+    body: modal,
+    get activeElement() { return activeEl; },
+    querySelector: (sel) => (sel.includes('.modal-backdrop:not(.hidden)') && !modal.classList.contains('hidden')) ? modal : null,
+    querySelectorAll: (sel) => (sel.includes('.modal-backdrop:not(.hidden)') && !modal.classList.contains('hidden')) ? [modal] : []
+  };
+  const mockWindow = {
+    innerWidth: 960,
+    innerHeight: 540,
+    matchMedia: () => ({ matches: false }),
+    androidBridge: {
+      isAndroid: () => true,
+      isTv: () => true,
+      showKeyboard: () => { showKbCount++; },
+      hideKeyboard: () => { hideKbCount++; }
+    }
+  };
+  const code = `(() => class TestNavController {
+    constructor() { this.dom = {}; }
+    setBackgroundInert() {}
+    updateNativeOverlayVisibility() {}
+    ${extractMethod('resolveEffectiveDeviceMode')}
+    ${extractMethod('_isTvNavigationMode')}
+    ${extractMethod('_isTextEntryElement')}
+    ${extractMethod('_setTvInputEditing')}
+    ${extractMethod('moveSpatialFocus')}
+    ${extractMethod('handleGlobalKeyDown')}
+    ${extractMethod('openModal')}
+  })()`;
+
+  const NavController = runInNewContext(code, {
+    storage: { getSettings: () => ({ deviceMode: 'auto' }) },
+    document: mockDocument,
+    window: mockWindow,
+    navigator: { userAgent: 'Mozilla/5.0 (Linux; Android 14; sdk_google_atv64_x86_64) AppleWebKit/537.36' }
+  });
+  const ctrl = new NavController();
+
+  assert.equal(ctrl.resolveEffectiveDeviceMode('auto'), 'tv');
+
+  ctrl.openModal(modal);
+  assert.equal(activeEl, inputProfile, 'openModal deve focar primeiro campo útil no modal-body, não o botão X');
+  assert.equal(inputProfile.readOnly, true);
+  assert.equal(inputProfile.dataset.tvEditing, 'false');
+
+  const keyEv = (key) => {
+    let prevented = false;
+    return {
+      key,
+      code: key === ' ' ? 'Space' : key,
+      target: activeEl,
+      preventDefault: () => { prevented = true; },
+      stopPropagation: () => {},
+      get prevented() { return prevented; }
+    };
+  };
+
+  // Navega das abas até a aba da direita (Xtream); ArrowRight extra na última aba não deve pular para o X do header
+  tabXtream.focus();
+  ctrl.handleGlobalKeyDown(keyEv('ArrowRight'));
+  assert.equal(activeEl, tabXtream, 'ArrowRight na última aba não deve pular diagonalmente ao header');
+  ctrl.handleGlobalKeyDown(keyEv('ArrowDown'));
+  assert.equal(activeEl, inputXtreamServer, 'ArrowDown na aba direita deve alcançar input-xtream-server');
+  assert.equal(inputXtreamServer.readOnly, true);
+
+  // DPAD_CENTER / Enter ativa edição e abre teclado IME
+  ctrl.handleGlobalKeyDown(keyEv('Enter'));
+  assert.equal(inputXtreamServer.readOnly, false);
+  assert.equal(inputXtreamServer.dataset.tvEditing, 'true');
+  assert.equal(showKbCount, 1);
+
+  // ArrowDown sai da edição, fecha IME e desce ao usuário
+  ctrl.handleGlobalKeyDown(keyEv('ArrowDown'));
+  assert.equal(inputXtreamServer.readOnly, true);
+  assert.equal(inputXtreamServer.dataset.tvEditing, 'false');
+  assert.equal(hideKbCount, 1);
+  assert.equal(activeEl, inputXtreamUser);
+
+  // ArrowRight vai para senha; ArrowDown desce para checkbox -> Enter marca checkbox
+  ctrl.handleGlobalKeyDown(keyEv('ArrowRight'));
+  assert.equal(activeEl, inputXtreamPass);
+  ctrl.handleGlobalKeyDown(keyEv('ArrowDown'));
+  assert.equal(activeEl, checkEpg);
+  ctrl.handleGlobalKeyDown(keyEv('Enter'));
+  assert.equal(checkEpg.clicked, 1);
+
+  // ArrowDown vai para <select> e ArrowDown sai do <select> para botão no footer
+  ctrl.handleGlobalKeyDown(keyEv('ArrowDown'));
+  assert.equal(activeEl, selectTest);
+  ctrl.handleGlobalKeyDown(keyEv('ArrowDown'));
+  assert.ok(activeEl === btnCancel || activeEl === btnSubmit, 'ArrowDown deve sair de <select> para o rodapé');
+
+  // Evita aviso de variável não usada em btnClose / tabFile / tabUrl
+  assert.ok(btnClose && tabFile && tabUrl);
+});
+
+await test('Multi-Tela D-Pad navega diretamente pelos botões de áudio, recarregar, trocar, fechar e slot vazio', async () => {
+  const __dirname = dirname(fileURLToPath(import.meta.url));
+  const rootDir = resolve(__dirname, '..');
+  const appJs = readFileSync(resolve(rootDir, 'src/web/js/app.js'), 'utf8');
+  const { runInNewContext } = await import('node:vm');
+
+  assert.doesNotMatch(appJs, /class="multiscreen-slot [^"]*"[^>]*tabindex="0"/, 'Slots preenchidos não devem bloquear foco interno com tabindex próprio');
+  assert.match(appJs, /'\.multiscreen-slot-empty',\s*'\.multiscreen-slot-actions button'/);
+
+  const extractMethod = (name) => {
+    const start = appJs.indexOf(`  ${name}(`);
+    assert.ok(start >= 0, `Método ${name} deve existir`);
+    const nextMatch = appJs.slice(start + 1).search(/\n  (?:async )?[a-zA-Z_][a-zA-Z0-9_]*\(/);
+    return nextMatch >= 0 ? appJs.slice(start, start + 1 + nextMatch) : appJs.slice(start);
+  };
+
+  let activeEl = null;
+  const makeBtn = (id, classes, rect, parent) => {
+    const el = {
+      id,
+      tagName: 'BUTTON',
+      classes: new Set(classes),
+      children: [],
+      dataset: {},
+      classList: { contains: (c) => el.classes.has(c) },
+      focus: () => { activeEl = el; },
+      scrollIntoView: () => {},
+      getBoundingClientRect: () => rect,
+      closest: (sel) => {
+        const tokens = sel.split(',').map(s => s.trim());
+        let cur = el;
+        while (cur) {
+          if (tokens.some(t => t.startsWith('.') ? cur.classes.has(t.slice(1)) : cur.id === t.replace('#', ''))) return cur;
+          cur = cur.parent;
+        }
+        return null;
+      },
+      matches: (sel) => sel.split(',').some(t => {
+        const tok = t.trim();
+        if (tok === '.multiscreen-slot-empty') return el.classes.has('multiscreen-slot-empty');
+        if (tok === '.multiscreen-slot-actions button') return Boolean(el.closest('.multiscreen-slot-actions'));
+        return false;
+      }),
+      contains: (other) => other === el,
+      parent
+    };
+    if (parent) parent.children.push(el);
+    return el;
+  };
+  const grid = { id: 'ms-grid', classes: new Set(['multiscreen-grid']), children: [], classList: { contains: () => false }, parent: null };
+  const slot0 = { id: 'slot0', classes: new Set(['multiscreen-slot']), children: [], classList: { contains: () => false }, parent: grid };
+  const actions0 = { id: 'act0', classes: new Set(['multiscreen-slot-actions']), children: [], classList: { contains: () => false }, parent: slot0 };
+  const btnAudio0 = makeBtn('ms-audio-0', ['btn-icon'], { left: 100, right: 134, top: 420, bottom: 454, width: 34, height: 34 }, actions0);
+  const btnRetry0 = makeBtn('ms-retry-0', ['btn-icon'], { left: 140, right: 174, top: 420, bottom: 454, width: 34, height: 34 }, actions0);
+  const btnPick0 = makeBtn('ms-pick-0', ['btn-icon'], { left: 180, right: 214, top: 420, bottom: 454, width: 34, height: 34 }, actions0);
+  const btnClear0 = makeBtn('ms-clear-0', ['btn-icon'], { left: 220, right: 254, top: 420, bottom: 454, width: 34, height: 34 }, actions0);
+  const slot1 = { id: 'slot1', classes: new Set(['multiscreen-slot']), children: [], classList: { contains: () => false }, parent: grid };
+  const btnEmpty1 = makeBtn('ms-empty-1', ['multiscreen-slot-empty'], { left: 500, right: 900, top: 100, bottom: 260, width: 400, height: 160 }, slot1);
+
+  const scope = {
+    contains: () => true,
+    querySelectorAll: () => [btnAudio0, btnRetry0, btnPick0, btnClear0, btnEmpty1]
+  };
+  const mockDoc = {
+    body: scope,
+    get activeElement() { return activeEl; },
+    getElementById: (id) => (id === 'main-layout' ? scope : null),
+    querySelector: () => null,
+    querySelectorAll: () => []
+  };
+  const NavCls = runInNewContext(`(() => class MsNav {
+    constructor() { this.dom = {}; }
+    _isTvNavigationMode() { return true; }
+    _isTextEntryElement() { return false; }
+    maybeAutoLoadMoreForElement() {}
+    ${extractMethod('moveSpatialFocus')}
+  })()`, { document: mockDoc });
+  const nav = new NavCls();
+
+  btnAudio0.focus();
+  assert.equal(nav.moveSpatialFocus('ArrowRight', false), true);
+  assert.equal(activeEl, btnRetry0, 'D-Pad Right deve alcançar botão Recarregar');
+  assert.equal(nav.moveSpatialFocus('ArrowRight', false), true);
+  assert.equal(activeEl, btnPick0, 'D-Pad Right deve alcançar botão Trocar Canal');
+  assert.equal(nav.moveSpatialFocus('ArrowRight', false), true);
+  assert.equal(activeEl, btnClear0, 'D-Pad Right deve alcançar botão Fechar/Limpar Slot');
+  assert.equal(nav.moveSpatialFocus('ArrowRight', false), true);
+  assert.equal(activeEl, btnEmpty1, 'D-Pad Right em layout assimétrico deve alcançar slot vazio da coluna ao lado');
+});
+
+await test('Trailer do filme rejeita bumper/15s não relacionado e escolhe o trailer oficial com título e ano compatíveis', async () => {
+  const youtubeHtml = `
+    "videoRenderer":{"videoId":"bad15sClip1","title":{"runs":[{"text":"D106 Victorian Psychopath Initial Credits 15s video 1920x1080"}]},"lengthText":{"simpleText":"0:15"}}
+    "videoRenderer":{"videoId":"badUnrelated","title":{"runs":[{"text":"Outra Coisa Qualquer Trailer Oficial"}]},"lengthText":{"simpleText":"2:10"}}
+    "videoRenderer":{"videoId":"pele2016Ok1","title":{"runs":[{"text":"Pelé: O Nascimento de uma Lenda (2016) | Trailer Oficial Legendado"}]},"lengthText":{"simpleText":"2:18"}}
+  `;
+  const picked = selectBestYouTubeTrailerFromHtml(youtubeHtml, 'Pelé: O Nascimento de uma Lenda', '2016');
+  assert.equal(picked, 'pele2016Ok1');
+  assert.equal(scoreTitleMatch('Victorian Psychopath Initial Credits', 'Pelé: O Nascimento de uma Lenda', '2016'), -1);
+
+  const meta = await resolveMediaMetadata(
+    { id: 'mov-pele-2016', name: 'Pelé: O Nascimento de uma Lenda (2016)', type: 'movie' },
+    {
+      fetchText: async () => '',
+      fetchJson: async (url) => {
+        if (url.includes('itunes.apple.com')) {
+          return {
+            results: [
+              { trackName: 'Victorian Psychopath', releaseDate: '2024-01-01', previewUrl: 'https://cdn.example/wrong.m4v', artworkUrl100: 'https://cdn.example/wrong_100x100bb.jpg' },
+              { trackName: 'Pelé: Birth of a Legend', releaseDate: '2016-05-06', artworkUrl100: 'https://cdn.example/wrong_en_100x100bb.jpg' }
+            ]
+          };
+        }
+        return {};
+      }
+    }
+  );
+  assert.equal(meta.trailerUrl, '', 'Não deve aceitar previewUrl do iTunes cujo título/ano divergem do filme');
+
+  const ytRes = await resolveYouTubeTrailerId('Pelé: O Nascimento de uma Lenda', async (url) => {
+    assert.ok(url.includes('2016'), 'Busca de trailer no YouTube deve incluir ano do filme quando disponível');
+    return youtubeHtml;
+  }, '2016');
+  assert.equal(ytRes, 'pele2016Ok1');
+});
+
+await test('Tela maximizada exclusiva antes do play, pré-carregamento de capas, auto-load e menu interno do player', () => {
+  const __dirname = dirname(fileURLToPath(import.meta.url));
+  const rootDir = resolve(__dirname, '..');
+  const html = readFileSync(resolve(rootDir, 'src/web/index.html'), 'utf8');
+  const css = readFileSync(resolve(rootDir, 'src/web/css/style.css'), 'utf8');
+  const appJs = readFileSync(resolve(rootDir, 'src/web/js/app.js'), 'utf8');
+
+  // 1. Menu interno de ferramentas dentro do player e remoção de motor/estilo da barra do player
+  const playerWrapperStart = html.indexOf('id="player-wrapper"');
+  const playerMetaStart = html.indexOf('class="player-meta-bar"');
+  const playerWrapperBlock = html.slice(playerWrapperStart, playerMetaStart);
+  const playerMetaBlock = html.slice(playerMetaStart, html.indexOf('id="player-epg-card"'));
+
+  assert.match(playerWrapperBlock, /id="btn-player-tools"/);
+  assert.match(playerWrapperBlock, /id="player-tools-menu"/);
+  assert.match(playerWrapperBlock, /id="btn-player-mute"/);
+  assert.match(playerWrapperBlock, /id="input-player-volume"/);
+  assert.match(playerWrapperBlock, /id="select-aspect-ratio"/);
+  assert.match(playerWrapperBlock, /id="select-player-audio"/);
+  assert.match(playerWrapperBlock, /id="select-player-subtitles"/);
+  assert.match(playerWrapperBlock, /id="btn-player-pip"/);
+  assert.match(playerWrapperBlock, /id="btn-player-fullscreen"/);
+  assert.match(playerWrapperBlock, /id="btn-player-playpause"/);
+  assert.match(playerWrapperBlock, /id="btn-player-stop"/);
+  assert.match(playerWrapperBlock, /id="btn-player-close"/);
+
+  assert.equal(playerMetaBlock.includes('id="select-player-engine"'), false, 'Seletor HLS/VLC deve ficar apenas nas Configurações');
+  assert.equal(playerMetaBlock.includes('id="select-stream-mode"'), false, 'Seletor de formato (.m3u8/.ts) deve ficar apenas nas Configurações');
+  assert.match(html, /id="settings-player-engine-select"/, 'Seletor HLS/VLC deve permanecer nas Configurações');
+  assert.match(appJs, /openStreamFormatSubModal\(/, 'Seletor de formato deve permanecer nas Configurações');
+
+  // 2. Catálogo maximizado antes da reprodução e pré-carregamento de capas
+  assert.match(appJs, /classList\.toggle\('catalog-maximized',\s*catalogMaximized\)/);
+  assert.match(appJs, /playerSection\?\.classList\.toggle\('hidden',\s*!playing\)/);
+  assert.match(css, /\.split-pane-shell\.catalog-maximized/);
+  assert.match(css, /\.split-pane-shell\.catalog-maximized\.mode-items #sidebar-category-list/);
+  assert.match(appJs, /_enqueuePosterPreload\(/);
+  assert.match(appJs, /flui_poster_cache_v1/);
+
+  // 3. Carregamento automático por scroll e foco D-Pad sem precisar clicar Carregar Mais
+  assert.match(appJs, /maybeAutoLoadMoreSidebarItems\(/);
+  assert.match(appJs, /maybeAutoLoadMoreForElement\(/);
+  assert.match(css, /\.sidebar-load-more-wrap,\s*\.load-more-wrap\s*\{\s*display:\s*none\s*!important;/);
+});
+
+await test('Grade de categorias maximizada mantém altura automática sem empilhamento em telas grandes e pequenas', () => {
+  const __dirname = dirname(fileURLToPath(import.meta.url));
+  const rootDir = resolve(__dirname, '..');
+  const css = readFileSync(resolve(rootDir, 'src/web/css/style.css'), 'utf8');
+
+  assert.match(css, /\.split-pane-shell\.catalog-maximized\.mode-categories\s+#sidebar-category-list[\s\S]*?grid-auto-rows:\s*max-content/);
+  assert.match(css, /\.split-pane-shell\.catalog-maximized\.mode-items\s+#sidebar-category-list[\s\S]*?grid-auto-rows:\s*max-content/);
+  assert.match(css, /\.split-pane-shell\.catalog-maximized\.mode-items\s+\.sidebar-item-row[\s\S]*?height:\s*auto\s*!important/);
+  assert.match(css, /\.split-pane-shell\.catalog-maximized\.mode-items\s+\.sidebar-item-row[\s\S]*?min-height:\s*max-content\s*!important/);
+  assert.match(css, /\.sidebar-item-row\s*\{[\s\S]*?flex-shrink:\s*0/);
+  assert.match(css, /\.sidebar-cat-btn\s*\{[\s\S]*?flex-shrink:\s*0/);
+  assert.match(css, /@media\s*\(max-width:\s*768px\)[\s\S]*?\.split-pane-shell\.catalog-maximized\.mode-items\s+#sidebar-category-list/);
+  assert.match(css, /@media\s*\(max-width:\s*480px\)[\s\S]*?\.split-pane-shell\.catalog-maximized\.mode-items\s+#sidebar-category-list/);
+});
+
+await test('Controles de áudio, legenda e ajustes acessíveis no player HTML5, Fullscreen e overlay Desktop VLC', () => {
+  const __dirname = dirname(fileURLToPath(import.meta.url));
+  const rootDir = resolve(__dirname, '..');
+  const html = readFileSync(resolve(rootDir, 'src/web/index.html'), 'utf8');
+  const css = readFileSync(resolve(rootDir, 'src/web/css/style.css'), 'utf8');
+  const appJs = readFileSync(resolve(rootDir, 'src/web/js/app.js'), 'utf8');
+  const mainFormCs = readFileSync(resolve(rootDir, 'src/desktop/MainForm.cs'), 'utf8');
+  const locCs = readFileSync(resolve(rootDir, 'src/desktop/LocalizationService.cs'), 'utf8');
+
+  assert.match(html, /<video[^>]*id="main-video"[^>]*controlslist="nofullscreen"/);
+  assert.match(html, /id="btn-meta-player-tools"/);
+  assert.match(html, /id="btn-meta-player-fullscreen"/);
+  assert.match(css, /\.player-wrapper:fullscreen\s+\.btn-player-tools[\s\S]*?z-index:\s*2147483647/);
+  assert.match(appJs, /handleNativeAspectRatio\(/);
+  assert.match(appJs, /notifyNativeVlc\('TOGGLE_TOOLS_MENU'\)/);
+
+  assert.match(mainFormCs, /action == "TOGGLE_TOOLS_MENU"/);
+  assert.match(mainFormCs, /_btnVlcTools/);
+  assert.match(mainFormCs, /_pnlVlcToolsMenu/);
+  assert.match(mainFormCs, /RepositionVlcOverlays\(/);
+  assert.match(mainFormCs, /StartLocalStreamProxy\(/);
+  assert.match(mainFormCs, /WebResourceRequested/);
+
+  assert.match(locCs, /\["VlcToolsBtn"\]/);
+  assert.match(locCs, /\["VlcAudioLabel"\]/);
+  assert.match(locCs, /\["VlcSubtitleLabel"\]/);
+});
+
+await test('VideoPlayerController executa proxy local, fallback .m3u8 -> .ts -> LibVLC no Desktop e modo direct via mpegts', async () => {
+  const prevWindow = globalThis.window;
+  const prevRaf = globalThis.requestAnimationFrame;
+
+  const hlsInstances = [];
+  const mpegtsRequests = [];
+  const postedVlcMessages = [];
+  const emittedStates = [];
+  const videoListeners = {};
+
+  class MockHls {
+    static isSupported() { return true; }
+    static ErrorTypes = { NETWORK_ERROR: 'networkError', MEDIA_ERROR: 'mediaError' };
+    static Events = {
+      AUDIO_TRACKS_UPDATED: 'hlsAudioTracksUpdated',
+      AUDIO_TRACK_SWITCHED: 'hlsAudioTrackSwitched',
+      SUBTITLE_TRACKS_UPDATED: 'hlsSubtitleTracksUpdated',
+      SUBTITLE_TRACK_SWITCH: 'hlsSubtitleTrackSwitch',
+      MANIFEST_PARSED: 'hlsManifestParsed',
+      ERROR: 'hlsError'
+    };
+    constructor() {
+      this.handlers = {};
+      this.loadedUrl = '';
+      hlsInstances.push(this);
+    }
+    on(evt, fn) { (this.handlers[evt] ||= []).push(fn); }
+    loadSource(url) { this.loadedUrl = url; }
+    attachMedia() {}
+    destroy() {}
+    startLoad() {}
+    recoverMediaError() {}
+    emit(evt, data) {
+      for (const fn of (this.handlers[evt] || [])) fn(evt, data);
+    }
+  }
+
+  const mockMpegts = {
+    isSupported: () => true,
+    Events: { ERROR: 'error' },
+    createPlayer: (mediaCfg) => {
+      const p = {
+        handlers: {},
+        url: mediaCfg.url,
+        attachMediaElement() {},
+        load() {},
+        play: () => Promise.resolve(),
+        pause() {},
+        unload() {},
+        detachMediaElement() {},
+        destroy() {},
+        on(evt, fn) { (this.handlers[evt] ||= []).push(fn); },
+        emit(evt, errType, detail) {
+          for (const fn of (this.handlers[evt] || [])) fn(errType, detail);
+        }
+      };
+      mpegtsRequests.push(p);
+      return p;
+    }
+  };
+
+  globalThis.window = {
+    addEventListener() {},
+    Hls: MockHls,
+    mpegts: mockMpegts,
+    __fluiLocalProxyUrl: 'http://127.0.0.1:5055/',
+    chrome: {
+      webview: {
+        postMessage: (msg) => postedVlcMessages.push(msg)
+      }
+    }
+  };
+  globalThis.requestAnimationFrame = (fn) => fn();
+
+  try {
+    const mockVideo = {
+      style: {},
+      addEventListener: (evt, fn) => { (videoListeners[evt] ||= []).push(fn); },
+      pause() {},
+      removeAttribute() { this.src = ''; },
+      load() {},
+      play: () => Promise.resolve()
+    };
+
+    const controller = new VideoPlayerController(mockVideo, null);
+    controller.onStateChange = (state, err) => emittedStates.push({ state, err });
+
+    await controller.playStream(
+      { name: 'TC TOUCH HD', type: 'live', url: 'http://myiptv.com/user/pass/155' },
+      '',
+      'auto',
+      'hls'
+    );
+
+    assert.equal(hlsInstances.length, 1, 'Primeira tentativa HLS deve iniciar via Hls.js');
+    assert.ok(
+      hlsInstances[0].loadedUrl.startsWith('http://127.0.0.1:5055/proxy?url='),
+      'Desktop HLS nativo deve priorizar proxy HTTP local (127.0.0.1)'
+    );
+
+    // Simula manifestLoadError na tentativa .m3u8 via proxy e direto, avançando até mpegts (.ts)
+    while (hlsInstances.length > 0 && mpegtsRequests.length === 0 && !postedVlcMessages.some(m => m.action === 'PLAY')) {
+      const latestHls = hlsInstances[hlsInstances.length - 1];
+      const countBefore = hlsInstances.length + mpegtsRequests.length;
+      latestHls.emit(MockHls.Events.ERROR, { fatal: true, type: MockHls.ErrorTypes.NETWORK_ERROR, details: 'manifestLoadError' });
+      // Disparo espúrio de <video error> durante troca de candidato não deve encerrar fila prematuramente
+      for (const fn of (videoListeners.error || [])) fn();
+      if (hlsInstances.length + mpegtsRequests.length === countBefore && !postedVlcMessages.some(m => m.action === 'PLAY')) break;
+    }
+
+    assert.ok(mpegtsRequests.length >= 1, 'Após falha .m3u8 deve tentar fallback MPEG-TS (.ts) via mpegts.js');
+    assert.equal(emittedStates.some(s => s.state === 'error'), false, 'Não deve emitir erro antes de esgotar candidatos e fallback VLC');
+
+    // Simula falha em todas as tentativas restantes de mpegts/hls até acionar fallback automático LibVLC
+    for (let guard = 0; guard < 12; guard++) {
+      if (postedVlcMessages.some(m => m.action === 'PLAY')) break;
+      const lastTs = mpegtsRequests[mpegtsRequests.length - 1];
+      if (lastTs && controller._activeAttempt?.kind === 'mpegts') {
+        lastTs.emit('error', 'NetworkError', 'Exception');
+      } else if (controller._activeAttempt?.kind === 'hls') {
+        hlsInstances[hlsInstances.length - 1].emit(MockHls.Events.ERROR, {
+          fatal: true,
+          type: MockHls.ErrorTypes.NETWORK_ERROR,
+          details: 'manifestLoadError'
+        });
+      } else {
+        break;
+      }
+    }
+
+    const vlcPlay = postedVlcMessages.find(m => m.action === 'PLAY');
+    assert.ok(vlcPlay, 'Esgotando candidatos HTML5 no Desktop, deve acionar fallback automático LibVLC');
+    assert.equal(controller.currentEngine, 'vlc');
+
+    // Testa modo 'direct' para live sem extensão: deve tentar mpegts em vez de jogar direto em <video.src>
+    mpegtsRequests.length = 0;
+    mockVideo.src = '';
+    await controller.playStream(
+      { name: 'Canal Direto', type: 'live', url: 'http://myiptv.com/live/u/p/777' },
+      '',
+      'direct',
+      'hls'
+    );
+    assert.equal(mpegtsRequests.length, 1, 'Modo direct para canal live deve tentar mpegts.js');
+    assert.equal(mockVideo.src || '', '', 'Modo direct para live não deve atribuir URL bruta direto em video.src');
+  } finally {
+    globalThis.window = prevWindow;
+    globalThis.requestAnimationFrame = prevRaf;
+  }
+});
+
+await test('Proxy local automatizado (Windows/Linux/macOS) e aviso de escolha HLS vs VLC em 3 idiomas', async () => {
+  const __dirname = dirname(fileURLToPath(import.meta.url));
+  const rootDir = resolve(__dirname, '..');
+  const mainFormCs = readFileSync(resolve(rootDir, 'src/desktop/MainForm.cs'), 'utf8');
+  const crossHostCs = readFileSync(resolve(rootDir, 'src/desktop/CrossPlatformHost.cs'), 'utf8');
+  const html = readFileSync(resolve(rootDir, 'src/web/index.html'), 'utf8');
+  const appJs = readFileSync(resolve(rootDir, 'src/web/js/app.js'), 'utf8');
+
+  for (const hostCode of [mainFormCs, crossHostCs]) {
+    assert.match(hostCode, /"\/health"/);
+    assert.match(hostCode, /"\/proxy"/);
+    assert.match(hostCode, /RewriteM3u8Manifest/);
+    assert.match(hostCode, /Timeout\s*=\s*Timeout\.InfiniteTimeSpan/);
+  }
+  assert.match(mainFormCs, /ENSURE_LOCAL_PROXY/);
+  assert.match(crossHostCs, /window\.__fluiLocalProxyUrl/);
+
+  assert.match(html, /id="settings-player-engine-notice"/);
+  assert.match(html, /id="edit-player-engine-notice"/);
+  assert.match(appJs, /ensureLocalProxyStarted\(/);
+  assert.match(appJs, /updatePlayerEngineNotice\(/);
+  assert.match(appJs, /handleLocalProxyStatus\(/);
+
+  for (const lang of ['pt-BR', 'en-US', 'es']) {
+    assert.ok(translations[lang].playerEngineHlsNotice, `Falta playerEngineHlsNotice em ${lang}`);
+    assert.ok(translations[lang].playerEngineVlcNotice, `Falta playerEngineVlcNotice em ${lang}`);
+    assert.ok(translations[lang].localProxyAutoActive, `Falta localProxyAutoActive em ${lang}`);
+  }
+
+  // Valida que Linux/macOS host local (window.__fluiLocalProxyUrl sem chrome.webview) usa proxy automaticamente no HLS
+  const prevWindow = globalThis.window;
+  const prevRaf = globalThis.requestAnimationFrame;
+  const hlsLoadedUrls = [];
+  class MockLinuxHls {
+    static isSupported() { return true; }
+    static ErrorTypes = { NETWORK_ERROR: 'networkError', MEDIA_ERROR: 'mediaError' };
+    static Events = {
+      AUDIO_TRACKS_UPDATED: 'a',
+      AUDIO_TRACK_SWITCHED: 'b',
+      SUBTITLE_TRACKS_UPDATED: 'c',
+      SUBTITLE_TRACK_SWITCH: 'd',
+      MANIFEST_PARSED: 'e',
+      ERROR: 'f'
+    };
+    on() {}
+    loadSource(url) { hlsLoadedUrls.push(url); }
+    attachMedia() {}
+    destroy() {}
+  }
+  globalThis.window = {
+    addEventListener() {},
+    Hls: MockLinuxHls,
+    __fluiLocalProxyUrl: 'http://localhost:5055/'
+  };
+  globalThis.requestAnimationFrame = (fn) => fn();
+  try {
+    const controller = new VideoPlayerController({
+      style: {},
+      addEventListener() {},
+      pause() {},
+      removeAttribute() {},
+      load() {},
+      play: () => Promise.resolve()
+    }, null);
+    await controller.playStream({ name: 'Canal Linux', type: 'live', url: 'http://provider.net/user/pass/99' }, '', 'auto', 'hls');
+    assert.equal(hlsLoadedUrls.length, 1);
+    assert.ok(hlsLoadedUrls[0].startsWith('http://localhost:5055/proxy?url='), 'CrossPlatformHost Linux/macOS deve rotear via proxy local automático');
+  } finally {
+    globalThis.window = prevWindow;
+    globalThis.requestAnimationFrame = prevRaf;
+  }
+});
+
+await test('Player HLS (#main-video) deve ficar estritamente contido em .player-wrapper sem cobrir .player-meta-bar', () => {
+  const __dirname = dirname(fileURLToPath(import.meta.url));
+  const rootDir = resolve(__dirname, '..');
+  const css = readFileSync(resolve(rootDir, 'src/web/css/style.css'), 'utf8');
+
+  assert.match(css, /\.player-section\s*\{[^}]*display:\s*flex;[^}]*flex-direction:\s*column;/);
+  assert.match(css, /\.player-wrapper\s*\{[^}]*overflow:\s*hidden;/);
+  assert.match(css, /#main-video\s*\{[^}]*width:\s*100%;[^}]*height:\s*100%;[^}]*max-width:\s*100%;[^}]*max-height:\s*100%;[^}]*display:\s*block;[^}]*object-fit:\s*contain;/);
+  assert.doesNotMatch(css, /#main-video\s*\{[^}]*max-height:\s*min\(60vh,\s*560px\)/);
+  assert.match(css, /\.player-meta-bar\s*\{[^}]*position:\s*relative;[^}]*z-index:\s*2;/);
+});
+
+await test('HLS fullscreen auto-oculta botões ociosos e mantém #btn-player-tools ancorado mesmo com foco no modo TV', () => {
+  const __dirname = dirname(fileURLToPath(import.meta.url));
+  const rootDir = resolve(__dirname, '..');
+  const css = readFileSync(resolve(rootDir, 'src/web/css/style.css'), 'utf8');
+  const html = readFileSync(resolve(rootDir, 'src/web/index.html'), 'utf8');
+  const app = readFileSync(resolve(rootDir, 'src/web/js/app.js'), 'utf8');
+
+  assert.doesNotMatch(css, /body\[data-effective-device-mode="tv"\]\s*button:focus[^{]*\{[^}]*position:\s*relative;/);
+  assert.match(css, /\.btn-player-tools:focus[^{]*\{[^}]*position:\s*absolute\s*!important;/);
+  assert.match(css, /\.player-wrapper:fullscreen\.is-user-idle[\s\S]*?\{[^}]*cursor:\s*none;/);
+  assert.match(css, /\.player-wrapper\.is-user-idle\s+\.player-center-hit:not\(\.is-paused\)\s+\.player-center-toggle/);
+  assert.match(css, /\.player-wrapper\.is-user-idle\s+\.btn-player-tools\[aria-expanded="false"\]\s*\{[^}]*opacity:\s*0\s*!important;/);
+
+  const videoTagMatch = html.match(/<video\s+id="main-video"[^>]*>/);
+  assert.ok(videoTagMatch, '<video id="main-video"> deve existir');
+  assert.doesNotMatch(videoTagMatch[0], /\scontrols(?:=|\s|>)/);
+
+  assert.match(app, /wakePlayerControls\s*\(/);
+  assert.match(app, /clearPlayerIdleTimer\s*\(/);
+});
+
+await test('Player VLC Desktop mantém Z-order idempotente sem thrashing e oculta HUD ocioso em fullscreen', () => {
+  const __dirname = dirname(fileURLToPath(import.meta.url));
+  const rootDir = resolve(__dirname, '..');
+  const cs = readFileSync(resolve(rootDir, 'src/desktop/MainForm.cs'), 'utf8');
+
+  assert.match(cs, /private void EnsureVlcOverlayZOrder\s*\(/);
+  assert.match(cs, /private Point _lastVlcCursorPos/);
+  assert.match(cs, /private bool _vlcFullscreenHudVisible/);
+
+  const reposIdx = cs.indexOf('private void RepositionVlcOverlays()');
+  assert.ok(reposIdx !== -1, 'RepositionVlcOverlays deve existir');
+  const reposSlice = cs.slice(reposIdx, reposIdx + 2200);
+  assert.doesNotMatch(reposSlice, /_videoView\.BringToFront\(\)/);
+  assert.match(reposSlice, /EnsureVlcOverlayZOrder\(\)/);
+
+  assert.match(cs, /_vlcFullscreenHudVisible = false;[\s\S]*_btnExitFullscreen\.Visible = false;[\s\S]*_btnVlcTools\.Visible = false;/);
 });
 
 console.log(`\n========================================`);

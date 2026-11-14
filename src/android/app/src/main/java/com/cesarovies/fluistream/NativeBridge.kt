@@ -1,5 +1,10 @@
 package com.cesarovies.fluistream
 
+import android.app.UiModeManager
+import android.content.Context
+import android.content.pm.PackageManager
+import android.content.res.Configuration
+import android.view.inputmethod.InputMethodManager
 import android.webkit.JavascriptInterface
 
 /**
@@ -37,6 +42,33 @@ class NativeBridge(private val activity: MainActivity) {
 
     @JavascriptInterface
     fun isAndroid(): Boolean = true
+
+    @JavascriptInterface
+    fun isTv(): Boolean {
+        val uiModeManager = activity.getSystemService(Context.UI_MODE_SERVICE) as? UiModeManager
+        if (uiModeManager?.currentModeType == Configuration.UI_MODE_TYPE_TELEVISION) return true
+        val pm = activity.packageManager
+        @Suppress("DEPRECATION")
+        return pm.hasSystemFeature(PackageManager.FEATURE_LEANBACK) ||
+            pm.hasSystemFeature(PackageManager.FEATURE_TELEVISION)
+    }
+
+    @JavascriptInterface
+    fun showKeyboard() {
+        activity.runOnUiThread {
+            activity.webView.requestFocus()
+            val imm = activity.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
+            imm?.showSoftInput(activity.webView, InputMethodManager.SHOW_IMPLICIT)
+        }
+    }
+
+    @JavascriptInterface
+    fun hideKeyboard() {
+        activity.runOnUiThread {
+            val imm = activity.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
+            imm?.hideSoftInputFromWindow(activity.webView.windowToken, 0)
+        }
+    }
 
     @JavascriptInterface
     fun getPlatform(): String = "android"
