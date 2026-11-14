@@ -126,7 +126,7 @@ await test('Todos os 3 idiomas (pt-BR, en-US, es) devem possuir o mesmo conjunto
   const enKeys = Object.keys(translations['en-US']).sort();
   const esKeys = Object.keys(translations['es']).sort();
 
-  assert.equal(ptKeys.length, 257, `Esperado exatamente 257 chaves i18n em pt-BR, obtido ${ptKeys.length}`);
+  assert.equal(ptKeys.length, 259, `Esperado exatamente 259 chaves i18n em pt-BR, obtido ${ptKeys.length}`);
   assert.deepEqual(ptKeys, enKeys, 'Chaves pt-BR e en-US devem ser idênticas');
   assert.deepEqual(ptKeys, esKeys, 'Chaves pt-BR e es devem ser idênticas');
 
@@ -1996,6 +1996,79 @@ await test('Player VLC Desktop mantém Z-order idempotente sem thrashing e ocult
   assert.match(reposSlice, /EnsureVlcOverlayZOrder\(\)/);
 
   assert.match(cs, /_vlcFullscreenHudVisible = false;[\s\S]*_btnExitFullscreen\.Visible = false;[\s\S]*_btnVlcTools\.Visible = false;/);
+});
+
+await test('Android ExoPlayer: decoder fallback, TsExtractor IPTV flags, fallback URLs via NativeBridge e UI ExoPlayer', async () => {
+  const __dirname = dirname(fileURLToPath(import.meta.url));
+  const rootDir = resolve(__dirname, '..');
+  const playerKt = readFileSync(resolve(rootDir, 'src/android/app/src/main/java/com/cesarovies/fluistream/VideoPlayerManager.kt'), 'utf8');
+  const bridgeKt = readFileSync(resolve(rootDir, 'src/android/app/src/main/java/com/cesarovies/fluistream/NativeBridge.kt'), 'utf8');
+  const appJs = readFileSync(resolve(rootDir, 'src/web/js/app.js'), 'utf8');
+  const webPlayerJs = readFileSync(resolve(rootDir, 'src/web/js/player.js'), 'utf8');
+  const androidPlayerJs = readFileSync(resolve(rootDir, 'src/android/app/src/main/assets/web/js/player.js'), 'utf8');
+
+  assert.equal(androidPlayerJs, webPlayerJs, 'Asset Android js/player.js deve estar sincronizado com src/web/js/player.js');
+
+  assert.match(playerKt, /DefaultRenderersFactory\(context\)[\s\S]*?\.setEnableDecoderFallback\(true\)/);
+  assert.match(playerKt, /DefaultExtractorsFactory\(\)[\s\S]*?\.setTsExtractorFlags\(/);
+  assert.match(playerKt, /FLAG_ALLOW_NON_IDR_KEYFRAMES/);
+  assert.match(playerKt, /FLAG_DETECT_ACCESS_UNITS/);
+  assert.match(playerKt, /fun setPendingFallbackUrls\(/);
+  assert.match(playerKt, /private fun buildDefaultFallbackUrls\(/);
+  assert.match(playerKt, /if \(pendingFallbackUrls\.isNotEmpty\(\)\)/);
+  assert.match(bridgeKt, /@JavascriptInterface[\s\S]*?fun setFallbackUrls\(/);
+
+  for (const lang of ['pt-BR', 'en-US', 'es']) {
+    assert.ok(translations[lang].playerEngineExo, `Falta playerEngineExo em ${lang}`);
+    assert.ok(translations[lang].playerEngineExoNotice, `Falta playerEngineExoNotice em ${lang}`);
+  }
+  assert.match(appJs, /_syncPlayerEngineSelect\(/);
+  assert.match(appJs, /playerEngineExo/);
+  assert.match(appJs, /playerEngineExoNotice/);
+
+  const prevWindow = globalThis.window;
+  const callSequence = [];
+  let receivedFallbacks = [];
+  globalThis.window = {
+    addEventListener: () => {},
+    androidBridge: {
+      setFallbackUrls(json) {
+        callSequence.push('setFallbackUrls');
+        receivedFallbacks = JSON.parse(json);
+      },
+      playStream(url, title, itemType, streamMode) {
+        callSequence.push('playStream');
+      }
+    }
+  };
+
+  try {
+    const mockVideo = {
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      pause: () => {},
+      removeAttribute: () => {},
+      load: () => {},
+      play: () => Promise.resolve(),
+      style: { display: 'block' },
+      classList: { add: () => {}, remove: () => {} }
+    };
+    const controller = new VideoPlayerController(mockVideo, null);
+    await controller.playStream(
+      { name: 'Canal Live', type: 'live', url: 'http://iptv.example.com:8080/user/pass/55' },
+      '',
+      'auto',
+      'hls'
+    );
+    assert.deepEqual(callSequence, ['setFallbackUrls', 'playStream']);
+    assert.ok(receivedFallbacks.includes('http://iptv.example.com:8080/live/user/pass/55.ts'));
+  } finally {
+    if (prevWindow === undefined) {
+      delete globalThis.window;
+    } else {
+      globalThis.window = prevWindow;
+    }
+  }
 });
 
 console.log(`\n========================================`);

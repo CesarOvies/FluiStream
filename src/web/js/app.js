@@ -854,10 +854,12 @@ class FluiStreamApp {
       this.updateClock();
       this.updateSettingsTileSubtitles();
       if (this.dom.settingsPlayerEngineSelect && this.dom.settingsPlayerEngineNotice) {
-        this.updatePlayerEngineNotice(this.dom.settingsPlayerEngineSelect.value, this.dom.settingsPlayerEngineNotice);
+        const effective = this._syncPlayerEngineSelect(this.dom.settingsPlayerEngineSelect, this.dom.settingsPlayerEngineSelect.value);
+        this.updatePlayerEngineNotice(effective, this.dom.settingsPlayerEngineNotice);
       }
       if (this.dom.selectEditPlayerEngine && this.dom.editPlayerEngineNotice) {
-        this.updatePlayerEngineNotice(this.dom.selectEditPlayerEngine.value, this.dom.editPlayerEngineNotice);
+        const effective = this._syncPlayerEngineSelect(this.dom.selectEditPlayerEngine, this.dom.selectEditPlayerEngine.value);
+        this.updatePlayerEngineNotice(effective, this.dom.editPlayerEngineNotice);
       }
       if (this.activeScreen === 'home') this.renderHomeHub();
       if (this.activeScreen === 'browse') this.renderBrowseView();
@@ -2766,14 +2768,8 @@ class FluiStreamApp {
       this.dom.settingsHistoryLimitSelect.value = limitStr;
     }
     if (this.dom.settingsPlayerEngineSelect) {
-      const isDesktop = Boolean(window.chrome?.webview);
-      const vlcOpt = this.dom.settingsPlayerEngineSelect.querySelector('option[value="vlc"]');
-      if (vlcOpt) {
-        vlcOpt.disabled = !isDesktop;
-        if (!isDesktop) vlcOpt.textContent = `Player VLC (${i18n.get('playerEngineWebOnlyHint')})`;
-      }
-      this.dom.settingsPlayerEngineSelect.value = (!isDesktop && cfg.playerEngine === 'vlc') ? 'hls' : (cfg.playerEngine || 'hls');
-      this.updatePlayerEngineNotice(this.dom.settingsPlayerEngineSelect.value, this.dom.settingsPlayerEngineNotice);
+      const effectiveEngine = this._syncPlayerEngineSelect(this.dom.settingsPlayerEngineSelect, cfg.playerEngine || 'hls');
+      this.updatePlayerEngineNotice(effectiveEngine, this.dom.settingsPlayerEngineNotice);
     }
     this.openModal(this.dom.modalSettings);
     this.ensureLocalProxyStarted();
@@ -4522,8 +4518,10 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
 
     this.dom.inputEditExternalEpg.value = prof.epgUrl || '';
     this.dom.selectEditStreamMode.value = prof.streamMode || 'auto';
-    this.dom.selectEditPlayerEngine.value = prof.playerEngine || 'hls';
-    this.updatePlayerEngineNotice(this.dom.selectEditPlayerEngine.value, this.dom.editPlayerEngineNotice);
+    if (this.dom.selectEditPlayerEngine) {
+      const effectiveEngine = this._syncPlayerEngineSelect(this.dom.selectEditPlayerEngine, prof.playerEngine || 'hls');
+      this.updatePlayerEngineNotice(effectiveEngine, this.dom.editPlayerEngineNotice);
+    }
     if (this.dom.editProfileAdvancedDetails) this.dom.editProfileAdvancedDetails.open = false;
     this.dom.inputEditCorsProxy.value = prof.corsProxy || '';
     this.dom.editProfileStatus.textContent = '';
@@ -5219,8 +5217,34 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
     }
   }
 
+  _syncPlayerEngineSelect(selectEl, savedEngine = 'hls') {
+    if (!selectEl) return 'hls';
+    const isDesktop = Boolean(window.chrome?.webview);
+    const isAndroid = typeof window !== 'undefined' && Boolean(window.androidBridge);
+    const hlsOpt = selectEl.querySelector('option[value="hls"]');
+    if (hlsOpt) {
+      hlsOpt.textContent = i18n.get(isAndroid ? 'playerEngineExo' : 'playerEngineHls');
+    }
+    const vlcOpt = selectEl.querySelector('option[value="vlc"]');
+    if (vlcOpt) {
+      vlcOpt.disabled = !isDesktop;
+      vlcOpt.textContent = !isDesktop
+        ? `Player VLC (${i18n.get('playerEngineWebOnlyHint')})`
+        : i18n.get('playerEngineVlc');
+    }
+    const effectiveEngine = (!isDesktop && savedEngine === 'vlc') ? 'hls' : (savedEngine || 'hls');
+    selectEl.value = effectiveEngine;
+    return effectiveEngine;
+  }
+
   updatePlayerEngineNotice(engine, targetEl, ensureProxy = true) {
     if (!targetEl) return;
+    const isAndroid = typeof window !== 'undefined' && Boolean(window.androidBridge);
+    if (isAndroid) {
+      targetEl.classList.remove('is-vlc');
+      targetEl.innerHTML = `<div>${this.escapeHtml(i18n.get('playerEngineExoNotice'))}</div>`;
+      return;
+    }
     const isVlc = engine === 'vlc';
     targetEl.classList.toggle('is-vlc', isVlc);
     const mainMsg = i18n.get(isVlc ? 'playerEngineVlcNotice' : 'playerEngineHlsNotice');

@@ -6,11 +6,36 @@ import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.view.inputmethod.InputMethodManager
 import android.webkit.JavascriptInterface
+import org.json.JSONArray
 
 /**
  * JavaScript <-> Kotlin bridge exposed to the WebView as `window.androidBridge`.
  */
 class NativeBridge(private val activity: MainActivity) {
+
+    @JavascriptInterface
+    fun setFallbackUrls(fallbackJson: String?) {
+        val raw = fallbackJson?.trim().orEmpty()
+        val urls = if (raw.isEmpty()) {
+            emptyList()
+        } else {
+            runCatching {
+                val arr = JSONArray(raw)
+                buildList {
+                    for (i in 0 until arr.length()) {
+                        val candidate = arr.optString(i, "").trim()
+                        if (candidate.isNotEmpty()) {
+                            add(candidate)
+                        }
+                    }
+                }
+            }.getOrElse { emptyList() }
+        }
+
+        activity.runOnUiThread {
+            activity.videoPlayerManager.setPendingFallbackUrls(urls)
+        }
+    }
 
     @JavascriptInterface
     fun playStream(url: String?, title: String?, itemType: String?, streamMode: String?) {

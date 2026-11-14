@@ -360,6 +360,9 @@ export class VideoPlayerController {
     if (isAndroidApp) {
       this._destroyHtml5Engines(true);
       this._clearVideoSource(true);
+      if (typeof window.androidBridge.setFallbackUrls === 'function') {
+        window.androidBridge.setFallbackUrls(JSON.stringify(candidates.slice(1)));
+      }
       window.androidBridge.playStream(streamUrl, item.name || '', item.type || 'live', streamMode || 'auto');
       this.updateMediaSession(item);
       this.notifyState('playing');
