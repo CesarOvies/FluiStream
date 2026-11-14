@@ -4,6 +4,7 @@
   "description": "Reprodutor fluido e moderno de listas M3U/M3U8 com EPG XMLTV e Xtream Codes API",
   "start_url": "./index.html",
   "display": "standalone",
+  "orientation": "landscape",
   "background_color": "#0D1117",
   "theme_color": "#0D1117",
   "icons": [

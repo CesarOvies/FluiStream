@@ -694,6 +694,13 @@ class FluiStreamApp {
       document.body.setAttribute('data-device-mode', mode);
     }
     document.body.setAttribute('data-effective-device-mode', effective);
+    document.body.setAttribute('data-orientation-lock', 'landscape');
+    document.body.classList.add('force-horizontal-layout');
+    try {
+      if (window.screen?.orientation?.lock) {
+        window.screen.orientation.lock('landscape').catch(() => {});
+      }
+    } catch (_) {}
     this.updateSettingsTileSubtitles();
   }
 
