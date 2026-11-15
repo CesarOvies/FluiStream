@@ -1,4 +1,4 @@
-# FluiStream (v1.1.0) — Especificação Técnica Completa
+# FluiStream (v1.2.0) — Especificação Técnica Completa
 
 ## 1. Visão Geral e Posicionamento (v1.1.0)
 A partir da versão 1.1.0, o **FluiStream** é distribuído exclusivamente como um **reprodutor de mídia 100% nativo multiplataforma** (Desktop Portable + Android APK). A hospedagem Web pública (GitHub Pages) foi descontinuada por incompatibilidades estruturais dos navegadores com streams IPTV (Mixed Content HTTPS->HTTP, redirects 302 sem headers CORS, bloqueios de Private Network Access em portas altas e ausência de decodificação nativa de MPEG-TS/AC3/EAC3).

@@ -1,9 +1,9 @@
-# FluiStream (v1.1.0)
+# FluiStream (v1.2.0)
 > Reprodutor nativo multiplataforma moderno e fluido de listas M3U/M3U8 com EPG XMLTV e Xtream Codes API para Desktop Portable (Windows, Linux, macOS) e Android / Android TV.
 
 ## Informações Principais
 - Repositório: https://github.com/CesarOvies/FluiStream
-- Versão Atual: 1.1.0
+- Versão Atual: 1.2.0
 - Autor: Cesar Ovies (https://github.com/CesarOvies)
 - Licença: MIT
 - Distribuição: 100% Nativa (Desktop Portable + Android APK). A versão Web pública foi descontinuada na v1.1.0 devido a restrições de navegador (Mixed Content, CORS em redirects, portas PNA e codecs MPEG-TS).

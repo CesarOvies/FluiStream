@@ -30,7 +30,7 @@
 1. [Visão Geral](#visão-geral)
 2. [Recursos Principais](#recursos-principais)
 3. [Arquitetura & Fluxo](#arquitetura--fluxo)
-4. [Downloads & Como Usar (v1.1.0)](#downloads--como-usar-v110)
+4. [Downloads & Como Usar (v1.2.0)](#downloads--como-usar-v120)
 5. [Compilação e Testes](#compilação-e-testes)
 6. [Governança e Segurança](#governança-e-segurança)
 7. [Isenção de Responsabilidade Legal](#isenção-de-responsabilidade-legal--legal-disclaimer)
@@ -79,6 +79,12 @@ A partir da versão **v1.1.0**, a versão Web pública foi descontinuada em favo
 - **100% User-Space**: Sem exigência de permissões elevadas de Administrador (`asInvoker`).
 - **Auto-Atualização Desktop Segura**: `UpdateService` com verificação semântica no GitHub Releases, validação criptográfica **SHA-256** e atualização atômica em segundo plano.
 
+### 6. Identidade Visual Flow Play (v1.2.0)
+- 🎨 **Conceito Flow Play**: Símbolo moderno e minimalista integrando o botão Play com dois fluxos fluidos contínuos nas cores da marca (Esmeralda `#10B981` e Azul `#388BFD`).
+- 📱 **Android Mobile & Tablet**: Adaptive Icons em vetor XML com safe zone rigorosa de 72dp no canvas de 108dp, sem distorção em launchers circulares, squircles ou teardrops.
+- 📺 **Android TV / Fire TV**: Banner Leanback nativo 320×180 dp com card escuro, friso inferior dual-color e tipografia convertida em caminhos vetoriais (`<path>`) em Segoe UI.
+- 🪟 **Desktop Portable**: Ícone `app.ico` multi-resolução completo (16, 32, 48, 64, 128 e 256 px) gerado via reamostragem bicúbica de alta fidelidade para DPI variado.
+
 ---
 
 ## Arquitetura & Fluxo
@@ -107,17 +113,17 @@ flowchart TD
 
 ---
 
-## Downloads & Como Usar (v1.1.0)
+## Downloads & Como Usar (v1.2.0)
 
 Acesse a aba **[Releases](https://github.com/CesarOvies/FluiStream/releases)** e baixe o pacote correspondente ao seu dispositivo:
 
-| Plataforma | Formato | Pacote (v1.1.0) | Observações |
+| Plataforma | Formato | Pacote (v1.2.0) | Observações |
 | :--- | :--- | :--- | :--- |
-| 🪟 **Windows x64** | `.zip` | `FluiStream-v1.1.0-win-x64-portable.zip` | Executável portátil `FluiStream.exe` (.NET 10 WebView2 + LibVLC) |
-| 🐧 **Linux x64** | `.tar.gz` / `.zip` | `FluiStream-v1.1.0-linux-x64-portable.tar.gz` | Binário nativo self-contained `FluiStream` |
-| 🐧 **Linux ARM64** | `.tar.gz` / `.zip` | `FluiStream-v1.1.0-linux-arm64-portable.tar.gz` | Binário nativo self-contained para Raspberry Pi / ARM64 |
-| 🍏 **macOS ARM64** | `.tar.gz` / `.zip` | `FluiStream-v1.1.0-osx-arm64-portable.tar.gz` / `.zip` | Binário nativo Apple Silicon (M1/M2/M3/M4) |
-| 🤖 **Android & TV** | `.apk` | `FluiStream-v1.1.0-android.apk` | Universal (Celulares, Tablets, Android TV, Fire TV Stick, TV Box) |
+| 🪟 **Windows x64** | `.zip` | `FluiStream-v1.2.0-win-x64-portable.zip` | Executável portátil `FluiStream.exe` (.NET 10 WebView2 + LibVLC) |
+| 🐧 **Linux x64** | `.tar.gz` / `.zip` | `FluiStream-v1.2.0-linux-x64-portable.tar.gz` | Binário nativo self-contained `FluiStream` |
+| 🐧 **Linux ARM64** | `.tar.gz` / `.zip` | `FluiStream-v1.2.0-linux-arm64-portable.tar.gz` | Binário nativo self-contained para Raspberry Pi / ARM64 |
+| 🍏 **macOS ARM64** | `.tar.gz` / `.zip` | `FluiStream-v1.2.0-osx-arm64-portable.tar.gz` / `.zip` | Binário nativo Apple Silicon (M1/M2/M3/M4) |
+| 🤖 **Android & TV** | `.apk` | `FluiStream-v1.2.0-android.apk` | Universal (Celulares, Tablets, Android TV, Fire TV Stick, TV Box) |
 
 ### Desktop Portable (Windows, Linux, macOS)
 1. Baixe e extraia o arquivo `.zip` ou `.tar.gz` para qualquer pasta (ex: Documentos ou Pendrive).
@@ -125,8 +131,8 @@ Acesse a aba **[Releases](https://github.com/CesarOvies/FluiStream/releases)** e
 3. Opcionalmente valide a integridade usando `SHA256SUMS.txt` ou `SHA512SUMS.txt` anexados na release.
 
 ### Android APK (Celular, Tablet e Android TV)
-1. Baixe `FluiStream-v1.1.0-android.apk` na página de Releases.
-2. No dispositivo Android ou Android TV / Fire TV, habilite a instalação de fontes desconhecidas e instale o APK (ou envie via `adb install FluiStream-v1.1.0-android.apk`).
+1. Baixe `FluiStream-v1.2.0-android.apk` na página de Releases.
+2. No dispositivo Android ou Android TV / Fire TV, habilite a instalação de fontes desconhecidas e instale o APK (ou envie via `adb install FluiStream-v1.2.0-android.apk`).
 3. Navegue livremente via **Touch** ou controle remoto (**D-Pad / Enter / Back**).
 
 ---
