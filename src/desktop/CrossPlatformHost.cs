@@ -74,7 +74,7 @@ public static class CrossPlatformHost
 
     private static void PrintBanner(string url)
     {
-        string version = Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "1.1.0";
+        string version = Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "1.2.0";
         Console.ForegroundColor = ConsoleColor.Cyan;
         Console.WriteLine("====================================================");
         Console.WriteLine($"   FluiStream v{version} — Desktop Portable Runner      ");

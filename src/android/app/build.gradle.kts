@@ -13,11 +13,11 @@ fun resolveAndroidVersionName(): String {
     } else {
         null
     }
-    val raw = (prop?.takeIf { it.isNotEmpty() } ?: fromCsproj ?: "1.1.0")
+    val raw = (prop?.takeIf { it.isNotEmpty() } ?: fromCsproj ?: "1.2.0")
         .trim()
         .removePrefix("v")
         .removePrefix("V")
-    return raw.ifEmpty { "1.1.0" }
+    return raw.ifEmpty { "1.2.0" }
 }
 
 fun computeAndroidVersionCode(verName: String): Int {

@@ -163,10 +163,10 @@ await test('Todas as chaves data-i18n* em src/web/index.html devem existir em lo
 
 console.log('\n--- 5. Testes do Auto-Update & Versioning ---');
 
-await test('APP_VERSION deve ser 1.1.0 e seguir comparação semântica', () => {
-  assert.equal(APP_VERSION, '1.1.0');
-  assert.equal(isNewerVersion('v1.2.0', APP_VERSION), true);
-  assert.equal(isNewerVersion('v1.1.0', APP_VERSION), false);
+await test('APP_VERSION deve ser 1.2.0 e seguir comparação semântica', () => {
+  assert.equal(APP_VERSION, '1.2.0');
+  assert.equal(isNewerVersion('v1.3.0', APP_VERSION), true);
+  assert.equal(isNewerVersion('v1.2.0', APP_VERSION), false);
 });
 
 await test('Deve fazer parse limpo de versão semântica', () => {

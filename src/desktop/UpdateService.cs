@@ -79,7 +79,7 @@ public static class UpdateService
 
             string? tagName = root.GetProperty("tag_name").GetString();
             string? body = root.TryGetProperty("body", out var b) ? b.GetString() : null;
-            string currentVer = Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "1.1.0";
+            string currentVer = Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "1.2.0";
 
             if (IsNewerVersion(tagName, currentVer))
             {
