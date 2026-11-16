@@ -1,5 +1,6 @@
 using System;
 using System.Diagnostics;
+using System.Drawing;
 using System.IO;
 using System.Net;
 using System.Net.Http;
@@ -27,6 +28,118 @@ public static class CrossPlatformHost
         Timeout = Timeout.InfiniteTimeSpan
     };
 
+    private static class MacNative
+    {
+        [DllImport("/usr/lib/libobjc.A.dylib", EntryPoint = "objc_getClass")]
+        public static extern IntPtr objc_getClass(string className);
+
+        [DllImport("/usr/lib/libobjc.A.dylib", EntryPoint = "sel_registerName")]
+        public static extern IntPtr sel_registerName(string selectorName);
+
+        [DllImport("/usr/lib/libobjc.A.dylib", EntryPoint = "objc_msgSend")]
+        public static extern IntPtr objc_msgSend(IntPtr receiver, IntPtr selector);
+
+        [DllImport("/usr/lib/libobjc.A.dylib", EntryPoint = "objc_msgSend")]
+        public static extern IntPtr objc_msgSend_IntPtr(IntPtr receiver, IntPtr selector, IntPtr arg);
+
+        [DllImport("/usr/lib/libobjc.A.dylib", EntryPoint = "objc_msgSend")]
+        public static extern IntPtr objc_msgSend_ULong(IntPtr receiver, IntPtr selector, ulong arg);
+
+        [DllImport("/usr/lib/libobjc.A.dylib", EntryPoint = "objc_msgSend")]
+        public static extern ulong objc_msgSend_RetULong(IntPtr receiver, IntPtr selector);
+
+        public static IntPtr GetNSWindow(PhotinoWindow window)
+        {
+            try
+            {
+                var field = typeof(PhotinoWindow).GetField("_nativeInstance", BindingFlags.NonPublic | BindingFlags.Instance);
+                if (field == null) return IntPtr.Zero;
+                IntPtr nativeInstance = (IntPtr)field.GetValue(window)!;
+                if (nativeInstance == IntPtr.Zero) return IntPtr.Zero;
+                return Marshal.ReadIntPtr(nativeInstance + 0xc8);
+            }
+            catch
+            {
+                return IntPtr.Zero;
+            }
+        }
+
+        public static bool IsInFullScreen(IntPtr nsWindow)
+        {
+            if (nsWindow == IntPtr.Zero) return false;
+            try
+            {
+                var selStyleMask = sel_registerName("styleMask");
+                ulong styleMask = objc_msgSend_RetULong(nsWindow, selStyleMask);
+                const ulong NSWindowStyleMaskFullScreen = 1UL << 14;
+                return (styleMask & NSWindowStyleMaskFullScreen) != 0;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        public static void SetupNativeFullScreenSupport(IntPtr nsWindow)
+        {
+            if (nsWindow == IntPtr.Zero) return;
+            try
+            {
+                var selGetBehavior = sel_registerName("collectionBehavior");
+                var selSetBehavior = sel_registerName("setCollectionBehavior:");
+                ulong behavior = objc_msgSend_RetULong(nsWindow, selGetBehavior);
+                const ulong NSWindowCollectionBehaviorFullScreenPrimary = 1UL << 7;
+                objc_msgSend_ULong(nsWindow, selSetBehavior, behavior | NSWindowCollectionBehaviorFullScreenPrimary);
+
+                RestorePresentationOptions();
+            }
+            catch { }
+        }
+
+        public static void RestorePresentationOptions()
+        {
+            try
+            {
+                var nsAppCls = objc_getClass("NSApplication");
+                if (nsAppCls != IntPtr.Zero)
+                {
+                    var selSharedApp = sel_registerName("sharedApplication");
+                    var nsApp = objc_msgSend(nsAppCls, selSharedApp);
+                    if (nsApp != IntPtr.Zero)
+                    {
+                        var selSetOptions = sel_registerName("setPresentationOptions:");
+                        objc_msgSend_ULong(nsApp, selSetOptions, 0);
+                    }
+                }
+            }
+            catch { }
+        }
+
+        public static bool ToggleFullScreen(IntPtr nsWindow, bool? enter = null)
+        {
+            if (nsWindow == IntPtr.Zero) return false;
+            try
+            {
+                bool isFs = IsInFullScreen(nsWindow);
+                if (enter.HasValue && enter.Value == isFs)
+                {
+                    RestorePresentationOptions();
+                    return isFs;
+                }
+
+                SetupNativeFullScreenSupport(nsWindow);
+                var selToggle = sel_registerName("toggleFullScreen:");
+                objc_msgSend_IntPtr(nsWindow, selToggle, IntPtr.Zero);
+                RestorePresentationOptions();
+                return !isFs;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+    }
+
     public static void Run(string[] args)
     {
         int port = 5055;
@@ -42,7 +155,8 @@ public static class CrossPlatformHost
                 string url = $"http://127.0.0.1:{port}/";
                 PrintBanner(url);
 
-                _ = Task.Run(() => ListenLoop(listener, url));
+                Action<string>? onWindowCommand = null;
+                _ = Task.Run(() => ListenLoop(listener, url, cmd => onWindowCommand?.Invoke(cmd)));
 
                 bool isHeadless = Array.Exists(args, a => a.Equals("--headless", StringComparison.OrdinalIgnoreCase) || a.Equals("--no-gui", StringComparison.OrdinalIgnoreCase))
                     || !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("FLUI_HEADLESS"));
@@ -59,9 +173,224 @@ public static class CrossPlatformHost
                             .SetMinSize(960, 540)
                             .Center();
 
+                        bool isFullScreenMode = false;
+                        bool isPlayerFullscreen = false;
+                        bool appWasFullscreenBeforePlayer = false;
+                        bool isPipMode = false;
+                        Size prePipSize = new Size(1280, 720);
+                        Point prePipLocation = new Point(100, 100);
+                        long lastWindowCmdTick = 0;
+                        string lastWindowCmd = "";
+
+                        void HandleWindowCommand(string action)
+                        {
+                            try
+                            {
+                                window.Invoke(() =>
+                                {
+                                    long now = Environment.TickCount64;
+                                    if (string.Equals(action, lastWindowCmd, StringComparison.OrdinalIgnoreCase) && (now - lastWindowCmdTick) < 300)
+                                    {
+                                        return;
+                                    }
+                                    lastWindowCmdTick = now;
+                                    lastWindowCmd = action;
+
+                                    if (string.Equals(action, "ENTER_FULLSCREEN", StringComparison.OrdinalIgnoreCase) ||
+                                        (string.Equals(action, "TOGGLE_FULLSCREEN", StringComparison.OrdinalIgnoreCase) && !isPlayerFullscreen))
+                                    {
+                                        if (isPipMode)
+                                        {
+                                            isPipMode = false;
+                                            window.SetTopMost(false);
+                                            window.SetMinSize(960, 540);
+                                            if (prePipSize.Width > 0 && prePipSize.Height > 0)
+                                                window.SetSize(prePipSize);
+                                            if (prePipLocation.X > 0 && prePipLocation.Y > 0)
+                                                window.SetLocation(prePipLocation);
+                                        }
+
+                                        isPlayerFullscreen = true;
+                                        IntPtr nsWin = OperatingSystem.IsMacOS() ? MacNative.GetNSWindow(window) : IntPtr.Zero;
+                                        bool alreadyFs = OperatingSystem.IsMacOS() && nsWin != IntPtr.Zero
+                                            ? MacNative.IsInFullScreen(nsWin)
+                                            : isFullScreenMode;
+
+                                        appWasFullscreenBeforePlayer = alreadyFs;
+
+                                        if (!alreadyFs)
+                                        {
+                                            isFullScreenMode = true;
+                                            if (OperatingSystem.IsMacOS() && nsWin != IntPtr.Zero)
+                                            {
+                                                MacNative.ToggleFullScreen(nsWin, true);
+                                            }
+                                            else
+                                            {
+                                                window.SetFullScreen(true);
+                                            }
+                                        }
+
+                                        Console.WriteLine("[FluiStream] Janela: Player FullScreen ativado");
+                                    }
+                                    else if (string.Equals(action, "EXIT_FULLSCREEN", StringComparison.OrdinalIgnoreCase) ||
+                                             (string.Equals(action, "TOGGLE_FULLSCREEN", StringComparison.OrdinalIgnoreCase) && isPlayerFullscreen))
+                                    {
+                                        isPlayerFullscreen = false;
+                                        IntPtr nsWin = OperatingSystem.IsMacOS() ? MacNative.GetNSWindow(window) : IntPtr.Zero;
+                                        if (!appWasFullscreenBeforePlayer)
+                                        {
+                                            isFullScreenMode = false;
+                                            if (OperatingSystem.IsMacOS() && nsWin != IntPtr.Zero)
+                                            {
+                                                MacNative.ToggleFullScreen(nsWin, false);
+                                            }
+                                            else
+                                            {
+                                                window.SetFullScreen(false);
+                                            }
+                                        }
+                                        appWasFullscreenBeforePlayer = false;
+
+                                        if (OperatingSystem.IsMacOS())
+                                        {
+                                            MacNative.RestorePresentationOptions();
+                                        }
+
+                                        try { window.SendWebMessage($"{{\"type\":\"WINDOW_STATE\",\"isFullscreen\":false,\"isPip\":{isPipMode.ToString().ToLowerInvariant()}}}"); } catch { }
+                                        Console.WriteLine("[FluiStream] Janela: Player FullScreen encerrado");
+                                    }
+                                    else if (string.Equals(action, "ENTER_PIP", StringComparison.OrdinalIgnoreCase) ||
+                                             (string.Equals(action, "TOGGLE_PIP", StringComparison.OrdinalIgnoreCase) && !isPipMode))
+                                    {
+                                        if (!isPipMode)
+                                        {
+                                            IntPtr nsWin = OperatingSystem.IsMacOS() ? MacNative.GetNSWindow(window) : IntPtr.Zero;
+                                            if (isFullScreenMode || (OperatingSystem.IsMacOS() && nsWin != IntPtr.Zero && MacNative.IsInFullScreen(nsWin)))
+                                            {
+                                                isFullScreenMode = false;
+                                                if (OperatingSystem.IsMacOS() && nsWin != IntPtr.Zero)
+                                                    MacNative.ToggleFullScreen(nsWin, false);
+                                                else
+                                                    window.SetFullScreen(false);
+                                            }
+
+                                            prePipSize = window.Size;
+                                            prePipLocation = window.Location;
+                                            isPipMode = true;
+
+                                            window.SetTopMost(true);
+                                            window.SetMinSize(320, 180);
+                                            window.SetSize(420, 240);
+
+                                            try
+                                            {
+                                                var mon = window.MainMonitor;
+                                                if (mon.WorkArea.Width > 0)
+                                                {
+                                                    int targetX = Math.Max(24, mon.WorkArea.X + mon.WorkArea.Width - 420 - 24);
+                                                    int targetY = Math.Max(24, mon.WorkArea.Y + 24);
+                                                    window.SetLocation(new Point(targetX, targetY));
+                                                }
+                                            }
+                                            catch { }
+
+                                            try { window.SendWebMessage("{\"type\":\"WINDOW_STATE\",\"isFullscreen\":false,\"isPip\":true}"); } catch { }
+                                            Console.WriteLine("[FluiStream] Janela: Picture-in-Picture ativado (420x240, TopMost)");
+                                        }
+                                    }
+                                    else if (string.Equals(action, "EXIT_PIP", StringComparison.OrdinalIgnoreCase) ||
+                                             (string.Equals(action, "TOGGLE_PIP", StringComparison.OrdinalIgnoreCase) && isPipMode))
+                                    {
+                                        if (isPipMode)
+                                        {
+                                            isPipMode = false;
+                                            window.SetTopMost(false);
+                                            window.SetMinSize(960, 540);
+                                            if (prePipSize.Width > 0 && prePipSize.Height > 0)
+                                                window.SetSize(prePipSize);
+                                            if (prePipLocation.X > 0 && prePipLocation.Y > 0)
+                                                window.SetLocation(prePipLocation);
+
+                                            try { window.SendWebMessage("{\"type\":\"WINDOW_STATE\",\"isFullscreen\":false,\"isPip\":false}"); } catch { }
+                                            Console.WriteLine("[FluiStream] Janela: Picture-in-Picture desativado (tamanho restaurado)");
+                                        }
+                                    }
+                                });
+                            }
+                            catch (Exception ex)
+                            {
+                                Console.WriteLine($"[FluiStream] Erro ao manipular comando de janela ({action}): {ex.Message}");
+                            }
+                        }
+
+                        onWindowCommand = HandleWindowCommand;
+
+                        window.RegisterWebMessageReceivedHandler((sender, rawMsg) =>
+                        {
+                            if (string.IsNullOrWhiteSpace(rawMsg)) return;
+                            try
+                            {
+                                string action = "";
+                                if (rawMsg.Contains("ENTER_FULLSCREEN", StringComparison.OrdinalIgnoreCase)) action = "ENTER_FULLSCREEN";
+                                else if (rawMsg.Contains("EXIT_FULLSCREEN", StringComparison.OrdinalIgnoreCase)) action = "EXIT_FULLSCREEN";
+                                else if (rawMsg.Contains("TOGGLE_FULLSCREEN", StringComparison.OrdinalIgnoreCase)) action = "TOGGLE_FULLSCREEN";
+                                else if (rawMsg.Contains("ENTER_PIP", StringComparison.OrdinalIgnoreCase)) action = "ENTER_PIP";
+                                else if (rawMsg.Contains("EXIT_PIP", StringComparison.OrdinalIgnoreCase)) action = "EXIT_PIP";
+                                else if (rawMsg.Contains("TOGGLE_PIP", StringComparison.OrdinalIgnoreCase)) action = "TOGGLE_PIP";
+
+                                if (!string.IsNullOrEmpty(action))
+                                {
+                                    HandleWindowCommand(action);
+                                }
+                            }
+                            catch { }
+                        });
+
                         if (File.Exists(iconPath))
                         {
                             try { window.SetIconFile(iconPath); } catch { }
+                        }
+
+                        if (OperatingSystem.IsMacOS())
+                        {
+                            try
+                            {
+                                MacNative.RestorePresentationOptions();
+                            }
+                            catch { }
+
+                            window.RegisterWindowCreatedHandler((sender, e) =>
+                            {
+                                try
+                                {
+                                    var nsWin = MacNative.GetNSWindow(window);
+                                    MacNative.SetupNativeFullScreenSupport(nsWin);
+                                }
+                                catch { }
+                            });
+
+                            window.RegisterSizeChangedHandler((sender, size) =>
+                            {
+                                try
+                                {
+                                    var nsWin = MacNative.GetNSWindow(window);
+                                    if (nsWin != IntPtr.Zero)
+                                    {
+                                        bool isFs = MacNative.IsInFullScreen(nsWin);
+                                        isFullScreenMode = isFs;
+                                        // Se a janela saiu de tela cheia do SO e o player estava em tela cheia exclusiva,
+                                        // sincroniza a saída do player. NUNCA força o player a entrar em tela cheia só porque o app está maximizado.
+                                        if (!isFs && isPlayerFullscreen)
+                                        {
+                                            isPlayerFullscreen = false;
+                                            appWasFullscreenBeforePlayer = false;
+                                            try { window.SendWebMessage($"{{\"type\":\"WINDOW_STATE\",\"isFullscreen\":false,\"isPip\":{isPipMode.ToString().ToLowerInvariant()}}}"); } catch { }
+                                        }
+                                    }
+                                }
+                                catch { }
+                            });
                         }
 
                         window.Load(new Uri(url));
@@ -130,7 +459,7 @@ public static class CrossPlatformHost
         Console.WriteLine("[FluiStream] Pressione Ctrl+C para encerrar.\n");
     }
 
-    private static async Task ListenLoop(HttpListener listener, string baseUrl)
+    private static async Task ListenLoop(HttpListener listener, string baseUrl, Action<string>? onWindowCommand = null)
     {
         string baseDir = AppContext.BaseDirectory;
         string webRoot = Path.Combine(baseDir, "web");
@@ -150,7 +479,7 @@ public static class CrossPlatformHost
             try
             {
                 var ctx = await listener.GetContextAsync();
-                _ = Task.Run(() => HandleRequest(ctx, webRoot, baseUrl));
+                _ = Task.Run(() => HandleRequest(ctx, webRoot, baseUrl, onWindowCommand));
             }
             catch
             {
@@ -159,7 +488,7 @@ public static class CrossPlatformHost
         }
     }
 
-    private static async Task HandleRequest(HttpListenerContext ctx, string webRoot, string baseUrl)
+    private static async Task HandleRequest(HttpListenerContext ctx, string webRoot, string baseUrl, Action<string>? onWindowCommand = null)
     {
         try
         {
@@ -199,9 +528,68 @@ public static class CrossPlatformHost
                 return;
             }
 
+            if (path.Equals("/api/window", StringComparison.OrdinalIgnoreCase))
+            {
+                string? action = req.QueryString["action"];
+                if (string.IsNullOrWhiteSpace(action) && req.HasEntityBody)
+                {
+                    using var reader = new StreamReader(req.InputStream, req.ContentEncoding);
+                    string body = await reader.ReadToEndAsync();
+                    if (body.Contains("ENTER_FULLSCREEN", StringComparison.OrdinalIgnoreCase)) action = "ENTER_FULLSCREEN";
+                    else if (body.Contains("EXIT_FULLSCREEN", StringComparison.OrdinalIgnoreCase)) action = "EXIT_FULLSCREEN";
+                    else if (body.Contains("TOGGLE_FULLSCREEN", StringComparison.OrdinalIgnoreCase)) action = "TOGGLE_FULLSCREEN";
+                    else if (body.Contains("ENTER_PIP", StringComparison.OrdinalIgnoreCase)) action = "ENTER_PIP";
+                    else if (body.Contains("EXIT_PIP", StringComparison.OrdinalIgnoreCase)) action = "EXIT_PIP";
+                    else if (body.Contains("TOGGLE_PIP", StringComparison.OrdinalIgnoreCase)) action = "TOGGLE_PIP";
+                }
+
+                if (!string.IsNullOrWhiteSpace(action))
+                {
+                    onWindowCommand?.Invoke(action);
+                }
+
+                res.ContentType = "application/json; charset=utf-8";
+                byte[] okBytes = Encoding.UTF8.GetBytes("{\"ok\":true}");
+                res.ContentLength64 = okBytes.Length;
+                await res.OutputStream.WriteAsync(okBytes);
+                res.Close();
+                return;
+            }
+
             if (path.Equals("/api/proxy", StringComparison.OrdinalIgnoreCase) || path.Equals("/proxy", StringComparison.OrdinalIgnoreCase))
             {
                 string? targetUrl = req.QueryString["url"];
+                if (string.IsNullOrWhiteSpace(targetUrl))
+                {
+                    var rawQuery = req.Url?.Query;
+                    if (!string.IsNullOrEmpty(rawQuery) && rawQuery.Length > 1)
+                    {
+                        var rawCandidate = Uri.UnescapeDataString(rawQuery.Substring(1)).Trim().TrimStart('/');
+                        if (rawCandidate.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+                            rawCandidate.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+                        {
+                            targetUrl = rawCandidate;
+                        }
+                    }
+                }
+
+                if (!string.IsNullOrWhiteSpace(targetUrl))
+                {
+                    targetUrl = targetUrl.Trim();
+                    while (targetUrl.StartsWith('/') || targetUrl.StartsWith("%2F", StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (targetUrl.StartsWith('/'))
+                            targetUrl = targetUrl.TrimStart('/');
+                        else if (targetUrl.StartsWith("%2F", StringComparison.OrdinalIgnoreCase))
+                            targetUrl = targetUrl.Substring(3);
+                    }
+                    if (targetUrl.StartsWith("http%3A", StringComparison.OrdinalIgnoreCase) ||
+                        targetUrl.StartsWith("https%3A", StringComparison.OrdinalIgnoreCase))
+                    {
+                        targetUrl = Uri.UnescapeDataString(targetUrl);
+                    }
+                }
+
                 if (string.IsNullOrWhiteSpace(targetUrl)
                     || !Uri.TryCreate(targetUrl, UriKind.Absolute, out var targetUri)
                     || (targetUri.Scheme != Uri.UriSchemeHttp && targetUri.Scheme != Uri.UriSchemeHttps))
@@ -227,7 +615,7 @@ public static class CrossPlatformHost
                         proxyReq.Headers.TryAddWithoutValidation("Range", rangeHeader);
                     }
 
-                    using var connectCts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+                    using var connectCts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
                     using var proxyRes = await HttpClient
                         .SendAsync(proxyReq, HttpCompletionOption.ResponseHeadersRead, connectCts.Token)
                         .ConfigureAwait(false);
@@ -249,7 +637,7 @@ public static class CrossPlatformHost
                     long? contentLen = proxyRes.Content.Headers.ContentLength;
                     if (looksLikeM3u8 && (!contentLen.HasValue || contentLen.Value <= 4 * 1024 * 1024))
                     {
-                        string bodyText = await proxyRes.Content.ReadAsStringAsync(connectCts.Token).ConfigureAwait(false);
+                        string bodyText = await proxyRes.Content.ReadAsStringAsync().ConfigureAwait(false);
                         if (bodyText.TrimStart().StartsWith("#EXTM3U", StringComparison.OrdinalIgnoreCase))
                         {
                             string rewritten = RewriteM3u8Manifest(bodyText, finalUri, originBase);
@@ -282,7 +670,7 @@ public static class CrossPlatformHost
                         res.Headers["Content-Range"] = proxyRes.Content.Headers.ContentRange.ToString();
                     }
 
-                    await using var upstreamStream = await proxyRes.Content.ReadAsStreamAsync(connectCts.Token).ConfigureAwait(false);
+                    await using var upstreamStream = await proxyRes.Content.ReadAsStreamAsync().ConfigureAwait(false);
                     byte[] buffer = new byte[65536];
                     int bytesRead;
                     while ((bytesRead = await upstreamStream.ReadAsync(buffer, 0, buffer.Length).ConfigureAwait(false)) > 0)

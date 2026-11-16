@@ -115,6 +115,11 @@ await test('Deve normalizar URL e gerar endpoints corretos do player_api e get.p
   assert.equal(xtream.getM3uUrl(), 'http://myiptv.com:8080/get.php?username=teste&password=senha123&type=m3u_plus&output=m3u8');
   assert.equal(xtream.getEpgUrl(), 'http://myiptv.com:8080/xmltv.php?username=teste&password=senha123');
   assert.equal(xtream.getPlayerApiUrl(), 'http://myiptv.com:8080/player_api.php?username=teste&password=senha123');
+
+  const xtreamWithProxy = new XtreamApi('http://myiptv.com:8080', 'teste', 'senha123', 'http://127.0.0.1:5055/proxy?url=');
+  const proxiedApi = xtreamWithProxy.applyProxy(xtreamWithProxy.getPlayerApiUrl());
+  assert.equal(proxiedApi, 'http://127.0.0.1:5055/proxy?url=http%3A%2F%2Fmyiptv.com%3A8080%2Fplayer_api.php%3Fusername%3Dteste%26password%3Dsenha123');
+  assert.ok(!proxiedApi.includes('?url=/http'), 'Não deve conter barra / imediatamente após ?url=');
 });
 
 console.log('\n--- 4. Testes de Internacionalização (i18n - 3 Idiomas) ---');
@@ -489,6 +494,92 @@ await test('Deve extrair faixas de áudio e legendas e notificar callback', () =
   assert.equal(controller.currentSubtitleTrack, -1);
 });
 
+await test('VideoPlayerController toggleFullscreen e togglePip no Desktop/macOS acionam desktop-fullscreen, desktop-mini-pip e notifyDesktopHost', async () => {
+  const containerClasses = new Set();
+  const bodyClasses = new Set();
+  const mockContainer = {
+    classList: {
+      add: (c) => containerClasses.add(c),
+      remove: (c) => containerClasses.delete(c),
+      contains: (c) => containerClasses.has(c)
+    },
+    getBoundingClientRect: () => ({ x: 0, y: 0, width: 800, height: 450, top: 0, bottom: 450, left: 0, right: 800 }),
+    closest: () => null
+  };
+  const mockVideo = {
+    style: {},
+    addEventListener: () => {},
+    pause: () => {},
+    removeAttribute: () => {},
+    load: () => {},
+    classList: { add: () => {}, remove: () => {} }
+  };
+
+  const prevDoc = globalThis.document;
+  const prevWin = globalThis.window;
+  const dispatchedHostActions = [];
+
+  globalThis.window = {
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    external: {
+      sendMessage: () => {}
+    }
+  };
+
+  globalThis.document = {
+    body: {
+      classList: {
+        add: (c) => bodyClasses.add(c),
+        remove: (c) => bodyClasses.delete(c),
+        contains: (c) => bodyClasses.has(c),
+        toggle: (c) => {
+          if (bodyClasses.has(c)) { bodyClasses.delete(c); return false; }
+          bodyClasses.add(c); return true;
+        }
+      }
+    },
+    addEventListener: () => {},
+    fullscreenElement: null,
+    webkitFullscreenElement: null,
+    pictureInPictureElement: null,
+    querySelector: () => null,
+    getElementById: () => null
+  };
+
+  try {
+    const ctrl = new VideoPlayerController(mockVideo, mockContainer);
+    ctrl.notifyDesktopHost = (act) => dispatchedHostActions.push(act);
+
+    // 1. Toggle Fullscreen ON
+    await ctrl.toggleFullscreen();
+    assert.ok(bodyClasses.has('desktop-fullscreen'), 'Deve adicionar desktop-fullscreen ao body');
+    assert.ok(containerClasses.has('is-fullscreen'), 'Deve adicionar is-fullscreen ao container');
+    assert.ok(dispatchedHostActions.some(a => a === 'ENTER_FULLSCREEN' || a === 'TOGGLE_FULLSCREEN'), 'Deve despachar comando de fullscreen para o host desktop');
+
+    // 2. Toggle Fullscreen OFF
+    ctrl._lastFsToggleTime = 0;
+    await ctrl.toggleFullscreen();
+    assert.ok(!bodyClasses.has('desktop-fullscreen'), 'Deve remover desktop-fullscreen do body');
+    assert.ok(!containerClasses.has('is-fullscreen'), 'Deve remover is-fullscreen do container');
+    assert.ok(dispatchedHostActions.includes('EXIT_FULLSCREEN'), 'Deve despachar EXIT_FULLSCREEN para o host desktop');
+
+    // 3. Toggle PiP ON
+    await ctrl.togglePip();
+    assert.ok(bodyClasses.has('desktop-mini-pip'), 'Deve adicionar desktop-mini-pip ao body');
+    assert.ok(dispatchedHostActions.some(a => a === 'ENTER_PIP' || a === 'TOGGLE_PIP'), 'Deve despachar comando de PiP para o host desktop');
+
+    // 4. Toggle PiP OFF
+    ctrl._lastPipToggleTime = 0;
+    await ctrl.togglePip();
+    assert.ok(!bodyClasses.has('desktop-mini-pip'), 'Deve remover desktop-mini-pip do body');
+    assert.ok(dispatchedHostActions.includes('EXIT_PIP'), 'Deve despachar EXIT_PIP para o host desktop');
+  } finally {
+    globalThis.document = prevDoc;
+    globalThis.window = prevWin;
+  }
+});
+
 console.log('\n--- 11. Testes do Formatador de Proxy CORS ---');
 
 await test('Deve aplicar Proxy CORS corretamente respeitando ? e /', () => {
@@ -513,6 +604,45 @@ await test('Deve aplicar Proxy CORS corretamente respeitando ? e /', () => {
 
   // URLs especiais (blob, data)
   assert.equal(applyCorsProxy('https://corsproxy.io/?', 'blob:http://localhost/abc'), 'blob:http://localhost/abc');
+
+  // Não deve duplicar proxy se a URL já está envelopada em proxy
+  const alreadyProxied = 'http://127.0.0.1:5055/proxy?url=' + encoded;
+  assert.equal(applyCorsProxy('http://127.0.0.1:5055/proxy?url=', alreadyProxied), alreadyProxied);
+});
+
+await test('fetchRemoteText deve usar fallback do proxy local (window.__fluiLocalProxyUrl) quando fetch direto falha', async () => {
+  const { fetchRemoteText } = await import('../src/web/js/network.js');
+  const prevWindow = globalThis.window;
+  const prevFetch = globalThis.fetch;
+  const fetchCalls = [];
+
+  globalThis.window = {
+    __fluiLocalProxyUrl: 'http://127.0.0.1:5055/'
+  };
+
+  globalThis.fetch = async (input) => {
+    fetchCalls.push(String(input));
+    if (String(input).includes('2025easy.net') && !String(input).includes('127.0.0.1:5055')) {
+      throw new TypeError('Load failed');
+    }
+    return {
+      ok: true,
+      status: 200,
+      arrayBuffer: async () => new TextEncoder().encode('{"user_info":{"auth":1}}').buffer
+    };
+  };
+
+  try {
+    const text = await fetchRemoteText('http://2025easy.net/player_api.php?username=user&password=pass');
+    assert.match(text, /"auth":1/);
+    assert.equal(fetchCalls.length, 2);
+    assert.equal(fetchCalls[0], 'http://2025easy.net/player_api.php?username=user&password=pass');
+    assert.equal(fetchCalls[1], 'http://127.0.0.1:5055/proxy?url=' + encodeURIComponent('http://2025easy.net/player_api.php?username=user&password=pass'));
+  } finally {
+    globalThis.fetch = prevFetch;
+    if (prevWindow === undefined) delete globalThis.window;
+    else globalThis.window = prevWindow;
+  }
 });
 
 console.log('\n--- 12. Testes de Delegação da Ponte Nativa Android (window.androidBridge) ---');
@@ -2066,6 +2196,14 @@ await test('Android ExoPlayer: decoder fallback, TsExtractor IPTV flags, fallbac
     );
     assert.deepEqual(callSequence, ['setFallbackUrls', 'playStream']);
     assert.ok(receivedFallbacks.includes('http://iptv.example.com:8080/live/user/pass/55.ts'));
+
+    const mainActivityKt = readFileSync(resolve(rootDir, 'src/android/app/src/main/java/com/cesarovies/fluistream/MainActivity.kt'), 'utf8');
+    assert.match(mainActivityKt, /fun interceptRemoteHttpRequest\(/);
+    assert.match(mainActivityKt, /shouldInterceptRequest[\s\S]*?interceptRemoteHttpRequest/);
+    assert.match(mainActivityKt, /Access-Control-Allow-Origin/);
+    assert.match(mainActivityKt, /trustAllSslSocketFactory/);
+    assert.match(mainActivityKt, /connectTimeout = 30_000/);
+    assert.match(mainActivityKt, /readTimeout = 120_000/);
   } finally {
     if (prevWindow === undefined) {
       delete globalThis.window;

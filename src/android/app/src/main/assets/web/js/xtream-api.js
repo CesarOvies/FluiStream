@@ -3,7 +3,7 @@
  * Autenticação e consumo da API do player (player_api.php, get.php, xmltv.php)
  */
 
-import { fetchRemoteText } from './network.js';
+import { fetchRemoteText, applyCorsProxy } from './network.js';
 
 export class XtreamApi {
   constructor(serverUrl, username, password, corsProxy = '') {
@@ -23,9 +23,8 @@ export class XtreamApi {
   }
 
   applyProxy(targetUrl) {
-    if (!this.corsProxy) return targetUrl;
-    const proxy = this.corsProxy.endsWith('/') ? this.corsProxy : `${this.corsProxy}/`;
-    return `${proxy}${encodeURIComponent(targetUrl)}`;
+    if (!this.corsProxy || !targetUrl) return targetUrl;
+    return applyCorsProxy(this.corsProxy, targetUrl);
   }
 
   getM3uUrl() {
@@ -101,7 +100,7 @@ export class XtreamApi {
    * URL para consulta de metadados e sinopse de filme VOD (action=get_vod_info)
    */
   getVodInfoUrl(vodId) {
-    return `${this.baseUrl}/player_api.php?username=${encodeURIComponent(this.username)}&password=${encodeURIComponent(this.password)}&action=get_vod_info&vod_id=${encodeURIComponent(String(vodId))}`;
+    return `${this.serverUrl}/player_api.php?username=${encodeURIComponent(this.username)}&password=${encodeURIComponent(this.password)}&action=get_vod_info&vod_id=${encodeURIComponent(String(vodId))}`;
   }
 
   /**
@@ -112,7 +111,8 @@ export class XtreamApi {
     try {
       const directUrl = this.getVodInfoUrl(vodId);
       const finalUrl = this.corsProxy ? this.applyProxy(directUrl) : directUrl;
-      const data = await fetchRemoteJson(finalUrl);
+      const text = await fetchRemoteText(finalUrl);
+      const data = JSON.parse(text);
       return data && typeof data === 'object' ? data : null;
     } catch {
       return null;
@@ -122,10 +122,10 @@ export class XtreamApi {
   /**
    * Baixa a lista M3U Plus completa gerada pelo servidor Xtream
    */
-  async fetchM3uContent() {
+  async fetchM3uContent(timeoutMs = 120000) {
     const directUrl = this.getM3uUrl();
     const finalUrl = this.corsProxy ? this.applyProxy(directUrl) : directUrl;
-    return await fetchRemoteText(finalUrl);
+    return await fetchRemoteText(finalUrl, timeoutMs);
   }
 }
 
