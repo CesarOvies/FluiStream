@@ -126,7 +126,7 @@ await test('Todos os 3 idiomas (pt-BR, en-US, es) devem possuir o mesmo conjunto
   const enKeys = Object.keys(translations['en-US']).sort();
   const esKeys = Object.keys(translations['es']).sort();
 
-  assert.equal(ptKeys.length, 276, `Esperado exatamente 276 chaves i18n em pt-BR, obtido ${ptKeys.length}`);
+  assert.equal(ptKeys.length, 283, `Esperado exatamente 283 chaves i18n em pt-BR, obtido ${ptKeys.length}`);
   assert.deepEqual(ptKeys, enKeys, 'Chaves pt-BR e en-US devem ser idênticas');
   assert.deepEqual(ptKeys, esKeys, 'Chaves pt-BR e es devem ser idênticas');
 
@@ -2230,6 +2230,8 @@ await test('Opções de canal na TV / Desktop (botão direito e long press) e fo
   assert.match(appJs, /addEventListener\('contextmenu'/);
   assert.match(appJs, /channelActionAddToFavorites/);
   assert.match(appJs, /channelActionRemoveFromFavorites/);
+  assert.match(appJs, /activateChannelRow\(/);
+  assert.match(appJs, /_suppressChannelClickUntil/);
 
   // 5. JS: foco seguro em inputs sem jogar para o começo da tela
   assert.match(appJs, /el\.blur\(\)/);
@@ -2277,6 +2279,54 @@ await test('Opções de canal na TV / Desktop (botão direito e long press) e fo
   updateFavUi(removedFav);
   assert.equal(starSpan.classList.has('is-fav'), false, 'Estrela deve voltar a ficar apagada ao remover dos favoritos');
   assert.equal(textSpan.textContent, 'Adicionar aos Favoritos');
+});
+
+await test('Tela de Loading pós-seleção de perfil e ausência de pré-carregamento no startup', () => {
+  const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+  const html = readFileSync(resolve(rootDir, 'src/web/index.html'), 'utf-8');
+  const css = readFileSync(resolve(rootDir, 'src/web/css/style.css'), 'utf-8');
+  const appJs = readFileSync(resolve(rootDir, 'src/web/js/app.js'), 'utf-8');
+
+  // 1. Elementos HTML da tela de loading
+  assert.match(html, /id="profile-loading-screen"/, 'Deve conter elemento #profile-loading-screen');
+  assert.match(html, /id="profile-loading-avatar"/, 'Deve conter elemento #profile-loading-avatar');
+  assert.match(html, /id="profile-loading-title"[^>]*data-i18n="profileLoadingTitle"/, 'Deve conter #profile-loading-title com i18n');
+  assert.match(html, /id="profile-loading-name"/, 'Deve conter #profile-loading-name');
+  assert.match(html, /id="profile-loading-progress-bar"/, 'Deve conter barra de progresso');
+  assert.match(html, /id="profile-loading-status"[^>]*data-i18n="profileLoadingInit"/, 'Deve conter #profile-loading-status com i18n');
+
+  // 2. Estilos CSS da tela de loading
+  assert.match(css, /\.profile-loading-screen\s*\{[^}]*position:\s*fixed/, 'Tela de loading deve ter position: fixed cobrindo viewport');
+  assert.match(css, /\.profile-loading-screen\s*\{[^}]*z-index:\s*9999/, 'Tela de loading deve ter z-index 9999');
+  assert.match(css, /\.profile-loading-card\s*\{/, 'Deve conter classe .profile-loading-card');
+  assert.match(css, /\.profile-loading-bar\s*\{/, 'Deve conter classe .profile-loading-bar');
+  assert.match(css, /\.profile-loading-spinner\s*\{/, 'Deve conter spinner animado');
+  assert.match(css, /body\[data-(?:effective-)?device-mode="tv"\]\s+\.profile-loading-card/, 'Deve possuir regras responsivas para modo TV');
+
+  // 3. Regras de negócio no App.js:
+  // - Na seleção de perfil inicial NÃO deve pré-carregar playlist ou sincronizar segundo plano
+  assert.match(appJs, /profileLoadingScreen:\s*document\.getElementById\('profile-loading-screen'\)/, 'DOM elements deve registrar profileLoadingScreen');
+  assert.match(appJs, /showProfileLoading\(/, 'Deve conter método showProfileLoading');
+  assert.match(appJs, /updateProfileLoadingStatus\(/, 'Deve conter método updateProfileLoadingStatus');
+  assert.match(appJs, /hideProfileLoading\(/, 'Deve conter método hideProfileLoading');
+
+  // Verifica que switchProfile orquestra loading -> loadPlaylist -> sync remoto (se necessário) -> parse EPG -> renderHomeHub -> hideProfileLoading
+  assert.match(appJs, /this\.showProfileLoading\(prof\)/, 'switchProfile deve abrir tela de loading');
+  assert.match(appJs, /this\.hideProfileLoading\(\)/, 'switchProfile deve fechar tela de loading no final');
+
+  // Verifica que handleGlobalKeyDown bloqueia input enquanto a tela de loading estiver ativa
+  assert.match(appJs, /if\s*\(this\.dom\.profileLoadingScreen\s*&&\s*!this\.dom\.profileLoadingScreen\.classList\.contains\('hidden'\)\)/, 'Deve bloquear atalhos D-Pad durante loading');
+
+  // 4. i18n
+  for (const lang of ['pt-BR', 'en-US', 'es']) {
+    assert.ok(translations[lang].profileLoadingTitle, `${lang} deve ter profileLoadingTitle`);
+    assert.ok(translations[lang].profileLoadingInit, `${lang} deve ter profileLoadingInit`);
+    assert.ok(translations[lang].profileLoadingReading, `${lang} deve ter profileLoadingReading`);
+    assert.ok(translations[lang].profileLoadingSyncing, `${lang} deve ter profileLoadingSyncing`);
+    assert.ok(translations[lang].profileLoadingProcessing, `${lang} deve ter profileLoadingProcessing`);
+    assert.ok(translations[lang].profileLoadingEpg, `${lang} deve ter profileLoadingEpg`);
+    assert.ok(translations[lang].profileLoadingReady, `${lang} deve ter profileLoadingReady`);
+  }
 });
 
 console.log(`\n========================================`);

@@ -4395,3 +4395,221 @@ body[data-effective-device-mode="tv"] .gradient-tile-label,
 body[data-device-mode="tv"] .gradient-tile-label {
   font-size: 1.05rem;
 }
+
+/* =====================================================
+   TELA DE LOADING DE PERFIL (PROFESSIONAL CINEMATIC)
+   ===================================================== */
+.profile-loading-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: radial-gradient(circle at 50% 35%, rgba(13, 31, 56, 0.94) 0%, rgba(5, 11, 20, 0.98) 70%, #03070E 100%);
+  backdrop-filter: blur(20px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  opacity: 1;
+  transition: opacity 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.profile-loading-screen.hidden {
+  display: none !important;
+}
+
+.profile-loading-screen.fade-out {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.profile-loading-card {
+  width: 100%;
+  max-width: 440px;
+  background: rgba(15, 23, 42, 0.88);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 20px;
+  padding: 2.25rem 2rem;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.75), 0 0 40px rgba(245, 158, 11, 0.12);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  position: relative;
+  overflow: hidden;
+}
+
+.profile-loading-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, #F59E0B, #FBBF24, #10B981, #38BDF8);
+  background-size: 200% 100%;
+  animation: loadingGradShift 3s ease infinite;
+}
+
+@keyframes loadingGradShift {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+.profile-loading-brand {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-bottom: 1.5rem;
+}
+
+.profile-loading-logo {
+  width: 28px;
+  height: 28px;
+  filter: drop-shadow(0 2px 8px rgba(245, 158, 11, 0.3));
+}
+
+.profile-loading-brand-text {
+  font-size: 0.95rem;
+  font-weight: 800;
+  letter-spacing: 0.15em;
+  color: var(--text-primary);
+  text-transform: uppercase;
+}
+
+.profile-loading-avatar-wrap {
+  position: relative;
+  width: 80px;
+  height: 80px;
+  margin-bottom: 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.profile-loading-avatar {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #1E293B 0%, #0F172A 100%);
+  border: 2px solid var(--accent-amber);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 2.2rem;
+  color: var(--text-primary);
+  position: relative;
+  z-index: 2;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.5);
+}
+
+.profile-loading-glow {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: var(--accent-amber);
+  filter: blur(14px);
+  opacity: 0.35;
+  animation: pulseProfileGlow 2s ease-in-out infinite alternate;
+}
+
+@keyframes pulseProfileGlow {
+  0% { transform: scale(0.9); opacity: 0.25; }
+  100% { transform: scale(1.15); opacity: 0.5; }
+}
+
+.profile-loading-title {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 0.25rem;
+}
+
+.profile-loading-name {
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--accent-amber-bright);
+  margin-bottom: 1.5rem;
+  max-width: 90%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.profile-loading-bar-wrap {
+  width: 100%;
+  height: 8px;
+  background: rgba(30, 41, 59, 0.8);
+  border-radius: 999px;
+  overflow: hidden;
+  position: relative;
+  margin-bottom: 1rem;
+  border: 1px solid rgba(148, 163, 184, 0.12);
+}
+
+.profile-loading-bar {
+  height: 100%;
+  background: linear-gradient(90deg, #F59E0B, #FBBF24);
+  border-radius: 999px;
+  transition: width 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 0 12px rgba(245, 158, 11, 0.6);
+}
+
+.profile-loading-status-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+  min-height: 1.4rem;
+}
+
+.profile-loading-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(245, 158, 11, 0.25);
+  border-top-color: var(--accent-amber);
+  border-radius: 50%;
+  animation: spinProfileLoader 0.8s linear infinite;
+  display: inline-block;
+}
+
+@keyframes spinProfileLoader {
+  to { transform: rotate(360deg); }
+}
+
+.profile-loading-status {
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+  font-weight: 500;
+  transition: color 0.2s ease;
+}
+
+/* Modo TV / 10-foot UI para Loading */
+body[data-effective-device-mode="tv"] .profile-loading-card,
+body[data-device-mode="tv"] .profile-loading-card {
+  max-width: 480px;
+  padding: 2.75rem 2.25rem;
+}
+
+body[data-effective-device-mode="tv"] .profile-loading-avatar,
+body[data-device-mode="tv"] .profile-loading-avatar {
+  width: 88px;
+  height: 88px;
+  font-size: 2.75rem;
+}
+
+body[data-effective-device-mode="tv"] .profile-loading-title,
+body[data-device-mode="tv"] .profile-loading-title {
+  font-size: 1.45rem;
+}
+
+body[data-effective-device-mode="tv"] .profile-loading-name,
+body[data-device-mode="tv"] .profile-loading-name {
+  font-size: 1.2rem;
+}
+
+body[data-effective-device-mode="tv"] .profile-loading-status,
+body[data-device-mode="tv"] .profile-loading-status {
+  font-size: 1rem;
+}
+
