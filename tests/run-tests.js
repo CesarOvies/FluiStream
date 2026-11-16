@@ -2230,6 +2230,8 @@ await test('Opções de canal na TV / Desktop (botão direito e long press) e fo
   assert.match(appJs, /addEventListener\('contextmenu'/);
   assert.match(appJs, /channelActionAddToFavorites/);
   assert.match(appJs, /channelActionRemoveFromFavorites/);
+  assert.match(appJs, /activateChannelRow\(/);
+  assert.match(appJs, /_suppressChannelClickUntil/);
 
   // 5. JS: foco seguro em inputs sem jogar para o começo da tela
   assert.match(appJs, /el\.blur\(\)/);

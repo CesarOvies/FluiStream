@@ -1261,6 +1261,8 @@ class FluiStreamApp {
     // Sidebar Delegation (Categories & Drilled Items)
     if (this.dom.sidebarCategoryList) {
       let pointerTimer = null;
+      let pointerStartX = 0;
+      let pointerStartY = 0;
       const clearPointerTimer = () => {
         if (pointerTimer) {
           clearTimeout(pointerTimer);
@@ -1269,7 +1271,7 @@ class FluiStreamApp {
       };
 
       this.dom.sidebarCategoryList.addEventListener('click', async (e) => {
-        if (this._channelLongPressFired) {
+        if (this._channelLongPressFired || Date.now() < (this._suppressChannelClickUntil || 0)) {
           this._channelLongPressFired = false;
           e.preventDefault();
           e.stopPropagation();
@@ -1296,28 +1298,11 @@ class FluiStreamApp {
         }
         const row = e.target.closest('.sidebar-item-row');
         if (row) {
-          const id = row.getAttribute('data-id');
-          if (this._isSeriesGroupingActive()) {
-            const series = (this.currentFilteredSeries || []).find(s => s.id === id);
-            if (series) {
-              this.setMobileSidebarOpen(false);
-              this.openSeriesDetailModal(series);
-              return;
-            }
-          }
-          const item = (this.currentFilteredItems || []).find(x => x.id === id);
-          if (item) {
-            this.setMobileSidebarOpen(false);
-            if (item.type === ItemType.MOVIE) {
-              this.openMovieDetailModal(item);
-            } else {
-              this.playChannel(item);
-            }
-          }
+          this.activateChannelRow(row);
         }
       });
 
-      // Context menu (botão direito) no canal
+      // Context menu (botão direito ou long press touch nativo) no canal
       this.dom.sidebarCategoryList.addEventListener('contextmenu', (e) => {
         const row = e.target.closest('.sidebar-item-row');
         if (row) {
@@ -1325,6 +1310,8 @@ class FluiStreamApp {
           e.stopPropagation();
           this._clearChannelLongPressTimer?.();
           clearPointerTimer();
+          this._channelLongPressFired = true;
+          this._suppressChannelClickUntil = Date.now() + 600;
           const id = row.getAttribute('data-id');
           this.openChannelActionsModal(id, row);
         }
@@ -1336,19 +1323,26 @@ class FluiStreamApp {
         const row = e.target.closest('.sidebar-item-row');
         if (row && !e.target.closest('.sidebar-item-fav')) {
           clearPointerTimer();
+          pointerStartX = e.clientX;
+          pointerStartY = e.clientY;
           pointerTimer = setTimeout(() => {
             pointerTimer = null;
             this._channelLongPressFired = true;
+            this._suppressChannelClickUntil = Date.now() + 600;
             const id = row.getAttribute('data-id');
             this.openChannelActionsModal(id, row);
-          }, 550);
+          }, 450);
         }
       });
       this.dom.sidebarCategoryList.addEventListener('pointerup', clearPointerTimer);
       this.dom.sidebarCategoryList.addEventListener('pointercancel', clearPointerTimer);
       this.dom.sidebarCategoryList.addEventListener('pointermove', (e) => {
-        if (pointerTimer && (Math.abs(e.movementX || 0) > 8 || Math.abs(e.movementY || 0) > 8)) {
-          clearPointerTimer();
+        if (pointerTimer) {
+          const dx = Math.abs((e.clientX || 0) - pointerStartX);
+          const dy = Math.abs((e.clientY || 0) - pointerStartY);
+          if (dx > 16 || dy > 16) {
+            clearPointerTimer();
+          }
         }
       });
 
@@ -1357,31 +1351,33 @@ class FluiStreamApp {
         if (e.key !== 'Enter' && e.key !== ' ') return;
         const row = e.target.closest('.sidebar-item-row');
         if (row && !e.target.closest('.sidebar-item-fav')) {
-          if (!e.repeat) {
-            this._clearChannelLongPressTimer?.();
-            this._channelLongPressFired = false;
-            this._channelLongPressTimer = setTimeout(() => {
-              this._channelLongPressFired = true;
-              this._channelLongPressTimer = null;
-              const id = row.getAttribute('data-id');
-              this.openChannelActionsModal(id, row);
-            }, 500);
-          }
+          e.preventDefault();
+          e.stopPropagation();
+          if (e.repeat) return;
+
+          this._clearChannelLongPressTimer?.();
+          this._channelLongPressFired = false;
+          this._channelLongPressTimer = setTimeout(() => {
+            this._channelLongPressFired = true;
+            this._suppressChannelClickUntil = Date.now() + 600;
+            this._channelLongPressTimer = null;
+            const id = row.getAttribute('data-id');
+            this.openChannelActionsModal(id, row);
+          }, 450);
         }
       });
       this.dom.sidebarCategoryList.addEventListener('keyup', (e) => {
         if (e.key !== 'Enter' && e.key !== ' ') return;
-        this._clearChannelLongPressTimer?.();
-        if (this._channelLongPressFired) {
-          e.preventDefault();
-          e.stopPropagation();
-          this._channelLongPressFired = false;
-          return;
-        }
         const row = e.target.closest('.sidebar-item-row');
         if (row && !e.target.closest('.sidebar-item-fav')) {
           e.preventDefault();
-          row.click();
+          e.stopPropagation();
+          this._clearChannelLongPressTimer?.();
+          if (this._channelLongPressFired || Date.now() < (this._suppressChannelClickUntil || 0)) {
+            this._channelLongPressFired = false;
+            return;
+          }
+          this.activateChannelRow(row);
         }
       });
       this.dom.sidebarCategoryList.addEventListener('scroll', () => {
@@ -1840,6 +1836,8 @@ class FluiStreamApp {
         e.preventDefault();
         e.stopPropagation();
         this._clearChannelLongPressTimer?.();
+        this._channelLongPressFired = true;
+        this._suppressChannelClickUntil = Date.now() + 600;
         const id = row.getAttribute('data-id');
         this.openChannelActionsModal(id, row);
         return;
@@ -5126,8 +5124,33 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
     }
   }
 
+  activateChannelRow(row) {
+    if (!row) return;
+    const id = row.getAttribute('data-id');
+    if (this._isSeriesGroupingActive()) {
+      const series = (this.currentFilteredSeries || []).find(s => s.id === id);
+      if (series) {
+        this.setMobileSidebarOpen(false);
+        this.openSeriesDetailModal(series);
+        return;
+      }
+    }
+    const item = (this.currentFilteredItems || []).find(x => x.id === id);
+    if (item) {
+      this.setMobileSidebarOpen(false);
+      if (item.type === ItemType.MOVIE) {
+        this.openMovieDetailModal(item);
+      } else {
+        this.playChannel(item);
+      }
+    }
+  }
+
   openChannelActionsModal(id, targetRow = null) {
     if (!id) return;
+    this._clearChannelLongPressTimer();
+    this._channelLongPressFired = true;
+    this._suppressChannelClickUntil = Date.now() + 600;
     const item = (this.currentFilteredItems || []).find(x => String(x.id) === String(id))
       || (this.playlist.items || []).find(x => String(x.id) === String(id))
       || (this.currentFilteredSeries || []).find(s => String(s.id) === String(id));
