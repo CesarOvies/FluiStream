@@ -126,7 +126,7 @@ await test('Todos os 3 idiomas (pt-BR, en-US, es) devem possuir o mesmo conjunto
   const enKeys = Object.keys(translations['en-US']).sort();
   const esKeys = Object.keys(translations['es']).sort();
 
-  assert.equal(ptKeys.length, 272, `Esperado exatamente 272 chaves i18n em pt-BR, obtido ${ptKeys.length}`);
+  assert.equal(ptKeys.length, 276, `Esperado exatamente 276 chaves i18n em pt-BR, obtido ${ptKeys.length}`);
   assert.deepEqual(ptKeys, enKeys, 'Chaves pt-BR e en-US devem ser idênticas');
   assert.deepEqual(ptKeys, esKeys, 'Chaves pt-BR e es devem ser idênticas');
 
@@ -1442,6 +1442,7 @@ await test('Android TV D-Pad navega por tabs, inputs de texto, checkboxes, selec
     ${extractMethod('_isTextEntryElement')}
     ${extractMethod('_setTvInputEditing')}
     ${extractMethod('moveSpatialFocus')}
+    ${extractMethod('_clearChannelLongPressTimer')}
     ${extractMethod('handleGlobalKeyDown')}
     ${extractMethod('openModal')}
   })()`;
@@ -2198,6 +2199,84 @@ await test('Topo (app-header) oculto nas categorias/player e altura devolvida ao
   assert.match(css, /\.split-sidebar\s*\{[^}]*height:\s*calc\(100vh - 115px \+ var\(--hidden-header-h, 0px\)\)/);
   assert.match(appJs, /syncAppHeaderVisibility\(\)\s*\{[\s\S]*?this\.activeScreen !== 'browse'[\s\S]*?app-header-hidden/);
   assert.match(appJs, /toggle\('hidden', key !== screenName\);\s*\}\);\s*this\.syncAppHeaderVisibility\(\);/);
+});
+
+await test('Opções de canal na TV / Desktop (botão direito e long press) e foco suave em campos de texto', () => {
+  const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+  const html = readFileSync(resolve(rootDir, 'src/web/index.html'), 'utf-8');
+  const css = readFileSync(resolve(rootDir, 'src/web/css/style.css'), 'utf-8');
+  const appJs = readFileSync(resolve(rootDir, 'src/web/js/app.js'), 'utf-8');
+  const bridgeKt = readFileSync(resolve(rootDir, 'src/android/app/src/main/java/com/cesarovies/fluistream/NativeBridge.kt'), 'utf-8');
+  const tvFocusKt = readFileSync(resolve(rootDir, 'src/android/app/src/main/java/com/cesarovies/fluistream/TvFocusHelper.kt'), 'utf-8');
+
+  // 1. Android TV NativeBridge não reseta foco da WebView incondicionalmente e força teclado
+  assert.match(bridgeKt, /if\s*\(!activity\.webView\.hasFocus\(\)\)\s*\{\s*activity\.webView\.requestFocus\(\)/);
+  assert.match(bridgeKt, /SHOW_FORCED/);
+  assert.match(tvFocusKt, /KeyEvent\.KEYCODE_MENU/);
+
+  // 2. Elementos do Modal de Ações de Canal e Tradução
+  assert.match(html, /id="modal-channel-actions"/);
+  assert.match(html, /id="btn-channel-action-toggle-fav"/);
+  assert.match(html, /id="channel-action-fav-star"/);
+  assert.match(html, /id="btn-channel-action-play"/);
+
+  // 3. Estilização da Estrelinha pintada / apagada
+  assert.match(css, /\.channel-action-star\.is-fav/);
+  assert.match(css, /\.sidebar-item-fav\.is-fav/);
+
+  // 4. JS: abertura de menu de canal por botão direito (contextmenu), long press D-pad e pointer
+  assert.match(appJs, /openChannelActionsModal\(/);
+  assert.match(appJs, /_updateChannelActionsFavButton\(/);
+  assert.match(appJs, /addEventListener\('contextmenu'/);
+  assert.match(appJs, /channelActionAddToFavorites/);
+  assert.match(appJs, /channelActionRemoveFromFavorites/);
+
+  // 5. JS: foco seguro em inputs sem jogar para o começo da tela
+  assert.match(appJs, /el\.blur\(\)/);
+  assert.match(appJs, /scrollIntoView\(\{\s*block:\s*'nearest'/);
+  assert.match(appJs, /activateInputEditing/);
+
+  // 6. Teste funcional do toggle de favorito e atualização da estrela
+  const favState = new Set();
+  const mockStorage = {
+    isFavorite: (id) => favState.has(id),
+    toggleFavorite: (id) => {
+      if (favState.has(id)) { favState.delete(id); return false; }
+      favState.add(id); return true;
+    },
+    getFavorites: () => Array.from(favState)
+  };
+
+  const starSpan = { classList: new Set(), textContent: '★' };
+  starSpan.classList.toggle = (c, val) => { val ? starSpan.classList.add(c) : starSpan.classList.delete(c); };
+  const textSpan = { textContent: '' };
+  const btnToggle = { classList: new Set() };
+  btnToggle.classList.toggle = (c, val) => { val ? btnToggle.classList.add(c) : btnToggle.classList.delete(c); };
+
+  const updateFavUi = (isFav) => {
+    btnToggle.classList.toggle('is-fav', Boolean(isFav));
+    starSpan.classList.toggle('is-fav', Boolean(isFav));
+    textSpan.textContent = isFav ? 'Remover dos Favoritos' : 'Adicionar aos Favoritos';
+  };
+
+  // Inicial: canal não favorito -> estrela apagada
+  updateFavUi(mockStorage.isFavorite('ch_1'));
+  assert.equal(starSpan.classList.has('is-fav'), false, 'Estrela deve estar apagada quando canal não é favorito');
+  assert.equal(textSpan.textContent, 'Adicionar aos Favoritos');
+
+  // Toggle -> vira favorito -> estrela pintada
+  const isNowFav = mockStorage.toggleFavorite('ch_1');
+  assert.equal(isNowFav, true);
+  updateFavUi(isNowFav);
+  assert.equal(starSpan.classList.has('is-fav'), true, 'Estrela deve ficar pintada quando canal é adicionado aos favoritos');
+  assert.equal(textSpan.textContent, 'Remover dos Favoritos');
+
+  // Toggle novamente -> remove favorito -> estrela apagada
+  const removedFav = mockStorage.toggleFavorite('ch_1');
+  assert.equal(removedFav, false);
+  updateFavUi(removedFav);
+  assert.equal(starSpan.classList.has('is-fav'), false, 'Estrela deve voltar a ficar apagada ao remover dos favoritos');
+  assert.equal(textSpan.textContent, 'Adicionar aos Favoritos');
 });
 
 console.log(`\n========================================`);

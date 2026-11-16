@@ -857,6 +857,38 @@
     </div>
   </div>
 
+  <!-- Modal de Opções do Canal (Botão Direito / Clique e Segurar no Controle da TV) -->
+  <div class="modal-backdrop hidden" id="modal-channel-actions">
+    <div class="modal-dialog modal-dialog--channel-actions" style="max-width: 420px;">
+      <div class="modal-header">
+        <h3 id="modal-channel-actions-title" data-i18n="channelOptionsTitle">Opções do Canal</h3>
+        <button class="modal-close-btn" id="btn-close-channel-actions">&times;</button>
+      </div>
+      <div class="modal-body" id="modal-channel-actions-body">
+        <div class="channel-actions-info">
+          <img id="channel-actions-logo" src="assets/logo.svg" alt="" class="channel-actions-logo" onerror="this.onerror=null;this.src='assets/logo.svg'" />
+          <div class="channel-actions-details">
+            <div id="channel-actions-name" class="channel-actions-name"></div>
+            <div id="channel-actions-sub" class="channel-actions-sub"></div>
+          </div>
+        </div>
+        <div class="channel-actions-buttons">
+          <button type="button" class="btn-primary channel-action-btn" id="btn-channel-action-toggle-fav">
+            <span id="channel-action-fav-star" class="channel-action-star">★</span>
+            <span id="channel-action-fav-text" data-i18n="channelActionAddToFavorites">Adicionar aos Favoritos</span>
+          </button>
+          <button type="button" class="btn-secondary channel-action-btn" id="btn-channel-action-play">
+            <span>▶</span>
+            <span data-i18n="channelActionPlay">Assistir Agora</span>
+          </button>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn-secondary" id="btn-channel-action-cancel" data-i18n="btnCancel">Voltar</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Modal Sobre / Apresentação do Projeto -->
   <div class="modal-backdrop hidden" id="modal-about">
     <div class="modal-dialog">
@@ -1165,11 +1197,7 @@
     </div>
   </div>
 
-  <!-- Web Component Footer Cesar Ovies -->
-  <site-footer id="site-footer"></site-footer>
-
   <!-- Registro do Service Worker e Módulos -->
-  <script type="module" src="assets/site-footer.js"></script>
   <script type="module" src="js/app.js?v=2.0.0"></script>
   <script>
     if ('serviceWorker' in navigator && (window.location.protocol === 'https:' || window.location.hostname === 'localhost')) {

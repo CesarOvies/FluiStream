@@ -8,6 +8,8 @@
 
 import http from 'node:http';
 import { URL } from 'node:url';
+import fs from 'node:fs';
+import path from 'node:path';
 
 // Aceita certificados SSL de servidores IPTV com IPs puros ou autoassinados
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
@@ -108,9 +110,33 @@ const server = http.createServer(async (req, res) => {
   const targetUrl = extractTargetUrl(req.url);
 
   if (!targetUrl) {
-    res.statusCode = 400;
+    const webRoot = path.join(process.cwd(), 'src', 'web');
+    const safePath = path.normalize(parsedUrl.pathname).replace(/^(\.\.[\/\\])+/, '');
+    const filePath = path.join(webRoot, safePath === '/' ? 'index.html' : safePath);
+
+    if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
+      const ext = path.extname(filePath).toLowerCase();
+      const mimeTypes = {
+        '.html': 'text/html; charset=utf-8',
+        '.js': 'application/javascript; charset=utf-8',
+        '.css': 'text/css; charset=utf-8',
+        '.json': 'application/json; charset=utf-8',
+        '.webmanifest': 'application/manifest+json; charset=utf-8',
+        '.svg': 'image/svg+xml',
+        '.png': 'image/png',
+        '.jpg': 'image/jpeg',
+        '.jpeg': 'image/jpeg',
+        '.ico': 'image/x-icon',
+        '.woff2': 'font/woff2'
+      };
+      res.setHeader('Content-Type', mimeTypes[ext] || 'application/octet-stream');
+      fs.createReadStream(filePath).pipe(res);
+      return;
+    }
+
+    res.statusCode = 404;
     res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-    res.end('FluiStream Stream Bridge ativo. Passe ?url=http://... para transmitir.');
+    res.end('Arquivo não encontrado no Core UI (src/web).');
     return;
   }
 
@@ -176,5 +202,6 @@ server.listen(PORT, '127.0.0.1', () => {
   console.log(`   http://127.0.0.1:${PORT}`);
   console.log(`   Healthcheck: http://127.0.0.1:${PORT}/health`);
   console.log(`   Configure no FluiStream Web: http://127.0.0.1:${PORT}/?`);
+  console.log(`[FluiStream] Pronto para debug: http://127.0.0.1:${PORT}`);
   console.log(`======================================================\n`);
 });

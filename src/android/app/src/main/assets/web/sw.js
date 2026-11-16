@@ -21,7 +21,6 @@ const ASSETS_TO_CACHE = [
   './assets/icon-192.png',
   './assets/icon-512.png',
   './assets/apple-touch-icon.png',
-  './assets/site-footer.js',
   './manifest.webmanifest'
 ];
 

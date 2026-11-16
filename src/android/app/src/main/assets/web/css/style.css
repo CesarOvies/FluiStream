@@ -609,7 +609,7 @@ body.app-header-hidden .split-sidebar {
 
 .home-bento-layout {
   display: grid;
-  grid-template-columns: minmax(0, 2.35fr) minmax(280px, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: 1.25rem;
   align-items: stretch;
 }
@@ -835,8 +835,9 @@ body.app-header-hidden .split-sidebar {
 }
 
 .home-featured-list {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr));
+  align-content: start;
   gap: 0.55rem;
   overflow-y: auto;
   overscroll-behavior: contain;
@@ -1072,6 +1073,82 @@ body.app-header-hidden .split-sidebar {
 
 .sidebar-item-fav.is-fav {
   color: var(--accent-amber-bright);
+  text-shadow: 0 0 8px rgba(245, 158, 11, 0.45);
+}
+
+/* Modal de Opções do Canal (Botão Direito / Clique Longo na TV) */
+.channel-actions-info {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  margin-bottom: 1.1rem;
+  padding: 0.75rem 0.9rem;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.channel-actions-logo {
+  width: 44px;
+  height: 44px;
+  object-fit: contain;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.35);
+  padding: 3px;
+  flex-shrink: 0;
+}
+
+.channel-actions-details {
+  min-width: 0;
+  flex: 1;
+}
+
+.channel-actions-name {
+  font-size: 0.98rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.channel-actions-sub {
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-top: 3px;
+}
+
+.channel-actions-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.channel-action-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+  padding: 0.75rem 1rem;
+  font-size: 0.94rem;
+  font-weight: 600;
+  width: 100%;
+  cursor: pointer;
+}
+
+.channel-action-star {
+  font-size: 1.25rem;
+  line-height: 1;
+  color: var(--text-muted);
+  transition: color 0.15s ease, text-shadow 0.15s ease;
+}
+
+.channel-action-star.is-fav {
+  color: var(--accent-amber-bright);
+  text-shadow: 0 0 10px rgba(245, 158, 11, 0.55);
 }
 
 .split-sidebar-list {
@@ -1256,7 +1333,6 @@ body.desktop-mini-pip .sidebar-backdrop,
 body.desktop-mini-pip .player-meta-bar,
 body.desktop-mini-pip .player-controls-bar,
 body.desktop-mini-pip .player-epg-card,
-body.desktop-mini-pip .site-footer-bar,
 body.desktop-mini-pip .app-footer {
   display: none !important;
 }
@@ -3274,63 +3350,6 @@ body.desktop-mini-pip .player-wrapper {
   gap: 0.5rem;
 }
 
-/* Site Footer Component */
-.site-footer-bar {
-  background: rgba(5, 7, 11, 0.92);
-  border-top: 1px solid var(--border-subtle);
-  padding: 1.5rem 1.25rem;
-  padding-bottom: max(1.5rem, env(safe-area-inset-bottom));
-  margin-top: auto;
-  color: var(--text-secondary);
-  font-size: 0.81rem;
-}
-
-.site-footer-inner {
-  max-width: 1520px;
-  margin: 0 auto;
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  align-items: center;
-  gap: 1rem;
-}
-
-.site-footer-brand {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.site-footer-brand strong {
-  color: var(--text-primary);
-}
-
-.site-footer-meta {
-  display: flex;
-  align-items: center;
-  gap: 0.85rem;
-  flex-wrap: wrap;
-}
-
-.site-footer-meta a {
-  color: var(--accent-blue);
-  text-decoration: none;
-}
-
-.site-footer-meta a:hover {
-  color: var(--accent-amber-bright);
-}
-
-.site-footer-disclaimer {
-  max-width: 1520px;
-  margin: 0.75rem auto 0 auto;
-  padding-top: 0.75rem;
-  border-top: 1px solid var(--border-subtle);
-  color: var(--text-muted);
-  font-size: 0.74rem;
-  line-height: 1.45;
-}
-
 /* Master Search Modal */
 .master-search-results {
   display: flex;
@@ -3370,9 +3389,6 @@ body.is-android-app .player-wrapper {
 
 /* Responsive Breakpoints (Horizontal-Locked Layout) */
 @media (max-width: 1100px) {
-  .home-bento-layout {
-    grid-template-columns: minmax(0, 1.75fr) minmax(240px, 1fr);
-  }
   .settings-tile-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
@@ -3598,9 +3614,6 @@ body.is-android-app .player-wrapper {
 }
 
 @media (max-width: 680px) {
-  .home-bento-layout {
-    grid-template-columns: minmax(0, 1.6fr) minmax(200px, 1fr);
-  }
   .home-hero-row,
   .settings-tile-grid,
   .layout-picker-grid,
@@ -3698,7 +3711,6 @@ body.is-android-app .player-wrapper {
     gap: 0.7rem;
   }
   .home-bento-layout {
-    grid-template-columns: minmax(0, 1.65fr) minmax(240px, 1fr);
     gap: 0.75rem;
   }
   .home-bento-left {
@@ -4317,4 +4329,69 @@ body.is-android-app #modal-import .modal-dialog {
   .onboarding-device-card {
     min-height: 44px;
   }
+}
+
+.home-featured-list > p {
+  grid-column: 1 / -1;
+}
+
+/* Home Hub em TV: cards principais maiores e legíveis à distância */
+body[data-effective-device-mode="tv"] .home-hero-row,
+body[data-device-mode="tv"] .home-hero-row {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+body[data-effective-device-mode="tv"] .bento-card,
+body[data-device-mode="tv"] .bento-card {
+  min-height: 160px;
+  padding: 1rem 1.1rem;
+  gap: 0.6rem;
+}
+
+body[data-effective-device-mode="tv"] .bento-card-icon,
+body[data-device-mode="tv"] .bento-card-icon {
+  width: 46px;
+  height: 46px;
+}
+
+body[data-effective-device-mode="tv"] .bento-card-icon svg,
+body[data-device-mode="tv"] .bento-card-icon svg {
+  width: 26px;
+  height: 26px;
+}
+
+body[data-effective-device-mode="tv"] .bento-card-title,
+body[data-device-mode="tv"] .bento-card-title {
+  font-size: 1.45rem;
+}
+
+body[data-effective-device-mode="tv"] .bento-count-pill,
+body[data-device-mode="tv"] .bento-count-pill {
+  font-size: 0.85rem;
+  padding: 0.2rem 0.6rem;
+}
+
+body[data-effective-device-mode="tv"] .bento-updated-text,
+body[data-device-mode="tv"] .bento-updated-text {
+  font-size: 0.78rem;
+  white-space: normal;
+  overflow: visible;
+}
+
+body[data-effective-device-mode="tv"] .btn-bento-refresh,
+body[data-device-mode="tv"] .btn-bento-refresh {
+  width: 38px;
+  height: 38px;
+  font-size: 1.1rem;
+}
+
+body[data-effective-device-mode="tv"] .gradient-tile,
+body[data-device-mode="tv"] .gradient-tile {
+  min-height: 74px;
+}
+
+body[data-effective-device-mode="tv"] .gradient-tile-label,
+body[data-device-mode="tv"] .gradient-tile-label {
+  font-size: 1.05rem;
 }
