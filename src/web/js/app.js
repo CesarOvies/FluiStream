@@ -100,10 +100,9 @@ class FluiStreamApp {
     if (profiles.length === 0 && !cfg.onboardingCompleted) {
       this.navigateToScreen('empty');
       this.openOnboardingModal();
-    } else if (this.playlist.items.length > 0 || profiles.length > 0) {
-      this.navigateToScreen(this.playlist.items.length > 0 ? 'home' : 'empty');
+    } else if (profiles.length > 0) {
+      this.navigateToScreen('empty');
       this.openProfilesModal({ isStartup: true });
-      this.startBackgroundProfilesSync();
     } else {
       this.navigateToScreen('empty');
     }
@@ -379,6 +378,13 @@ class FluiStreamApp {
       editProfileAdvancedDetails: document.getElementById('edit-profile-advanced-details'),
       inputEditCorsProxy: document.getElementById('input-edit-cors-proxy'),
       editProfileStatus: document.getElementById('edit-profile-status'),
+
+      // Profile Loading Screen
+      profileLoadingScreen: document.getElementById('profile-loading-screen'),
+      profileLoadingAvatar: document.getElementById('profile-loading-avatar'),
+      profileLoadingName: document.getElementById('profile-loading-name'),
+      profileLoadingProgressBar: document.getElementById('profile-loading-progress-bar'),
+      profileLoadingStatus: document.getElementById('profile-loading-status'),
 
       // Account Info
       modalAccount: document.getElementById('modal-account'),
@@ -1255,6 +1261,8 @@ class FluiStreamApp {
     // Sidebar Delegation (Categories & Drilled Items)
     if (this.dom.sidebarCategoryList) {
       let pointerTimer = null;
+      let pointerStartX = 0;
+      let pointerStartY = 0;
       const clearPointerTimer = () => {
         if (pointerTimer) {
           clearTimeout(pointerTimer);
@@ -1263,7 +1271,7 @@ class FluiStreamApp {
       };
 
       this.dom.sidebarCategoryList.addEventListener('click', async (e) => {
-        if (this._channelLongPressFired) {
+        if (this._channelLongPressFired || Date.now() < (this._suppressChannelClickUntil || 0)) {
           this._channelLongPressFired = false;
           e.preventDefault();
           e.stopPropagation();
@@ -1290,28 +1298,11 @@ class FluiStreamApp {
         }
         const row = e.target.closest('.sidebar-item-row');
         if (row) {
-          const id = row.getAttribute('data-id');
-          if (this._isSeriesGroupingActive()) {
-            const series = (this.currentFilteredSeries || []).find(s => s.id === id);
-            if (series) {
-              this.setMobileSidebarOpen(false);
-              this.openSeriesDetailModal(series);
-              return;
-            }
-          }
-          const item = (this.currentFilteredItems || []).find(x => x.id === id);
-          if (item) {
-            this.setMobileSidebarOpen(false);
-            if (item.type === ItemType.MOVIE) {
-              this.openMovieDetailModal(item);
-            } else {
-              this.playChannel(item);
-            }
-          }
+          this.activateChannelRow(row);
         }
       });
 
-      // Context menu (botão direito) no canal
+      // Context menu (botão direito ou long press touch nativo) no canal
       this.dom.sidebarCategoryList.addEventListener('contextmenu', (e) => {
         const row = e.target.closest('.sidebar-item-row');
         if (row) {
@@ -1319,6 +1310,8 @@ class FluiStreamApp {
           e.stopPropagation();
           this._clearChannelLongPressTimer?.();
           clearPointerTimer();
+          this._channelLongPressFired = true;
+          this._suppressChannelClickUntil = Date.now() + 600;
           const id = row.getAttribute('data-id');
           this.openChannelActionsModal(id, row);
         }
@@ -1330,19 +1323,26 @@ class FluiStreamApp {
         const row = e.target.closest('.sidebar-item-row');
         if (row && !e.target.closest('.sidebar-item-fav')) {
           clearPointerTimer();
+          pointerStartX = e.clientX;
+          pointerStartY = e.clientY;
           pointerTimer = setTimeout(() => {
             pointerTimer = null;
             this._channelLongPressFired = true;
+            this._suppressChannelClickUntil = Date.now() + 600;
             const id = row.getAttribute('data-id');
             this.openChannelActionsModal(id, row);
-          }, 550);
+          }, 450);
         }
       });
       this.dom.sidebarCategoryList.addEventListener('pointerup', clearPointerTimer);
       this.dom.sidebarCategoryList.addEventListener('pointercancel', clearPointerTimer);
       this.dom.sidebarCategoryList.addEventListener('pointermove', (e) => {
-        if (pointerTimer && (Math.abs(e.movementX || 0) > 8 || Math.abs(e.movementY || 0) > 8)) {
-          clearPointerTimer();
+        if (pointerTimer) {
+          const dx = Math.abs((e.clientX || 0) - pointerStartX);
+          const dy = Math.abs((e.clientY || 0) - pointerStartY);
+          if (dx > 16 || dy > 16) {
+            clearPointerTimer();
+          }
         }
       });
 
@@ -1351,31 +1351,33 @@ class FluiStreamApp {
         if (e.key !== 'Enter' && e.key !== ' ') return;
         const row = e.target.closest('.sidebar-item-row');
         if (row && !e.target.closest('.sidebar-item-fav')) {
-          if (!e.repeat) {
-            this._clearChannelLongPressTimer?.();
-            this._channelLongPressFired = false;
-            this._channelLongPressTimer = setTimeout(() => {
-              this._channelLongPressFired = true;
-              this._channelLongPressTimer = null;
-              const id = row.getAttribute('data-id');
-              this.openChannelActionsModal(id, row);
-            }, 500);
-          }
+          e.preventDefault();
+          e.stopPropagation();
+          if (e.repeat) return;
+
+          this._clearChannelLongPressTimer?.();
+          this._channelLongPressFired = false;
+          this._channelLongPressTimer = setTimeout(() => {
+            this._channelLongPressFired = true;
+            this._suppressChannelClickUntil = Date.now() + 600;
+            this._channelLongPressTimer = null;
+            const id = row.getAttribute('data-id');
+            this.openChannelActionsModal(id, row);
+          }, 450);
         }
       });
       this.dom.sidebarCategoryList.addEventListener('keyup', (e) => {
         if (e.key !== 'Enter' && e.key !== ' ') return;
-        this._clearChannelLongPressTimer?.();
-        if (this._channelLongPressFired) {
-          e.preventDefault();
-          e.stopPropagation();
-          this._channelLongPressFired = false;
-          return;
-        }
         const row = e.target.closest('.sidebar-item-row');
         if (row && !e.target.closest('.sidebar-item-fav')) {
           e.preventDefault();
-          row.click();
+          e.stopPropagation();
+          this._clearChannelLongPressTimer?.();
+          if (this._channelLongPressFired || Date.now() < (this._suppressChannelClickUntil || 0)) {
+            this._channelLongPressFired = false;
+            return;
+          }
+          this.activateChannelRow(row);
         }
       });
       this.dom.sidebarCategoryList.addEventListener('scroll', () => {
@@ -1775,7 +1777,11 @@ class FluiStreamApp {
         }
         const openBackdrops = Array.from(document.querySelectorAll('.modal-backdrop:not(.hidden)'));
         if (openBackdrops.length > 0) {
-          this.closeModal(openBackdrops[openBackdrops.length - 1]);
+          const topModal = openBackdrops[openBackdrops.length - 1];
+          if (topModal === this.dom.modalProfiles && (!this.playlist.items || this.playlist.items.length === 0)) {
+            return;
+          }
+          this.closeModal(topModal);
           return;
         }
         if (this.dom.splitSidebar?.classList.contains('open-mobile')) {
@@ -1814,6 +1820,11 @@ class FluiStreamApp {
   }
 
   handleGlobalKeyDown(e) {
+    if (this.dom.profileLoadingScreen && !this.dom.profileLoadingScreen.classList.contains('hidden')) {
+      e.preventDefault();
+      return;
+    }
+
     if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab', 'Escape'].includes(e.key)) {
       this._clearChannelLongPressTimer?.();
     }
@@ -1825,6 +1836,8 @@ class FluiStreamApp {
         e.preventDefault();
         e.stopPropagation();
         this._clearChannelLongPressTimer?.();
+        this._channelLongPressFired = true;
+        this._suppressChannelClickUntil = Date.now() + 600;
         const id = row.getAttribute('data-id');
         this.openChannelActionsModal(id, row);
         return;
@@ -4209,39 +4222,7 @@ class FluiStreamApp {
       }
     }
 
-    let activeProfile = storage.getActiveProfile();
-    const saved = await storage.loadPlaylist(activeProfile?.id);
-    if (saved && saved.items && saved.items.length > 0) {
-      M3UParser.ensureUniqueItemIds(saved.items);
-      this.playlist = saved;
-      if (!activeProfile) {
-        activeProfile = {
-          id: 'prof_' + Date.now(),
-          name: saved.name || 'Eu',
-          type: saved.name?.includes('Xtream') ? 'xtream' : 'm3u_file',
-          sourceInfo: saved.name || 'Minha Lista',
-          streamMode: cfg.streamMode || 'auto',
-          playerEngine: cfg.playerEngine || (isDesktop ? 'vlc' : 'hls'),
-          corsProxy: cfg.corsProxy || '',
-          accountInfo: {
-            username: saved.name || 'Eu',
-            status: 'Active',
-            expDate: i18n.get('accNoExpiration'),
-            isTrial: 'No',
-            activeCons: '0',
-            createdAt: new Date().toLocaleDateString('pt-BR'),
-            maxConnections: '5'
-          },
-          summary: saved.summary,
-          createdAt: Date.now()
-        };
-        storage.saveProfile(activeProfile);
-      }
-
-      const rawEpg = await storage.loadEpg(activeProfile?.id);
-      if (rawEpg) this.epg.parse(rawEpg);
-    }
-
+    const activeProfile = storage.getActiveProfile();
     if (this.dom.headerProfileName) {
       this.dom.headerProfileName.textContent = activeProfile?.name || 'Perfil';
     }
@@ -4691,6 +4672,9 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
       this.dom.modalProfilesTitle.setAttribute('data-i18n', titleKey);
       this.dom.modalProfilesTitle.textContent = i18n.get(titleKey);
     }
+    if (this.dom.btnCloseProfiles) {
+      this.dom.btnCloseProfiles.style.display = (isStartup && (!this.playlist?.items || this.playlist.items.length === 0)) ? 'none' : '';
+    }
     if (!this.dom.profilesGrid) return;
 
     if (profiles.length === 0) {
@@ -4771,28 +4755,141 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
     }
   }
 
-  async switchProfile(profileId) {
-    storage.setActiveProfileId(profileId);
-    const prof = storage.getActiveProfile();
-    if (this.dom.headerProfileName) this.dom.headerProfileName.textContent = prof?.name || 'Perfil';
+  _loadingTick(ms = 30) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
 
-    const saved = await storage.loadPlaylist(profileId);
-    if (saved && saved.items) {
-      M3UParser.ensureUniqueItemIds(saved.items);
-      this.playlist = saved;
-      const rawEpg = await storage.loadEpg(profileId);
-      if (rawEpg) this.epg.parse(rawEpg);
-      else {
+  showProfileLoading(profile) {
+    if (!this.dom.profileLoadingScreen) return;
+    if (this.dom.profileLoadingName) {
+      this.dom.profileLoadingName.textContent = profile?.name || 'Perfil';
+    }
+    if (this.dom.profileLoadingAvatar) {
+      this.dom.profileLoadingAvatar.textContent = profile?.avatar || '👤';
+    }
+    this.updateProfileLoadingStatus(i18n.get('profileLoadingInit') || 'Iniciando perfil...', 15);
+    this.dom.profileLoadingScreen.classList.remove('hidden', 'fade-out');
+    this.setBackgroundInert(true);
+  }
+
+  updateProfileLoadingStatus(text, progressPercent = null) {
+    if (this.dom.profileLoadingStatus && text) {
+      this.dom.profileLoadingStatus.textContent = text;
+    }
+    if (this.dom.profileLoadingProgressBar && typeof progressPercent === 'number') {
+      const pct = Math.max(0, Math.min(100, progressPercent));
+      this.dom.profileLoadingProgressBar.style.width = `${pct}%`;
+      this.dom.profileLoadingProgressBar.setAttribute('aria-valuenow', String(pct));
+    }
+  }
+
+  async hideProfileLoading() {
+    if (!this.dom.profileLoadingScreen) return;
+    this.dom.profileLoadingScreen.classList.add('fade-out');
+    await this._loadingTick(350);
+    this.dom.profileLoadingScreen.classList.add('hidden');
+    this.dom.profileLoadingScreen.classList.remove('fade-out');
+    if (this.dom.profileLoadingProgressBar) {
+      this.dom.profileLoadingProgressBar.style.width = '0%';
+    }
+    this.setBackgroundInert(false);
+  }
+
+  async switchProfile(profileId) {
+    if (!profileId) return;
+    const profiles = storage.getProfiles();
+    const prof = profiles.find(p => p.id === profileId) || storage.getActiveProfile();
+    if (!prof) return;
+
+    this.closeModal(this.dom.modalProfiles);
+    this.showProfileLoading(prof);
+
+    try {
+      storage.setActiveProfileId(prof.id);
+      if (this.dom.headerProfileName) {
+        this.dom.headerProfileName.textContent = prof.name || 'Perfil';
+      }
+
+      if (prof.streamMode && this.dom.streamModeSelect) {
+        this.dom.streamModeSelect.value = prof.streamMode;
+      }
+      if (prof.playerEngine && this.dom.playerEngineSelect) {
+        this.dom.playerEngineSelect.value = prof.playerEngine;
+      }
+      if (prof.playerEngine === 'hls') {
+        this.ensureLocalProxyStarted();
+      }
+
+      this.updateProfileLoadingStatus(i18n.get('profileLoadingInit') || 'Iniciando perfil...', 20);
+      await this._loadingTick(60);
+
+      this.updateProfileLoadingStatus(i18n.get('profileLoadingReading') || 'Carregando lista de canais...', 35);
+      await this._loadingTick(60);
+
+      let saved = await storage.loadPlaylist(prof.id);
+      const isRemote = prof.type === 'xtream' || prof.type === 'm3u_url';
+      const hasNoItems = !saved || !saved.items || saved.items.length === 0;
+      const needsRefresh = storage.shouldRefreshProfile(prof);
+
+      if (isRemote && (hasNoItems || needsRefresh)) {
+        this.updateProfileLoadingStatus(
+          hasNoItems ? (i18n.get('statusParsingM3u') || 'Baixando canais...') : (i18n.get('profileLoadingSyncing') || 'Sincronizando conteúdo...'),
+          55
+        );
+        await this._loadingTick(60);
+        try {
+          await this.reloadRemoteProfileData(prof, { silent: true, background: false });
+          saved = (await storage.loadPlaylist(prof.id)) || this.playlist;
+        } catch (fetchErr) {
+          console.warn('[ProfileLoading] Remote reload failed, falling back to cache:', fetchErr);
+        }
+      }
+
+      this.updateProfileLoadingStatus(i18n.get('profileLoadingProcessing') || 'Processando categorias e canais...', 75);
+      await this._loadingTick(50);
+
+      if (saved && saved.items && saved.items.length > 0) {
+        M3UParser.ensureUniqueItemIds(saved.items);
+        this.playlist = saved;
+      } else if (this.playlist && this.playlist.items && this.playlist.items.length > 0 && storage.getActiveProfileId() === prof.id) {
+        // Already populated by reloadRemoteProfileData
+      } else {
+        this.playlist = { items: [], summary: { total: 0, live: 0, movies: 0, series: 0 }, name: prof.name || '' };
+      }
+
+      this.updateProfileLoadingStatus(i18n.get('profileLoadingEpg') || 'Carregando guia de programação (EPG)...', 88);
+      await this._loadingTick(50);
+
+      const rawEpg = await storage.loadEpg(prof.id);
+      if (rawEpg) {
+        this.epg.parse(rawEpg);
+        this.updateCurrentEpgDisplay();
+      } else if (prof.epgUrl) {
+        try {
+          await this.fetchAndParseEpg(prof.epgUrl, prof.id, { background: true });
+        } catch (_) {}
+      } else {
         this.epg.channels.clear();
         this.epg.programmes.clear();
       }
-    } else {
-      this.playlist = { items: [], summary: { total: 0, live: 0, movies: 0, series: 0 }, name: '' };
-    }
 
-    this.closeModal(this.dom.modalProfiles);
-    this.parentalUnlocked = false;
-    this.navigateToScreen(this.playlist.items.length > 0 ? 'home' : 'empty');
+      this.updateProfileLoadingStatus(i18n.get('profileLoadingReady') || 'Tudo pronto!', 100);
+      await this._loadingTick(200);
+
+      this.parentalUnlocked = false;
+      if (this.playlist.items.length > 0) {
+        this.renderHomeHub();
+        this.navigateToScreen('home');
+      } else {
+        this.navigateToScreen('empty');
+      }
+    } catch (err) {
+      console.error('[ProfileLoading] Error loading profile:', err);
+      this.addAppNotification('error', i18n.get('errorNetwork') || 'Erro', err.message || 'Falha ao carregar perfil');
+      this.navigateToScreen(this.playlist.items.length > 0 ? 'home' : 'empty');
+    } finally {
+      await this.hideProfileLoading();
+    }
   }
 
   openEditProfileModal(profileId) {
@@ -5027,8 +5124,33 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
     }
   }
 
+  activateChannelRow(row) {
+    if (!row) return;
+    const id = row.getAttribute('data-id');
+    if (this._isSeriesGroupingActive()) {
+      const series = (this.currentFilteredSeries || []).find(s => s.id === id);
+      if (series) {
+        this.setMobileSidebarOpen(false);
+        this.openSeriesDetailModal(series);
+        return;
+      }
+    }
+    const item = (this.currentFilteredItems || []).find(x => x.id === id);
+    if (item) {
+      this.setMobileSidebarOpen(false);
+      if (item.type === ItemType.MOVIE) {
+        this.openMovieDetailModal(item);
+      } else {
+        this.playChannel(item);
+      }
+    }
+  }
+
   openChannelActionsModal(id, targetRow = null) {
     if (!id) return;
+    this._clearChannelLongPressTimer();
+    this._channelLongPressFired = true;
+    this._suppressChannelClickUntil = Date.now() + 600;
     const item = (this.currentFilteredItems || []).find(x => String(x.id) === String(id))
       || (this.playlist.items || []).find(x => String(x.id) === String(id))
       || (this.currentFilteredSeries || []).find(s => String(s.id) === String(id));

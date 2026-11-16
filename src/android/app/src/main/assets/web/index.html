@@ -1197,6 +1197,31 @@
     </div>
   </div>
 
+  <!-- Tela de Carregamento de Perfil -->
+  <div id="profile-loading-screen" class="profile-loading-screen hidden" aria-live="polite" role="status">
+    <div class="profile-loading-card">
+      <div class="profile-loading-brand">
+        <img src="assets/logo.svg" alt="FluiStream" class="profile-loading-logo" />
+        <span class="profile-loading-brand-text">FLOW PLAY</span>
+      </div>
+      <div class="profile-loading-avatar-wrap">
+        <div class="profile-loading-avatar" id="profile-loading-avatar">👤</div>
+        <div class="profile-loading-glow"></div>
+      </div>
+      <h2 class="profile-loading-title" id="profile-loading-title" data-i18n="profileLoadingTitle">Carregando Perfil...</h2>
+      <div class="profile-loading-name" id="profile-loading-name">Perfil</div>
+
+      <div class="profile-loading-bar-wrap">
+        <div class="profile-loading-bar" id="profile-loading-progress-bar" style="width: 0%;" role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"></div>
+      </div>
+
+      <div class="profile-loading-status-wrap">
+        <span class="profile-loading-spinner"></span>
+        <span class="profile-loading-status" id="profile-loading-status" data-i18n="profileLoadingInit">Iniciando perfil...</span>
+      </div>
+    </div>
+  </div>
+
   <!-- Registro do Service Worker e Módulos -->
   <script type="module" src="js/app.js?v=2.0.0"></script>
   <script>
