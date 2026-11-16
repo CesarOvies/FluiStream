@@ -9,6 +9,7 @@ using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
+using Photino.NET;
 
 namespace FluiStream.Desktop;
 
@@ -26,7 +27,7 @@ public static class CrossPlatformHost
         Timeout = Timeout.InfiniteTimeSpan
     };
 
-    public static async Task RunAsync(string[] args)
+    public static void Run(string[] args)
     {
         int port = 5055;
         for (int i = 0; i < 10; i++)
@@ -38,25 +39,63 @@ public static class CrossPlatformHost
                 listener.Prefixes.Add($"http://127.0.0.1:{port}/");
                 listener.Start();
 
-                string url = $"http://localhost:{port}/";
+                string url = $"http://127.0.0.1:{port}/";
                 PrintBanner(url);
 
                 _ = Task.Run(() => ListenLoop(listener, url));
-                OpenBrowser(url);
 
-                var cts = new CancellationTokenSource();
-                Console.CancelKeyPress += (s, e) =>
-                {
-                    e.Cancel = true;
-                    cts.Cancel();
-                };
+                bool isHeadless = Array.Exists(args, a => a.Equals("--headless", StringComparison.OrdinalIgnoreCase) || a.Equals("--no-gui", StringComparison.OrdinalIgnoreCase))
+                    || !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("FLUI_HEADLESS"));
 
-                try
+                bool guiLaunched = false;
+                if (!isHeadless)
                 {
-                    await Task.Delay(Timeout.Infinite, cts.Token);
+                    try
+                    {
+                        var iconPath = Path.Combine(AppContext.BaseDirectory, "app.ico");
+                        var window = new PhotinoWindow()
+                            .SetTitle("FluiStream")
+                            .SetSize(1280, 720)
+                            .SetMinSize(960, 540)
+                            .Center();
+
+                        if (File.Exists(iconPath))
+                        {
+                            try { window.SetIconFile(iconPath); } catch { }
+                        }
+
+                        window.Load(new Uri(url));
+                        guiLaunched = true;
+                        window.WaitForClose();
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"[FluiStream] Interface gráfica nativa (WKWebView/Photino) indisponível ({ex.Message}). Alternando para navegador.");
+                        guiLaunched = false;
+                    }
                 }
-                catch (TaskCanceledException)
+
+                if (!guiLaunched && !isHeadless)
                 {
+                    OpenBrowser(url);
+                }
+
+                if (!guiLaunched)
+                {
+                    var cts = new CancellationTokenSource();
+                    Console.CancelKeyPress += (s, e) =>
+                    {
+                        e.Cancel = true;
+                        cts.Cancel();
+                    };
+
+                    try
+                    {
+                        Task.Delay(Timeout.Infinite, cts.Token).GetAwaiter().GetResult();
+                    }
+                    catch (TaskCanceledException)
+                    {
+                    }
                 }
 
                 listener.Stop();
@@ -70,6 +109,12 @@ public static class CrossPlatformHost
         }
 
         Console.Error.WriteLine("[FluiStream] Erro: Não foi possível abrir porta local entre 5055 e 5065.");
+    }
+
+    public static Task RunAsync(string[] args)
+    {
+        Run(args);
+        return Task.CompletedTask;
     }
 
     private static void PrintBanner(string url)
@@ -89,6 +134,11 @@ public static class CrossPlatformHost
     {
         string baseDir = AppContext.BaseDirectory;
         string webRoot = Path.Combine(baseDir, "web");
+        if (!Directory.Exists(webRoot))
+        {
+            string macAppWeb = Path.GetFullPath(Path.Combine(baseDir, "..", "Resources", "web"));
+            if (Directory.Exists(macAppWeb)) webRoot = macAppWeb;
+        }
         if (!Directory.Exists(webRoot))
         {
             string devWeb = Path.GetFullPath(Path.Combine(baseDir, "..", "..", "..", "web"));
@@ -387,14 +437,25 @@ public static class CrossPlatformHost
             }
             else if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
             {
+                string chromePath = Directory.Exists("/Applications/Google Chrome.app")
+                    ? "/Applications/Google Chrome.app"
+                    : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Applications", "Google Chrome.app");
+
+                if (Directory.Exists(chromePath))
+                {
+                    try
+                    {
+                        using var p = Process.Start(new ProcessStartInfo("open", $"-a \"{chromePath}\" --args --app={url} --window-size=1280,720") { UseShellExecute = true });
+                        if (p != null) return;
+                    }
+                    catch { }
+                }
+
                 try
                 {
-                    Process.Start(new ProcessStartInfo("open", $"-a \"Google Chrome\" --args --app={url} --window-size=1280,720") { UseShellExecute = true });
-                    return;
+                    Process.Start(new ProcessStartInfo("open", url) { UseShellExecute = true });
                 }
                 catch { }
-
-                Process.Start(new ProcessStartInfo("open", url) { UseShellExecute = true });
             }
             else
             {
