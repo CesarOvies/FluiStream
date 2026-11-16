@@ -289,7 +289,14 @@ export const translations = {
     btnChangeDeviceMode: 'Trocar Exibição',
     chooseProfileTitle: 'Quem vai assistir?',
     profileSyncingBadge: 'Atualizando...',
-    autoRefreshIntervalLabel: 'Intervalo de Atualização Automática'
+    autoRefreshIntervalLabel: 'Intervalo de Atualização Automática',
+    profileLoadingTitle: 'Carregando Perfil...',
+    profileLoadingInit: 'Iniciando perfil...',
+    profileLoadingReading: 'Carregando lista de canais...',
+    profileLoadingSyncing: 'Sincronizando conteúdo...',
+    profileLoadingProcessing: 'Processando categorias e canais...',
+    profileLoadingEpg: 'Carregando guia de programação (EPG)...',
+    profileLoadingReady: 'Tudo pronto! Entrando...'
   },
   'en-US': {
     appName: 'FluiStream',
@@ -567,7 +574,14 @@ export const translations = {
     btnChangeDeviceMode: 'Change Display',
     chooseProfileTitle: 'Who is watching?',
     profileSyncingBadge: 'Updating...',
-    autoRefreshIntervalLabel: 'Auto-Refresh Interval'
+    autoRefreshIntervalLabel: 'Auto-Refresh Interval',
+    profileLoadingTitle: 'Loading Profile...',
+    profileLoadingInit: 'Starting profile...',
+    profileLoadingReading: 'Loading playlist channels...',
+    profileLoadingSyncing: 'Syncing remote content...',
+    profileLoadingProcessing: 'Processing categories and channels...',
+    profileLoadingEpg: 'Loading TV guide (EPG)...',
+    profileLoadingReady: 'All set! Entering...'
   },
   'es': {
     appName: 'FluiStream',
@@ -845,7 +859,14 @@ export const translations = {
     btnChangeDeviceMode: 'Cambiar Pantalla',
     chooseProfileTitle: '¿Quién va a ver?',
     profileSyncingBadge: 'Actualizando...',
-    autoRefreshIntervalLabel: 'Intervalo de Actualización Automática'
+    autoRefreshIntervalLabel: 'Intervalo de Actualización Automática',
+    profileLoadingTitle: 'Cargando Perfil...',
+    profileLoadingInit: 'Iniciando perfil...',
+    profileLoadingReading: 'Cargando lista de canales...',
+    profileLoadingSyncing: 'Sincronizando contenido...',
+    profileLoadingProcessing: 'Procesando categorías y canales...',
+    profileLoadingEpg: 'Cargando guía de programación (EPG)...',
+    profileLoadingReady: '¡Todo listo! Entrando...'
   }
 };
 
