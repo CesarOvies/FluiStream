@@ -89,6 +89,24 @@ class TvFocusHelper(
             return KeyEventResult.CONSUMED
         }
 
+        // Forward TV remote KEYCODE_MENU to trigger channel options / contextmenu
+        if (event.keyCode == KeyEvent.KEYCODE_MENU) {
+            val mappedEvent = KeyEvent(
+                event.downTime,
+                event.eventTime,
+                event.action,
+                KeyEvent.KEYCODE_MENU,
+                event.repeatCount,
+                event.metaState,
+                event.deviceId,
+                event.scanCode,
+                event.flags,
+                event.source
+            )
+            webView.dispatchKeyEvent(mappedEvent)
+            return KeyEventResult.CONSUMED
+        }
+
         return KeyEventResult.PASS_THROUGH
     }
 

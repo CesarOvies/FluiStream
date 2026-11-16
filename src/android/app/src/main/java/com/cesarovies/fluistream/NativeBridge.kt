@@ -81,9 +81,15 @@ class NativeBridge(private val activity: MainActivity) {
     @JavascriptInterface
     fun showKeyboard() {
         activity.runOnUiThread {
-            activity.webView.requestFocus()
+            if (!activity.webView.hasFocus()) {
+                activity.webView.requestFocus()
+            }
             val imm = activity.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
-            imm?.showSoftInput(activity.webView, InputMethodManager.SHOW_IMPLICIT)
+            if (imm != null) {
+                if (!imm.showSoftInput(activity.webView, 0)) {
+                    imm.showSoftInput(activity.webView, InputMethodManager.SHOW_FORCED)
+                }
+            }
         }
     }
 

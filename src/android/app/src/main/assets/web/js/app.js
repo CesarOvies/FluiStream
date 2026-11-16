@@ -118,7 +118,6 @@ class FluiStreamApp {
     this.dom = {
       appHeader: document.getElementById('app-header'),
       mainLayout: document.getElementById('main-layout'),
-      siteFooter: document.getElementById('site-footer'),
       headerClockTime: document.getElementById('header-clock-time'),
       headerClockDate: document.getElementById('header-clock-date'),
       btnMasterSearch: document.getElementById('btn-master-search'),
@@ -415,7 +414,19 @@ class FluiStreamApp {
       btnCloseSeasonsPopup: document.getElementById('btn-close-seasons-popup'),
       seasonsPopupList: document.getElementById('seasons-popup-list'),
       seriesTabsBar: document.getElementById('series-tabs-bar'),
-      seriesEpisodesContainer: document.getElementById('series-episodes-container')
+      seriesEpisodesContainer: document.getElementById('series-episodes-container'),
+
+      // Channel Context Options
+      modalChannelActions: document.getElementById('modal-channel-actions'),
+      btnCloseChannelActions: document.getElementById('btn-close-channel-actions'),
+      btnChannelActionCancel: document.getElementById('btn-channel-action-cancel'),
+      btnChannelActionToggleFav: document.getElementById('btn-channel-action-toggle-fav'),
+      btnChannelActionPlay: document.getElementById('btn-channel-action-play'),
+      channelActionsLogo: document.getElementById('channel-actions-logo'),
+      channelActionsName: document.getElementById('channel-actions-name'),
+      channelActionsSub: document.getElementById('channel-actions-sub'),
+      channelActionFavStar: document.getElementById('channel-action-fav-star'),
+      channelActionFavText: document.getElementById('channel-action-fav-text')
     };
   }
 
@@ -808,13 +819,21 @@ class FluiStreamApp {
     if (editing) {
       el.readOnly = false;
       el.dataset.tvEditing = 'true';
-      el.focus();
+      if (typeof document !== 'undefined' && document.activeElement === el && typeof el.blur === 'function') {
+        el.blur();
+      }
+      el.focus({ preventScroll: false });
       try {
         if (typeof el.value === 'string' && typeof el.setSelectionRange === 'function') {
           const len = el.value.length;
           el.setSelectionRange(len, len);
         }
       } catch (_) { /* ignore non-selectable input types */ }
+      try {
+        if (typeof el.scrollIntoView === 'function') {
+          el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+        }
+      } catch (_) {}
       try { window.androidBridge?.showKeyboard?.(); } catch (_) { /* ignore */ }
       return;
     }
@@ -1235,7 +1254,21 @@ class FluiStreamApp {
 
     // Sidebar Delegation (Categories & Drilled Items)
     if (this.dom.sidebarCategoryList) {
+      let pointerTimer = null;
+      const clearPointerTimer = () => {
+        if (pointerTimer) {
+          clearTimeout(pointerTimer);
+          pointerTimer = null;
+        }
+      };
+
       this.dom.sidebarCategoryList.addEventListener('click', async (e) => {
+        if (this._channelLongPressFired) {
+          this._channelLongPressFired = false;
+          e.preventDefault();
+          e.stopPropagation();
+          return;
+        }
         const catBtn = e.target.closest('.sidebar-cat-btn');
         if (catBtn) {
           await this.selectSidebarGroup(catBtn.getAttribute('data-group'));
@@ -1247,6 +1280,9 @@ class FluiStreamApp {
           const id = favBtn.getAttribute('data-fav-id');
           const isNowFav = storage.toggleFavorite(id);
           favBtn.classList.toggle('is-fav', isNowFav);
+          if (this.dom.homeCountFav) {
+            this.dom.homeCountFav.textContent = String(storage.getFavorites().length);
+          }
           if (this.currentView === 'favorites' || this.selectedGroup === '__favorites__') {
             this.renderSidebarItems();
           }
@@ -1274,8 +1310,68 @@ class FluiStreamApp {
           }
         }
       });
+
+      // Context menu (botão direito) no canal
+      this.dom.sidebarCategoryList.addEventListener('contextmenu', (e) => {
+        const row = e.target.closest('.sidebar-item-row');
+        if (row) {
+          e.preventDefault();
+          e.stopPropagation();
+          this._clearChannelLongPressTimer?.();
+          clearPointerTimer();
+          const id = row.getAttribute('data-id');
+          this.openChannelActionsModal(id, row);
+        }
+      });
+
+      // Pointer / touch long-press no canal
+      this.dom.sidebarCategoryList.addEventListener('pointerdown', (e) => {
+        if (e.button !== 0) return;
+        const row = e.target.closest('.sidebar-item-row');
+        if (row && !e.target.closest('.sidebar-item-fav')) {
+          clearPointerTimer();
+          pointerTimer = setTimeout(() => {
+            pointerTimer = null;
+            this._channelLongPressFired = true;
+            const id = row.getAttribute('data-id');
+            this.openChannelActionsModal(id, row);
+          }, 550);
+        }
+      });
+      this.dom.sidebarCategoryList.addEventListener('pointerup', clearPointerTimer);
+      this.dom.sidebarCategoryList.addEventListener('pointercancel', clearPointerTimer);
+      this.dom.sidebarCategoryList.addEventListener('pointermove', (e) => {
+        if (pointerTimer && (Math.abs(e.movementX || 0) > 8 || Math.abs(e.movementY || 0) > 8)) {
+          clearPointerTimer();
+        }
+      });
+
+      // D-Pad remote long-press (clique e segurar no controle) vs clique curto
       this.dom.sidebarCategoryList.addEventListener('keydown', (e) => {
         if (e.key !== 'Enter' && e.key !== ' ') return;
+        const row = e.target.closest('.sidebar-item-row');
+        if (row && !e.target.closest('.sidebar-item-fav')) {
+          if (!e.repeat) {
+            this._clearChannelLongPressTimer?.();
+            this._channelLongPressFired = false;
+            this._channelLongPressTimer = setTimeout(() => {
+              this._channelLongPressFired = true;
+              this._channelLongPressTimer = null;
+              const id = row.getAttribute('data-id');
+              this.openChannelActionsModal(id, row);
+            }, 500);
+          }
+        }
+      });
+      this.dom.sidebarCategoryList.addEventListener('keyup', (e) => {
+        if (e.key !== 'Enter' && e.key !== ' ') return;
+        this._clearChannelLongPressTimer?.();
+        if (this._channelLongPressFired) {
+          e.preventDefault();
+          e.stopPropagation();
+          this._channelLongPressFired = false;
+          return;
+        }
         const row = e.target.closest('.sidebar-item-row');
         if (row && !e.target.closest('.sidebar-item-fav')) {
           e.preventDefault();
@@ -1602,6 +1698,73 @@ class FluiStreamApp {
       this.dom.btnCloseSeasonsPopup.addEventListener('click', () => this.dom.seasonsPopup?.classList.add('hidden'));
     }
 
+    // Modal de Opções do Canal (Botão Direito / Long Press TV)
+    if (this.dom.btnCloseChannelActions) {
+      this.dom.btnCloseChannelActions.addEventListener('click', () => {
+        this.closeModal(this.dom.modalChannelActions);
+        if (this._activeChannelActionRow && typeof this._activeChannelActionRow.focus === 'function') {
+          this._activeChannelActionRow.focus();
+        }
+      });
+    }
+    if (this.dom.btnChannelActionCancel) {
+      this.dom.btnChannelActionCancel.addEventListener('click', () => {
+        this.closeModal(this.dom.modalChannelActions);
+        if (this._activeChannelActionRow && typeof this._activeChannelActionRow.focus === 'function') {
+          this._activeChannelActionRow.focus();
+        }
+      });
+    }
+    if (this.dom.btnChannelActionToggleFav) {
+      this.dom.btnChannelActionToggleFav.addEventListener('click', () => {
+        const id = this._activeChannelActionId;
+        if (!id) return;
+        const isNowFav = storage.toggleFavorite(id);
+        this._updateChannelActionsFavButton(isNowFav);
+
+        const safeId = (typeof CSS !== 'undefined' && CSS.escape) ? CSS.escape(String(id)) : String(id).replace(/["\\]/g, '\\$&');
+        document.querySelectorAll(`.sidebar-item-fav[data-fav-id="${safeId}"]`).forEach(star => {
+          star.classList.toggle('is-fav', isNowFav);
+        });
+
+        if (this.dom.homeCountFav) {
+          const favs = storage.getFavorites();
+          this.dom.homeCountFav.textContent = String(favs.length);
+        }
+
+        if (this.currentView === 'favorites' || this.selectedGroup === '__favorites__') {
+          this.renderSidebarItems();
+        }
+
+        setTimeout(() => {
+          this.closeModal(this.dom.modalChannelActions);
+          if (this._activeChannelActionRow && typeof this._activeChannelActionRow.focus === 'function') {
+            this._activeChannelActionRow.focus();
+          }
+        }, 180);
+      });
+    }
+    if (this.dom.btnChannelActionPlay) {
+      this.dom.btnChannelActionPlay.addEventListener('click', () => {
+        const id = this._activeChannelActionId;
+        this.closeModal(this.dom.modalChannelActions);
+        if (!id) return;
+        const item = (this.currentFilteredItems || []).find(x => String(x.id) === String(id))
+          || (this.playlist.items || []).find(x => String(x.id) === String(id))
+          || (this.currentFilteredSeries || []).find(s => String(s.id) === String(id));
+        if (item) {
+          this.setMobileSidebarOpen(false);
+          if (item.type === ItemType.MOVIE) {
+            this.openMovieDetailModal(item);
+          } else if (item.totalSeasons) {
+            this.openSeriesDetailModal(item);
+          } else {
+            this.playChannel(item);
+          }
+        }
+      });
+    }
+
     // Escape closes top modal or mobile drawer (unless exiting TV text-edit mode)
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') {
@@ -1621,21 +1784,26 @@ class FluiStreamApp {
       }
     });
 
-    // Pointer/touch tap unlocks TV D-Pad readOnly safeguard so touch/mouse typing works immediately
-    document.addEventListener('pointerdown', (e) => {
-      const target = e.target;
-      if (this._isTextEntryElement(target) && target.readOnly && target.dataset?.tvEditing !== 'true') {
-        target.readOnly = false;
-        target.dataset.tvEditing = 'true';
-        try { window.androidBridge?.showKeyboard?.(); } catch (_) { /* ignore */ }
+    // Pointer/touch/click tap unlocks TV D-Pad readOnly safeguard so touch/mouse typing works immediately
+    const activateInputEditing = (target) => {
+      if (this._isTextEntryElement(target)) {
+        if (target.readOnly || target.dataset?.tvEditing !== 'true') {
+          this._setTvInputEditing(target, true);
+        }
       }
-    });
+    };
+    document.addEventListener('pointerdown', (e) => activateInputEditing(e.target));
+    document.addEventListener('click', (e) => activateInputEditing(e.target));
 
     // Global Keyboard & Spatial D-Pad Navigation
     window.addEventListener('keydown', (e) => this.handleGlobalKeyDown(e));
     let deviceResizeTimer;
     window.addEventListener('resize', () => {
       if (this.activeScreen === 'browse') this.syncAppHeaderVisibility();
+      const active = typeof document !== 'undefined' ? document.activeElement : null;
+      if (active && active.dataset?.tvEditing === 'true' && typeof active.scrollIntoView === 'function') {
+        active.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+      }
       clearTimeout(deviceResizeTimer);
       deviceResizeTimer = setTimeout(() => {
         if ((storage.getSettings().deviceMode || 'auto') === 'auto') {
@@ -1646,6 +1814,23 @@ class FluiStreamApp {
   }
 
   handleGlobalKeyDown(e) {
+    if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab', 'Escape'].includes(e.key)) {
+      this._clearChannelLongPressTimer?.();
+    }
+
+    if (e.key === 'ContextMenu' || e.key === 'Menu' || e.keyCode === 82) {
+      const activeEl = typeof document !== 'undefined' ? document.activeElement : null;
+      const row = activeEl?.closest('.sidebar-item-row') || e.target?.closest?.('.sidebar-item-row');
+      if (row) {
+        e.preventDefault();
+        e.stopPropagation();
+        this._clearChannelLongPressTimer?.();
+        const id = row.getAttribute('data-id');
+        this.openChannelActionsModal(id, row);
+        return;
+      }
+    }
+
     const isModalOpen = Boolean(document.querySelector('.modal-backdrop:not(.hidden)'));
     if (!isModalOpen && this.activeScreen === 'browse' && this.currentPlayingItem) {
       this.wakePlayerControls();
@@ -2080,7 +2265,6 @@ class FluiStreamApp {
         year: 'numeric',
         hour: '2-digit',
         minute: '2-digit',
-        second: '2-digit',
         hour12
       }).format(new Date(timestamp));
     } catch {
@@ -2092,14 +2276,14 @@ class FluiStreamApp {
     const summary = this.playlist.summary || { total: 0, live: 0, movies: 0, series: 0 };
     const favCount = storage.getFavorites().length;
     const prof = storage.getActiveProfile();
-    const updatedDate = this.formatLastUpdated(prof?.updatedAt);
+    const sectionTs = (type) => this.formatLastUpdated(prof?.sectionUpdatedAt?.[type] || prof?.updatedAt);
 
     if (this.dom.homeCountLive) this.dom.homeCountLive.textContent = String(summary.live || 0);
     if (this.dom.homeCountMovies) this.dom.homeCountMovies.textContent = String(summary.movies || 0);
     if (this.dom.homeCountSeries) this.dom.homeCountSeries.textContent = String(summary.series || 0);
-    if (this.dom.homeUpdatedLive) this.dom.homeUpdatedLive.textContent = updatedDate;
-    if (this.dom.homeUpdatedMovies) this.dom.homeUpdatedMovies.textContent = updatedDate;
-    if (this.dom.homeUpdatedSeries) this.dom.homeUpdatedSeries.textContent = updatedDate;
+    if (this.dom.homeUpdatedLive) this.dom.homeUpdatedLive.textContent = sectionTs(ItemType.LIVE);
+    if (this.dom.homeUpdatedMovies) this.dom.homeUpdatedMovies.textContent = sectionTs(ItemType.MOVIE);
+    if (this.dom.homeUpdatedSeries) this.dom.homeUpdatedSeries.textContent = sectionTs(ItemType.SERIES);
     if (this.dom.homeCountFav) this.dom.homeCountFav.textContent = String(favCount);
 
     const epgProgs = Array.from(this.epg.programmes.values()).reduce((a, b) => a + b.length, 0);
@@ -3941,7 +4125,7 @@ class FluiStreamApp {
   // MODALS, ACCESSIBILITY (inert), STATE & PROFILES
   // =====================================================
   setBackgroundInert(isInert) {
-    [this.dom.appHeader, this.dom.mainLayout, this.dom.siteFooter].forEach(el => {
+    [this.dom.appHeader, this.dom.mainLayout].forEach(el => {
       if (!el) return;
       if (isInert) el.setAttribute('inert', '');
       else el.removeAttribute('inert');
@@ -4302,6 +4486,7 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
         maxConnections: '5'
       },
       summary: parsed.summary,
+      sectionUpdatedAt: { [ItemType.LIVE]: Date.now(), [ItemType.MOVIE]: Date.now(), [ItemType.SERIES]: Date.now() },
       createdAt: profileMeta?.createdAt || Date.now()
     };
 
@@ -4715,40 +4900,82 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
     this.openProfilesModal();
   }
 
-  async refreshHomePlaylist(clickedBtn = null) {
+  // Atualiza apenas a seção clicada (live/movie/series), preservando os itens das demais.
+  async refreshHomePlaylist(clickedBtn) {
     const prof = storage.getActiveProfile();
-    if (!prof || this._isRefreshingPlaylist) return;
+    if (!prof || !clickedBtn || this._isRefreshingPlaylist) return;
+    const sections = {
+      'btn-refresh-live': { type: ItemType.LIVE, label: this.dom.homeUpdatedLive },
+      'btn-refresh-movies': { type: ItemType.MOVIE, label: this.dom.homeUpdatedMovies },
+      'btn-refresh-series': { type: ItemType.SERIES, label: this.dom.homeUpdatedSeries }
+    };
+    const section = sections[clickedBtn.id];
+    if (!section) return;
+    const { type } = section;
+
     this._isRefreshingPlaylist = true;
     const buttons = [this.dom.btnRefreshLive, this.dom.btnRefreshMovies, this.dom.btnRefreshSeries].filter(Boolean);
-    buttons.forEach(b => {
-      b.disabled = true;
-      if (!clickedBtn || b === clickedBtn) b.classList.add('spinning');
-    });
-    const refreshingLabel = i18n.get('homeRefreshing');
-    [this.dom.homeUpdatedLive, this.dom.homeUpdatedMovies, this.dom.homeUpdatedSeries].forEach(el => {
-      if (el) el.textContent = refreshingLabel;
-    });
+    buttons.forEach(b => { b.disabled = true; });
+    clickedBtn.classList.add('spinning');
+    if (section.label) section.label.textContent = i18n.get('homeRefreshing');
 
     try {
       if (prof.type === 'xtream' || prof.type === 'm3u_url') {
-        await this.reloadRemoteProfileData(prof, false);
+        let m3uUrl = prof.url || prof.m3uUrl;
+        if (prof.type === 'xtream') {
+          const cfg = storage.getSettings();
+          const xtream = new XtreamApi(
+            prof.url || prof.serverUrl || prof.xtreamServer || '',
+            prof.username || prof.xtreamUser || '',
+            prof.password || prof.xtreamPass || '',
+            prof.corsProxy || cfg.corsProxy
+          );
+          m3uUrl = xtream.getM3uUrl();
+        }
+        const parsed = M3UParser.parse(await fetchRemoteText(m3uUrl));
+        if (!parsed.items || parsed.items.length === 0) throw new Error(i18n.get('errorM3uEmpty'));
+        const items = FluiStreamApp.mergeSectionItems(this.playlist.items || [], parsed.items, type);
+        const nextPlaylist = { name: this.playlist.name || prof.name, items, epgUrl: this.playlist.epgUrl || prof.epgUrl || null, summary: FluiStreamApp.summarizeItems(items) };
+        await storage.savePlaylist(nextPlaylist, prof.id);
+        this.playlist = nextPlaylist;
+        storage.saveProfile({ ...prof, summary: nextPlaylist.summary, sectionUpdatedAt: { ...(prof.sectionUpdatedAt || {}), [type]: Date.now() } });
       } else {
-        if (storage.getEpgSources(prof.id).length > 0) {
+        if (type === ItemType.LIVE && storage.getEpgSources(prof.id).length > 0) {
           await this.refreshAllEpgSources();
         }
-        storage.saveProfile({ ...prof, updatedAt: Date.now() });
-        this.renderHomeHub();
+        storage.saveProfile({ ...prof, sectionUpdatedAt: { ...(prof.sectionUpdatedAt || {}), [type]: Date.now() } });
       }
     } catch (err) {
       this.addAppNotification('warning', prof.name || 'FluiStream', err?.message || 'Erro ao atualizar lista');
-      this.renderHomeHub();
     } finally {
       this._isRefreshingPlaylist = false;
-      buttons.forEach(b => {
-        b.disabled = false;
-        b.classList.remove('spinning');
-      });
+      buttons.forEach(b => { b.disabled = false; });
+      clickedBtn.classList.remove('spinning');
+      this.renderHomeHub();
     }
+  }
+
+  // Substitui os itens do tipo `type` pelos novos, no lugar onde estavam (ordem estável para IDs).
+  static mergeSectionItems(oldItems, freshItems, type) {
+    const fresh = freshItems.filter(x => x.type === type);
+    const merged = [];
+    let inserted = false;
+    for (const it of oldItems) {
+      if (it.type !== type) { merged.push(it); continue; }
+      if (!inserted) { merged.push(...fresh); inserted = true; }
+    }
+    if (!inserted) merged.push(...fresh);
+    M3UParser.ensureUniqueItemIds(merged);
+    return merged;
+  }
+
+  static summarizeItems(items) {
+    return {
+      total: items.length,
+      live: items.filter(x => x.type === ItemType.LIVE).length,
+      movies: items.filter(x => x.type === ItemType.MOVIE).length,
+      series: items.filter(x => x.type === ItemType.SERIES).length
+    };
   }
 
   async reloadRemoteProfileData(prof, options = false) {
@@ -4788,6 +5015,69 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
       await this.processLoadedM3u(m3uContent, prof.name, null, prof.epgUrl, prof, { background });
     }
     if (!background && (!silent || this.activeScreen === 'home')) this.renderHomeHub();
+  }
+
+  // =====================================================
+  // CHANNEL CONTEXT MENU & ACTIONS (TV LONG PRESS / RIGHT CLICK)
+  // =====================================================
+  _clearChannelLongPressTimer() {
+    if (this._channelLongPressTimer) {
+      clearTimeout(this._channelLongPressTimer);
+      this._channelLongPressTimer = null;
+    }
+  }
+
+  openChannelActionsModal(id, targetRow = null) {
+    if (!id) return;
+    const item = (this.currentFilteredItems || []).find(x => String(x.id) === String(id))
+      || (this.playlist.items || []).find(x => String(x.id) === String(id))
+      || (this.currentFilteredSeries || []).find(s => String(s.id) === String(id));
+    if (!item) return;
+
+    this._activeChannelActionId = String(id);
+    const safeId = (typeof CSS !== 'undefined' && CSS.escape) ? CSS.escape(String(id)) : String(id).replace(/["\\]/g, '\\$&');
+    this._activeChannelActionRow = targetRow || document.querySelector(`.sidebar-item-row[data-id="${safeId}"]`);
+
+    const isFav = storage.isFavorite(id);
+    const isSeries = Boolean(item.totalSeasons || item.type === ItemType.SERIES);
+    const logoUrl = this._getCachedPoster?.(item, isSeries) || item.logo || 'assets/logo.svg';
+
+    let subText = item.group || '';
+    if (item.type === ItemType.LIVE) {
+      const curProg = this.epg?.getCurrentProgram?.(item.tvgId, item.name);
+      if (curProg?.title) subText = curProg.title;
+    } else if (item.totalSeasons) {
+      const sText = item.totalSeasons === 1 ? i18n.get('seasonLabel', { num: 1 }) : i18n.get('seasonsCount', { count: item.totalSeasons });
+      const epText = i18n.get('episodesCount', { count: item.totalEpisodes });
+      subText = `${sText} • ${epText}`;
+    }
+
+    if (this.dom.channelActionsLogo) {
+      this.dom.channelActionsLogo.src = logoUrl;
+    }
+    if (this.dom.channelActionsName) {
+      this.dom.channelActionsName.textContent = item.seriesTitle || item.name || '';
+    }
+    if (this.dom.channelActionsSub) {
+      this.dom.channelActionsSub.textContent = subText;
+    }
+
+    this._updateChannelActionsFavButton(isFav);
+    this.openModal(this.dom.modalChannelActions);
+  }
+
+  _updateChannelActionsFavButton(isFav) {
+    if (!this.dom.btnChannelActionToggleFav) return;
+    this.dom.btnChannelActionToggleFav.classList.toggle('is-fav', Boolean(isFav));
+    if (this.dom.channelActionFavStar) {
+      this.dom.channelActionFavStar.textContent = '★';
+      this.dom.channelActionFavStar.classList.toggle('is-fav', Boolean(isFav));
+    }
+    if (this.dom.channelActionFavText) {
+      this.dom.channelActionFavText.textContent = Boolean(isFav)
+        ? i18n.get('channelActionRemoveFromFavorites')
+        : i18n.get('channelActionAddToFavorites');
+    }
   }
 
   // =====================================================
