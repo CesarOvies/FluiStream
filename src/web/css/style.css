@@ -749,10 +749,25 @@ body.app-header-hidden .split-sidebar {
   transition: transform 0.25s ease, background 0.15s ease;
 }
 
-.btn-bento-refresh:hover {
-  background: var(--accent-amber);
-  color: #06101E;
-  transform: rotate(90deg);
+.btn-bento-refresh:hover,
+.btn-bento-refresh:focus,
+.btn-bento-refresh:focus-visible {
+  background: var(--accent-amber) !important;
+  color: #06101E !important;
+  transform: scale(1.15) rotate(90deg);
+  outline: 3px solid var(--accent-amber) !important;
+  outline-offset: 3px !important;
+  box-shadow: 0 0 16px rgba(245, 158, 11, 0.7) !important;
+}
+
+body[data-effective-device-mode="tv"] .btn-bento-refresh:focus,
+body[data-device-mode="tv"] .btn-bento-refresh:focus,
+body[data-effective-device-mode="tv"] .btn-bento-refresh:focus-visible,
+body[data-device-mode="tv"] .btn-bento-refresh:focus-visible {
+  outline: 4px solid var(--accent-amber) !important;
+  outline-offset: 4px !important;
+  box-shadow: 0 0 24px rgba(245, 158, 11, 0.9) !important;
+  transform: scale(1.22);
 }
 
 .btn-bento-refresh.spinning {

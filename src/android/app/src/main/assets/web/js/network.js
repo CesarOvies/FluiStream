@@ -93,6 +93,18 @@ export async function fetchRemoteText(url, timeoutMs = 60000) {
     }
   }
 
+  // 3. Tentar Ponte Nativa Android (window.androidBridge)
+  if (typeof window !== 'undefined' && window.androidBridge?.fetchText) {
+    try {
+      const result = await Promise.resolve(window.androidBridge.fetchText(url, timeoutMs));
+      if (typeof result === 'string') {
+        return result;
+      }
+    } catch (e) {
+      console.warn('androidBridge.fetchText falhou, tentando fallback:', e);
+    }
+  }
+
   // 3. Obter proxy local ativo (CrossPlatformHost no macOS/Linux ou bridge local)
   const localProxyPrefix = (typeof window !== 'undefined' && typeof window.__fluiLocalProxyUrl === 'string' && window.__fluiLocalProxyUrl.trim())
     ? (window.__fluiLocalProxyUrl.trim().endsWith('/') ? window.__fluiLocalProxyUrl.trim() : `${window.__fluiLocalProxyUrl.trim()}/`)

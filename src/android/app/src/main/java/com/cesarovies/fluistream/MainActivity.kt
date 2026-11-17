@@ -44,11 +44,11 @@ import javax.net.ssl.X509TrustManager
 
 class MainActivity : AppCompatActivity() {
 
-    private val trustAllHostnameVerifier by lazy {
+    internal val trustAllHostnameVerifier by lazy {
         HostnameVerifier { _, _ -> true }
     }
 
-    private val trustAllSslSocketFactory by lazy {
+    internal val trustAllSslSocketFactory by lazy {
         val trustAllCerts = arrayOf<TrustManager>(object : X509TrustManager {
             override fun getAcceptedIssuers(): Array<X509Certificate> = arrayOf()
             override fun checkClientTrusted(chain: Array<X509Certificate>?, authType: String?) {}
@@ -245,6 +245,77 @@ class MainActivity : AppCompatActivity() {
         webView.loadUrl(ASSET_ENTRY_URL)
     }
 
+    fun fetchRemoteTextDirectly(url: String, timeoutMs: Int = 60_000): String {
+        var currentUrl = url
+        var redirects = 0
+        var conn: HttpURLConnection
+        val maxRedirects = 5
+
+        while (true) {
+            val urlObj = URL(currentUrl)
+            conn = (urlObj.openConnection() as HttpURLConnection).apply {
+                requestMethod = "GET"
+                connectTimeout = if (timeoutMs > 0) timeoutMs else 30_000
+                readTimeout = if (timeoutMs > 0) timeoutMs else 60_000
+                instanceFollowRedirects = false
+                setRequestProperty("User-Agent", "IPTVSmartersPro/3.1.5 (Linux;Android 11) VLC/3.0.20")
+                setRequestProperty("Accept", "*/*")
+                setRequestProperty("Accept-Encoding", "gzip, deflate")
+                if (this is HttpsURLConnection) {
+                    sslSocketFactory = trustAllSslSocketFactory
+                    hostnameVerifier = trustAllHostnameVerifier
+                }
+            }
+
+            val code = conn.responseCode
+            if (code in 301..308 && redirects < maxRedirects) {
+                val loc = conn.getHeaderField("Location")
+                if (!loc.isNullOrBlank()) {
+                    currentUrl = URL(urlObj, loc).toString()
+                    redirects++
+                    conn.disconnect()
+                    continue
+                }
+            }
+            break
+        }
+
+        val code = conn.responseCode
+        val rawStream = if (code in 200..299) {
+            conn.inputStream
+        } else {
+            val errStream = conn.errorStream
+            val errText = errStream?.bufferedReader()?.use { it.readText() }.orEmpty()
+            conn.disconnect()
+            throw java.io.IOException(if (errText.isNotBlank()) errText else "HTTP $code ${conn.responseMessage.orEmpty()}")
+        }
+
+        val bytes = rawStream.use { it.readBytes() }
+        conn.disconnect()
+
+        val isGzip = (bytes.size >= 2 && bytes[0] == 0x1F.toByte() && bytes[1] == 0x8B.toByte()) ||
+                url.endsWith(".gz", ignoreCase = true) ||
+                (conn.contentEncoding?.contains("gzip", ignoreCase = true) == true)
+
+        val decompressedBytes = if (isGzip) {
+            runCatching {
+                java.util.zip.GZIPInputStream(ByteArrayInputStream(bytes)).use { it.readBytes() }
+            }.getOrDefault(bytes)
+        } else {
+            bytes
+        }
+
+        val contentType = conn.contentType.orEmpty()
+        var charset = Charsets.UTF_8
+        val charsetIndex = contentType.indexOf("charset=", ignoreCase = true)
+        if (charsetIndex != -1) {
+            val rawCharset = contentType.substring(charsetIndex + 8).trim('"', '\'', ' ', ';')
+            runCatching { charset = java.nio.charset.Charset.forName(rawCharset) }
+        }
+
+        return String(decompressedBytes, charset)
+    }
+
     private fun interceptRemoteHttpRequest(request: WebResourceRequest): WebResourceResponse? {
         val uri = request.url ?: return null
         val scheme = uri.scheme?.lowercase() ?: return null
@@ -284,10 +355,13 @@ class MainActivity : AppCompatActivity() {
                     setRequestProperty("User-Agent", "IPTVSmartersPro/3.1.5 (Linux;Android 11) VLC/3.0.20")
                     setRequestProperty("Accept", "*/*")
                     request.requestHeaders?.forEach { (k, v) ->
-                        if (!k.equals("Host", ignoreCase = true) && !k.equals("Origin", ignoreCase = true)) {
+                        if (!k.equals("Host", ignoreCase = true) &&
+                            !k.equals("Origin", ignoreCase = true) &&
+                            !k.equals("Accept-Encoding", ignoreCase = true)) {
                             setRequestProperty(k, v)
                         }
                     }
+                    setRequestProperty("Accept-Encoding", "gzip, deflate")
                     if (this is HttpsURLConnection) {
                         sslSocketFactory = trustAllSslSocketFactory
                         hostnameVerifier = trustAllHostnameVerifier
@@ -322,10 +396,33 @@ class MainActivity : AppCompatActivity() {
                 }
             }
 
+            val rawStream = if (code in 200..299) {
+                conn.inputStream
+            } else {
+                conn.errorStream ?: ByteArrayInputStream(ByteArray(0))
+            }
+
+            val rawEncoding = conn.contentEncoding?.lowercase() ?: ""
+            val stream = if (rawEncoding.contains("gzip")) {
+                runCatching { java.util.zip.GZIPInputStream(rawStream) }.getOrDefault(rawStream)
+            } else if (rawEncoding.contains("deflate")) {
+                runCatching { java.util.zip.InflaterInputStream(rawStream) }.getOrDefault(rawStream)
+            } else {
+                rawStream
+            }
+
             val responseHeaders = mutableMapOf<String, String>()
             conn.headerFields?.forEach { (k, v) ->
                 if (k != null && v != null && v.isNotEmpty()) {
-                    responseHeaders[k] = v.joinToString(", ")
+                    val lower = k.lowercase()
+                    if (lower != "transfer-encoding" &&
+                        lower != "content-encoding" &&
+                        lower != "content-length" &&
+                        lower != "connection" &&
+                        lower != "keep-alive" &&
+                        !lower.startsWith("access-control-")) {
+                        responseHeaders[k] = v.joinToString(", ")
+                    }
                 }
             }
             responseHeaders["Access-Control-Allow-Origin"] = "*"
@@ -333,19 +430,13 @@ class MainActivity : AppCompatActivity() {
             responseHeaders["Access-Control-Allow-Headers"] = "*"
             responseHeaders["Access-Control-Allow-Credentials"] = "true"
 
-            val inputStream = if (code in 200..299) {
-                conn.inputStream
-            } else {
-                conn.errorStream ?: ByteArrayInputStream(ByteArray(0))
-            }
-
             WebResourceResponse(
                 mimeType,
                 encoding ?: "UTF-8",
                 code,
                 statusMsg,
                 responseHeaders,
-                inputStream
+                stream
             )
         }.getOrElse { err ->
             Log.w("FluiStream", "shouldInterceptRequest remote fetch failed for $uri: ${err.message}")

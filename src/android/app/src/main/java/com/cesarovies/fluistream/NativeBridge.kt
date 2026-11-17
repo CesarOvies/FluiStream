@@ -69,6 +69,15 @@ class NativeBridge(private val activity: MainActivity) {
     fun isAndroid(): Boolean = true
 
     @JavascriptInterface
+    fun fetchText(url: String?, timeoutMs: Int): String {
+        val safeUrl = url?.trim().orEmpty()
+        if (safeUrl.isEmpty()) {
+            throw IllegalArgumentException("URL cannot be empty")
+        }
+        return activity.fetchRemoteTextDirectly(safeUrl, if (timeoutMs > 0) timeoutMs else 60_000)
+    }
+
+    @JavascriptInterface
     fun isTv(): Boolean {
         val uiModeManager = activity.getSystemService(Context.UI_MODE_SERVICE) as? UiModeManager
         if (uiModeManager?.currentModeType == Configuration.UI_MODE_TYPE_TELEVISION) return true

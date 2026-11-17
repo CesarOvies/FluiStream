@@ -953,6 +953,7 @@ class FluiStreamApp {
         open();
       });
       card.addEventListener('keydown', (e) => {
+        if (e.target.closest('.btn-bento-refresh')) return;
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault();
           open();
@@ -965,6 +966,13 @@ class FluiStreamApp {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
         this.refreshHomePlaylist(btn);
+      });
+      btn.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          e.stopPropagation();
+          this.refreshHomePlaylist(btn);
+        }
       });
     });
 
@@ -1305,6 +1313,10 @@ class FluiStreamApp {
         }
         const row = e.target.closest('.sidebar-item-row');
         if (row) {
+          if (e.detail === 0) {
+            e.preventDefault();
+            return;
+          }
           this.activateChannelRow(row);
         }
       });
@@ -2087,6 +2099,7 @@ class FluiStreamApp {
       '.onboarding-device-card',
       '.subscreen-topbar button',
       '.bento-card',
+      '.btn-bento-refresh',
       '.gradient-tile',
       '.featured-item-row',
       '.settings-tile',
@@ -2201,7 +2214,10 @@ class FluiStreamApp {
     let validCandidates = [];
     for (const el of candidates) {
       if (el === current) continue;
-      if (isVertical && (current.contains(el) || el.contains(current))) continue;
+      const isParentChildBento = (current.classList.contains('bento-card') && el.classList.contains('btn-bento-refresh') && current.contains(el))
+        || (el.classList.contains('bento-card') && current.classList.contains('btn-bento-refresh') && el.contains(current));
+
+      if (isVertical && (current.contains(el) || el.contains(current)) && !isParentChildBento) continue;
       const elZone = getModalZone(el);
       if (direction === 'ArrowDown' && elZone < curZone) continue;
       if (direction === 'ArrowUp' && elZone > curZone) continue;
@@ -2221,26 +2237,26 @@ class FluiStreamApp {
       let centerDrift = 0;
 
       const inMsGrid = Boolean(current.closest('.multiscreen-grid') && el.closest('.multiscreen-grid'));
-      if (direction === 'ArrowRight' && x > curX + 4 && r.right > curRect.right - 2) {
+      if (direction === 'ArrowRight' && x > curX + 4 && (r.right > curRect.right - 2 || (isParentChildBento && current.contains(el)))) {
         perpGap = overlapY > 0 ? 0 : (r.top >= curRect.bottom ? r.top - curRect.bottom : curRect.top - r.bottom);
         if ((!inMsGrid && perpGap > 72) || (isModalOpen && current.closest('.modal-body, .modal-footer') && el.closest('.modal-header'))) continue;
         valid = true;
-        edgeGap = r.left - curRect.right;
+        edgeGap = isParentChildBento ? Math.abs(dx) : (r.left - curRect.right);
         centerDrift = Math.abs(dy);
-      } else if (direction === 'ArrowLeft' && x < curX - 4 && r.left < curRect.left + 2) {
+      } else if (direction === 'ArrowLeft' && x < curX - 4 && (r.left < curRect.left + 2 || (isParentChildBento && el.contains(current)))) {
         perpGap = overlapY > 0 ? 0 : (r.top >= curRect.bottom ? r.top - curRect.bottom : curRect.top - r.bottom);
         if ((!inMsGrid && perpGap > 72) || (isModalOpen && current.closest('.modal-body, .modal-footer') && el.closest('.modal-header'))) continue;
         valid = true;
-        edgeGap = curRect.left - r.right;
+        edgeGap = isParentChildBento ? Math.abs(dx) : (curRect.left - r.right);
         centerDrift = Math.abs(dy);
-      } else if (direction === 'ArrowDown' && (elZone > curZone || (y > curY + 4 && r.bottom > curRect.bottom - 2))) {
+      } else if (direction === 'ArrowDown' && (elZone > curZone || (y > curY + 4 && (r.bottom > curRect.bottom - 2 || (isParentChildBento && current.contains(el)))))) {
         valid = true;
-        edgeGap = r.top - curRect.bottom;
+        edgeGap = isParentChildBento ? Math.max(0, r.top - curY) : (r.top - curRect.bottom);
         perpGap = overlapX > 0 ? 0 : (r.left >= curRect.right ? r.left - curRect.right : curRect.left - r.right);
         centerDrift = Math.abs(dx);
-      } else if (direction === 'ArrowUp' && (elZone < curZone || (y < curY - 4 && r.top < curRect.top + 2))) {
+      } else if (direction === 'ArrowUp' && (elZone < curZone || (y < curY - 4 && (r.top < curRect.top + 2 || (isParentChildBento && el.contains(current)))))) {
         valid = true;
-        edgeGap = curRect.top - r.bottom;
+        edgeGap = isParentChildBento ? Math.max(0, curY - r.bottom) : (curRect.top - r.bottom);
         perpGap = overlapX > 0 ? 0 : (r.left >= curRect.right ? r.left - curRect.right : curRect.left - r.right);
         centerDrift = Math.abs(dx);
       }

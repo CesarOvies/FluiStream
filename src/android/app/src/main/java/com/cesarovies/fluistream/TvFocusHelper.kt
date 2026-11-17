@@ -12,6 +12,19 @@ class TvFocusHelper(
     private val onBackRequested: () -> Boolean
 ) {
 
+    private var centerKeyDownTime = 0L
+    private var centerLongPressFired = false
+    private val centerLongPressHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private val centerLongPressRunnable = Runnable {
+        centerLongPressFired = true
+        // Dispatch KEYCODE_MENU to WebView to trigger channel options / favorites
+        val now = android.os.SystemClock.uptimeMillis()
+        val menuDown = KeyEvent(now, now, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_MENU, 0)
+        val menuUp = KeyEvent(now, now, KeyEvent.ACTION_UP, KeyEvent.KEYCODE_MENU, 0)
+        webView.dispatchKeyEvent(menuDown)
+        webView.dispatchKeyEvent(menuUp)
+    }
+
     fun handleDispatchKeyEvent(event: KeyEvent): KeyEventResult {
         val keyCode = event.keyCode
 
@@ -72,7 +85,25 @@ class TvFocusHelper(
         }
 
         // Translate TV remote DPAD_CENTER / NUMPAD_ENTER into KEYCODE_ENTER so Chromium activates focused elements
+        // Also tracks long press (segurar no controle remoto) to trigger channel options / favorites
         if (event.keyCode == KeyEvent.KEYCODE_DPAD_CENTER || event.keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER) {
+            if (event.action == KeyEvent.ACTION_DOWN) {
+                if (event.repeatCount == 0) {
+                    centerKeyDownTime = event.downTime
+                    centerLongPressFired = false
+                    centerLongPressHandler.removeCallbacks(centerLongPressRunnable)
+                    centerLongPressHandler.postDelayed(centerLongPressRunnable, 450L)
+                } else if (centerLongPressFired) {
+                    return KeyEventResult.CONSUMED
+                }
+            } else if (event.action == KeyEvent.ACTION_UP) {
+                centerLongPressHandler.removeCallbacks(centerLongPressRunnable)
+                if (centerLongPressFired) {
+                    centerLongPressFired = false
+                    return KeyEventResult.CONSUMED
+                }
+            }
+
             val mappedEvent = KeyEvent(
                 event.downTime,
                 event.eventTime,

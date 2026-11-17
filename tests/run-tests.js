@@ -756,6 +756,70 @@ await test('Deve restaurar display block no <video> quando window.androidBridge 
   }
 });
 
+await test('fetchRemoteText deve delegar para window.androidBridge.fetchText nativo quando disponível', async () => {
+  const { fetchRemoteText } = await import('../src/web/js/network.js');
+  const prevWindow = globalThis.window;
+  const bridgeCalls = [];
+
+  globalThis.window = {
+    androidBridge: {
+      fetchText(url, timeoutMs) {
+        bridgeCalls.push({ url, timeoutMs });
+        return '{"user_info":{"auth":1,"status":"Active"}}';
+      }
+    }
+  };
+
+  try {
+    const text = await fetchRemoteText('http://2025easy.net/player_api.php?username=test&password=pass', 30000);
+    assert.match(text, /"auth":1/);
+    assert.equal(bridgeCalls.length, 1);
+    assert.equal(bridgeCalls[0].url, 'http://2025easy.net/player_api.php?username=test&password=pass');
+    assert.equal(bridgeCalls[0].timeoutMs, 30000);
+  } finally {
+    if (prevWindow === undefined) delete globalThis.window;
+    else globalThis.window = prevWindow;
+  }
+});
+
+await test('NativeBridge.kt e MainActivity.kt devem conter fetchText, descompressão gzip e strip de chunked transfer-encoding', () => {
+  const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+  const nativeBridgeKt = readFileSync(resolve(rootDir, 'src/android/app/src/main/java/com/cesarovies/fluistream/NativeBridge.kt'), 'utf8');
+  assert.match(nativeBridgeKt, /fun fetchText\(url: String\?, timeoutMs: Int\): String/);
+  assert.match(nativeBridgeKt, /activity\.fetchRemoteTextDirectly/);
+
+  const mainActivityKt = readFileSync(resolve(rootDir, 'src/android/app/src/main/java/com/cesarovies/fluistream/MainActivity.kt'), 'utf8');
+  assert.match(mainActivityKt, /fun fetchRemoteTextDirectly\(/);
+  assert.match(mainActivityKt, /GZIPInputStream/);
+  assert.match(mainActivityKt, /transfer-encoding/);
+  assert.match(mainActivityKt, /content-encoding/);
+});
+
+await test('TvFocusHelper.kt e app.js devem implementar clique e segurar (long press) para favoritos no controle remoto', () => {
+  const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+  const tvFocusKt = readFileSync(resolve(rootDir, 'src/android/app/src/main/java/com/cesarovies/fluistream/TvFocusHelper.kt'), 'utf8');
+  assert.match(tvFocusKt, /centerLongPressHandler/);
+  assert.match(tvFocusKt, /centerLongPressRunnable/);
+  assert.match(tvFocusKt, /KeyEvent\.KEYCODE_MENU/);
+
+  const appJs = readFileSync(resolve(rootDir, 'src/web/js/app.js'), 'utf8');
+  assert.match(appJs, /if \(e\.detail === 0\) \{\s*e\.preventDefault\(\);\s*return;\s*\}/);
+  assert.match(appJs, /this\._channelLongPressTimer = setTimeout/);
+  assert.match(appJs, /openChannelActionsModal/);
+});
+
+await test('Navegação espacial D-Pad e seletores devem incluir .btn-bento-refresh para atualizar listas individuais', () => {
+  const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+  const appJs = readFileSync(resolve(rootDir, 'src/web/js/app.js'), 'utf8');
+  assert.match(appJs, /\.btn-bento-refresh/);
+  assert.match(appJs, /isParentChildBento/);
+  assert.match(appJs, /if \(e\.target\.closest\('\.btn-bento-refresh'\)\) return;/);
+
+  const styleCss = readFileSync(resolve(rootDir, 'src/web/css/style.css'), 'utf8');
+  assert.match(styleCss, /\.btn-bento-refresh:focus/);
+  assert.match(styleCss, /\.btn-bento-refresh:focus-visible/);
+});
+
 console.log('\n--- 13. Testes Midnight Amber v2: M3UParser Catch-up & Shift ---');
 
 await test('M3UParser deve extrair catchup, catchup-days, catchup-source, tvg-shift e hasCatchup', () => {
