@@ -174,11 +174,19 @@ class VideoPlayerManager(
     private fun ensurePlayer() {
         if (exoPlayer != null) return
 
+        val appVersion = BuildConfig.VERSION_NAME
+        val iptvUserAgent = "IPTVSmartersPro/3.1.5 (Linux;Android 11) VLC/3.0.20"
         val httpDataSourceFactory = DefaultHttpDataSource.Factory()
-            .setUserAgent("FluiStream/${BuildConfig.VERSION_NAME} (Android)")
+            .setUserAgent(iptvUserAgent)
+            .setDefaultRequestProperties(
+                mapOf(
+                    "User-Agent" to iptvUserAgent,
+                    "Accept" to "*/*"
+                )
+            )
             .setAllowCrossProtocolRedirects(true)
-            .setConnectTimeoutMs(15_000)
-            .setReadTimeoutMs(15_000)
+            .setConnectTimeoutMs(25_000)
+            .setReadTimeoutMs(25_000)
 
         val extractorsFactory = DefaultExtractorsFactory()
             .setTsExtractorFlags(
@@ -199,6 +207,11 @@ class VideoPlayerManager(
 
         player.addListener(object : Player.Listener {
             override fun onPlayerError(error: PlaybackException) {
+                android.util.Log.e(
+                    "VideoPlayerManager",
+                    "PlaybackException (code=${error.errorCode}): ${error.message}",
+                    error
+                )
                 if (pendingFallbackUrls.isNotEmpty()) {
                     val nextUrl = pendingFallbackUrls.removeFirst()
                     errorText.visibility = View.GONE
@@ -300,12 +313,11 @@ class VideoPlayerManager(
     private fun detectMimeType(url: String, itemType: String, streamMode: String): String? {
         val path = Uri.parse(url).path?.lowercase().orEmpty()
         return when {
-            path.endsWith(".m3u8") -> MimeTypes.APPLICATION_M3U8
+            path.endsWith(".m3u8") || path.contains(".m3u8") -> MimeTypes.APPLICATION_M3U8
             path.endsWith(".mpd") -> MimeTypes.APPLICATION_MPD
-            path.endsWith(".ts") -> null // Handled natively by DefaultExtractorsFactory (TsExtractor)
+            path.endsWith(".ts") || streamMode == "ts" -> null // Handled natively by DefaultExtractorsFactory (TsExtractor)
             streamMode == "hls" -> MimeTypes.APPLICATION_M3U8
-            streamMode == "ts" -> null
-            itemType == "live" && streamMode == "auto" && path.contains(".m3u8") -> MimeTypes.APPLICATION_M3U8
+            itemType == "live" && streamMode == "auto" -> MimeTypes.APPLICATION_M3U8
             else -> null
         }
     }

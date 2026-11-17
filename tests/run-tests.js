@@ -2547,6 +2547,39 @@ await test('Tela de Loading pós-seleção de perfil e ausência de pré-carrega
   }
 });
 
+await test('Testes de Correção HY300 Android / TV: Telas em %, ExoPlayer User-Agent/SSL e OOM Streaming', async () => {
+  const __dirname = dirname(fileURLToPath(import.meta.url));
+  const rootDir = resolve(__dirname, '..');
+  const manifestXml = readFileSync(resolve(rootDir, 'src/android/app/src/main/AndroidManifest.xml'), 'utf8');
+  const mainActivityKt = readFileSync(resolve(rootDir, 'src/android/app/src/main/java/com/cesarovies/fluistream/MainActivity.kt'), 'utf8');
+  const playerKt = readFileSync(resolve(rootDir, 'src/android/app/src/main/java/com/cesarovies/fluistream/VideoPlayerManager.kt'), 'utf8');
+  const bridgeKt = readFileSync(resolve(rootDir, 'src/android/app/src/main/java/com/cesarovies/fluistream/NativeBridge.kt'), 'utf8');
+  const css = readFileSync(resolve(rootDir, 'src/web/css/style.css'), 'utf8');
+  const m3uParserJs = readFileSync(resolve(rootDir, 'src/web/js/m3u-parser.js'), 'utf8');
+
+  // 1. Android Manifest deve ter largeHeap="true" para projetores/TV boxes com 1GB RAM
+  assert.match(manifestXml, /android:largeHeap="true"/, 'AndroidManifest deve conter largeHeap="true"');
+
+  // 2. MainActivity deve configurar SSL global trust-all para fluxos HTTPS de IPTV e streaming direto com PushbackInputStream
+  assert.match(mainActivityKt, /HttpsURLConnection\.setDefaultSSLSocketFactory/, 'MainActivity deve definir default SSLSocketFactory');
+  assert.match(mainActivityKt, /PushbackInputStream/, 'fetchRemoteTextDirectly deve usar PushbackInputStream para streaming sem alocações massivas');
+
+  // 3. VideoPlayerManager deve usar User-Agent compatível com IPTV (IPTVSmartersPro) e timeouts adequados
+  assert.match(playerKt, /IPTVSmartersPro/, 'ExoPlayer deve usar User-Agent IPTVSmartersPro');
+  assert.match(playerKt, /setConnectTimeoutMs\(25_000\)/, 'ExoPlayer deve usar timeout de 25s');
+
+  // 4. NativeBridge deve detectar TV por ausência de touch (FEATURE_TOUCHSCREEN)
+  assert.match(bridgeKt, /FEATURE_TOUCHSCREEN/, 'isTv deve checar ausência de FEATURE_TOUCHSCREEN');
+
+  // 5. CSS deve usar porcentagem (%) no modal-dialog e possuir regras responsivas para modo TV
+  assert.match(css, /max-height:\s*86%/, 'modal-dialog deve usar % para altura máxima');
+  assert.match(css, /body\[data-effective-device-mode="tv"\]\s+\.modal-dialog[\s\S]*?max-height:\s*84%/, 'TV modal-dialog deve respeitar altura compacta');
+  assert.match(css, /body\[data-effective-device-mode="tv"\]\s+\.settings-tile[\s\S]*?min-height:\s*68px/, 'TV settings-tile deve ter min-height compacta');
+
+  // 6. M3UParser deve iterar linha a linha sem replace() global duplicando strings na memória
+  assert.doesNotMatch(m3uParserJs, /content\.replace\(/, 'M3UParser não deve usar replace() global em todo o conteúdo');
+});
+
 console.log(`\n========================================`);
 console.log(`Resultados dos Testes: ${passedTests}/${totalTests} passaram.`);
 console.log(`========================================\n`);

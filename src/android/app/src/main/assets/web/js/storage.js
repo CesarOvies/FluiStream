@@ -180,10 +180,6 @@ export class StorageService {
         const tx = this.db.transaction([STORE_PLAYLIST], 'readwrite');
         const store = tx.objectStore(STORE_PLAYLIST);
         store.put({ id: targetKey, ...playlistData, updatedAt: Date.now() });
-        // Mantém 'active' em sincronia para compatibilidade
-        if (targetKey !== 'active') {
-          store.put({ id: 'active', ...playlistData, updatedAt: Date.now() });
-        }
         tx.oncomplete = () => resolve(true);
         tx.onerror = () => resolve(false);
       });

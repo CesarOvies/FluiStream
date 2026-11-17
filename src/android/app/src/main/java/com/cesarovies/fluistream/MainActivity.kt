@@ -102,6 +102,11 @@ class MainActivity : AppCompatActivity() {
         requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
         setContentView(R.layout.activity_main)
 
+        runCatching {
+            HttpsURLConnection.setDefaultSSLSocketFactory(trustAllSslSocketFactory)
+            HttpsURLConnection.setDefaultHostnameVerifier(trustAllHostnameVerifier)
+        }
+
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         @Suppress("DEPRECATION")
         window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
@@ -290,21 +295,6 @@ class MainActivity : AppCompatActivity() {
             throw java.io.IOException(if (errText.isNotBlank()) errText else "HTTP $code ${conn.responseMessage.orEmpty()}")
         }
 
-        val bytes = rawStream.use { it.readBytes() }
-        conn.disconnect()
-
-        val isGzip = (bytes.size >= 2 && bytes[0] == 0x1F.toByte() && bytes[1] == 0x8B.toByte()) ||
-                url.endsWith(".gz", ignoreCase = true) ||
-                (conn.contentEncoding?.contains("gzip", ignoreCase = true) == true)
-
-        val decompressedBytes = if (isGzip) {
-            runCatching {
-                java.util.zip.GZIPInputStream(ByteArrayInputStream(bytes)).use { it.readBytes() }
-            }.getOrDefault(bytes)
-        } else {
-            bytes
-        }
-
         val contentType = conn.contentType.orEmpty()
         var charset = Charsets.UTF_8
         val charsetIndex = contentType.indexOf("charset=", ignoreCase = true)
@@ -313,7 +303,38 @@ class MainActivity : AppCompatActivity() {
             runCatching { charset = java.nio.charset.Charset.forName(rawCharset) }
         }
 
-        return String(decompressedBytes, charset)
+        val pushback = java.io.PushbackInputStream(java.io.BufferedInputStream(rawStream), 2)
+        val head = ByteArray(2)
+        val readMagic = pushback.read(head)
+        val hasGzipMagic = readMagic == 2 && head[0] == 0x1F.toByte() && head[1] == 0x8B.toByte()
+        if (readMagic > 0) {
+            pushback.unread(head, 0, readMagic)
+        }
+
+        val isGzip = hasGzipMagic ||
+                (conn.contentEncoding?.contains("gzip", ignoreCase = true) == true) ||
+                url.endsWith(".gz", ignoreCase = true)
+
+        val stream = if (isGzip) {
+            java.util.zip.GZIPInputStream(pushback)
+        } else {
+            pushback
+        }
+
+        val reader = java.io.InputStreamReader(stream, charset)
+        val sb = StringBuilder()
+        val buffer = CharArray(32768)
+        try {
+            var n: Int
+            while (reader.read(buffer).also { n = it } != -1) {
+                sb.append(buffer, 0, n)
+            }
+        } finally {
+            reader.close()
+            conn.disconnect()
+        }
+
+        return sb.toString()
     }
 
     private fun interceptRemoteHttpRequest(request: WebResourceRequest): WebResourceResponse? {
@@ -558,18 +579,21 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) {
+            configureSystemBars()
+        }
+    }
+
     private fun configureSystemBars() {
-        WindowCompat.setDecorFitsSystemWindows(window, true)
+        WindowCompat.setDecorFitsSystemWindows(window, false)
         val controller = WindowInsetsControllerCompat(window, window.decorView)
         controller.isAppearanceLightStatusBars = false
         controller.isAppearanceLightNavigationBars = false
-        if (videoPlayerManagerInitialized() && videoPlayerManager.isOverlayVisible()) {
-            controller.hide(WindowInsetsCompat.Type.systemBars())
-            controller.systemBarsBehavior =
-                WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-        } else {
-            controller.show(WindowInsetsCompat.Type.systemBars())
-        }
+        controller.hide(WindowInsetsCompat.Type.systemBars())
+        controller.systemBarsBehavior =
+            WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         val topHud = findViewById<LinearLayout?>(R.id.player_top_hud)
         if (topHud != null) {
             topHud.post { ViewCompat.requestApplyInsets(topHud) }
