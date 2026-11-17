@@ -122,10 +122,17 @@ Acesse a aba **[Releases](https://github.com/CesarOvies/FluiStream/releases)** e
 | 🪟 **Windows x64** | `.zip` | `FluiStream-v1.2.0-win-x64-portable.zip` | Executável portátil `FluiStream.exe` (.NET 10 WebView2 + LibVLC) |
 | 🐧 **Linux x64** | `.tar.gz` / `.zip` | `FluiStream-v1.2.0-linux-x64-portable.tar.gz` | Binário nativo self-contained `FluiStream` |
 | 🐧 **Linux ARM64** | `.tar.gz` / `.zip` | `FluiStream-v1.2.0-linux-arm64-portable.tar.gz` | Binário nativo self-contained para Raspberry Pi / ARM64 |
-| 🍏 **macOS ARM64** | `.tar.gz` / `.zip` | `FluiStream-v1.2.0-osx-arm64-portable.tar.gz` / `.zip` | Binário nativo Apple Silicon (M1/M2/M3/M4) |
+| 🍏 **macOS ARM64** | `.dmg` / `.tar.gz` | `FluiStream-v1.2.0-macOS.dmg` / `.tar.gz` | Instalador nativo DMG (.app Drag & Drop) e portátil Apple Silicon |
 | 🤖 **Android & TV** | `.apk` | `FluiStream-v1.2.0-android.apk` | Universal (Celulares, Tablets, Android TV, Fire TV Stick, TV Box) |
 
-### Desktop Portable (Windows, Linux, macOS)
+### macOS (Instalação via DMG ou Portátil)
+1. Baixe `FluiStream-v1.2.0-macOS.dmg` e dê duplo clique para montar a imagem de disco.
+2. Arraste `FluiStream.app` para o atalho da pasta `Applications`.
+3. **Primeira abertura (Gatekeeper macOS)**:
+   * **Método Recomendado**: Na pasta Aplicativos, clique com o **botão direito (Control + Clique)** em `FluiStream` e selecione **Abrir** $\rightarrow$ confirme em **Abrir**. (Necessário apenas uma única vez).
+   * **Via Terminal**: `xattr -cr /Applications/FluiStream.app`
+
+### Desktop Portable (Windows e Linux)
 1. Baixe e extraia o arquivo `.zip` ou `.tar.gz` para qualquer pasta (ex: Documentos ou Pendrive).
 2. Execute o binário `FluiStream`. Zero instalador, zero privilégio de Administrador (100% User-Space).
 3. Opcionalmente valide a integridade usando `SHA256SUMS.txt` ou `SHA512SUMS.txt` anexados na release.

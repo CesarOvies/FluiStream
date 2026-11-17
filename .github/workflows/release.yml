@@ -187,9 +187,40 @@ jobs:
           name: FluiStream-Android-APK
           path: src/android/app/build/outputs/apk/release/*.apk
 
+  build-macos:
+    name: Build macOS DMG & Portable App Bundle
+    needs: resolve-version
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Build macOS DMG and ZIP
+        shell: bash
+        run: |
+          chmod +x build-macos.sh
+          ./build-macos.sh osx-arm64 "${{ needs.resolve-version.outputs.version }}"
+
+      - name: Upload macOS Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: FluiStream-macOS-Artifacts
+          path: |
+            dist/*.dmg
+            dist/*-macOS.zip
+
   build-release:
     name: Build Multi-OS Portables, Package APK & Defender Scan
-    needs: [resolve-version, build-android]
+    needs: [resolve-version, build-android, build-macos]
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -221,24 +252,40 @@ jobs:
           name: FluiStream-Android-APK
           path: dist/android-apk
 
-      - name: Stage Android APK & Update SHA-256 / SHA-512 Checksums
+      - name: Download macOS Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: FluiStream-macOS-Artifacts
+          path: dist/macos-artifacts
+
+      - name: Stage Android & macOS Artifacts & Update Checksums
         shell: pwsh
         run: |
           $tag = "${{ needs.resolve-version.outputs.tag }}"
           $apkSource = Get-ChildItem -Path "dist/android-apk" -Filter "*.apk" | Select-Object -First 1
-          if (-not $apkSource) {
-            Write-Error "Android APK artifact not found in dist/android-apk"
-            exit 1
+          if ($apkSource) {
+            $apkName = "FluiStream-$tag-android.apk"
+            $apkDest = Join-Path "dist" $apkName
+            Move-Item -Path $apkSource.FullName -Destination $apkDest -Force
+            Remove-Item -Path "dist/android-apk" -Recurse -Force
+            $h256 = (Get-FileHash -Path $apkDest -Algorithm SHA256).Hash.ToLowerInvariant()
+            $h512 = (Get-FileHash -Path $apkDest -Algorithm SHA512).Hash.ToLowerInvariant()
+            Add-Content -Path "dist/SHA256SUMS.txt" -Value "$h256  $apkName" -Encoding utf8
+            Add-Content -Path "dist/SHA512SUMS.txt" -Value "$h512  $apkName" -Encoding utf8
           }
-          $apkName = "FluiStream-$tag-android.apk"
-          $apkDest = Join-Path "dist" $apkName
-          Move-Item -Path $apkSource.FullName -Destination $apkDest -Force
-          Remove-Item -Path "dist/android-apk" -Recurse -Force
 
-          $h256 = (Get-FileHash -Path $apkDest -Algorithm SHA256).Hash
-          $h512 = (Get-FileHash -Path $apkDest -Algorithm SHA512).Hash
-          Add-Content -Path "dist/SHA256SUMS.txt" -Value "$h256  $apkName" -Encoding utf8
-          Add-Content -Path "dist/SHA512SUMS.txt" -Value "$h512  $apkName" -Encoding utf8
+          if (Test-Path "dist/macos-artifacts") {
+            $macFiles = Get-ChildItem -Path "dist/macos-artifacts" -File -Recurse
+            foreach ($mf in $macFiles) {
+              $dest = Join-Path "dist" $mf.Name
+              Move-Item -Path $mf.FullName -Destination $dest -Force
+              $h256 = (Get-FileHash -Path $dest -Algorithm SHA256).Hash.ToLowerInvariant()
+              $h512 = (Get-FileHash -Path $dest -Algorithm SHA512).Hash.ToLowerInvariant()
+              Add-Content -Path "dist/SHA256SUMS.txt" -Value "$h256  $($mf.Name)" -Encoding utf8
+              Add-Content -Path "dist/SHA512SUMS.txt" -Value "$h512  $($mf.Name)" -Encoding utf8
+            }
+            Remove-Item -Path "dist/macos-artifacts" -Recurse -Force
+          }
 
       - name: Microsoft Defender Deep Scan
         shell: pwsh
