@@ -820,6 +820,22 @@ await test('Navegação espacial D-Pad e seletores devem incluir .btn-bento-refr
   assert.match(styleCss, /\.btn-bento-refresh:focus-visible/);
 });
 
+await test('FluiStream.Desktop.csproj e CrossPlatformHost.cs devem isolar Photino e alvos Windows/macOS', () => {
+  const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+  const csproj = readFileSync(resolve(rootDir, 'src/desktop/FluiStream.Desktop.csproj'), 'utf8');
+  const crossHost = readFileSync(resolve(rootDir, 'src/desktop/CrossPlatformHost.cs'), 'utf8');
+
+  // CrossPlatformHost deve ter #if !WINDOWS no topo cobrindo todos os usings do Photino
+  assert.match(crossHost, /^\s*#if !WINDOWS[\s\S]*using Photino\.NET;/);
+
+  // csproj deve remover CrossPlatformHost.cs do target net10.0-windows
+  assert.match(csproj, /<ItemGroup Condition="'\$\(TargetFramework\)' == 'net10\.0-windows'">[\s\S]*?<Compile Remove="CrossPlatformHost\.cs" \/>/);
+
+  // csproj deve remover MainForm.cs e NativeBridge.cs dos targets não-windows
+  assert.match(csproj, /<ItemGroup Condition="'\$\(TargetFramework\)' != 'net10\.0-windows'">[\s\S]*?<Compile Remove="MainForm\.cs" \/>/);
+  assert.match(csproj, /<ItemGroup Condition="'\$\(TargetFramework\)' != 'net10\.0-windows'">[\s\S]*?<Compile Remove="NativeBridge\.cs" \/>/);
+});
+
 console.log('\n--- 13. Testes Midnight Amber v2: M3UParser Catch-up & Shift ---');
 
 await test('M3UParser deve extrair catchup, catchup-days, catchup-source, tvg-shift e hasCatchup', () => {
