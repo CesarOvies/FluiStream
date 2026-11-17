@@ -44,6 +44,7 @@ export function applyCorsProxy(proxy, url) {
   if (!proxy || !url || url.startsWith('blob:') || url.startsWith('data:')) return url;
   const p = proxy.trim();
   if (!p) return url;
+  if (url.includes('/proxy?url=') || url.includes('?url=')) return url;
   const enc = encodeURIComponent(url);
   if (p.endsWith('?') || p.endsWith('=')) return `${p}${enc}`;
   if (p.endsWith('/')) return `${p}${enc}`;
@@ -92,7 +93,24 @@ export async function fetchRemoteText(url, timeoutMs = 60000) {
     }
   }
 
-  // 3. Tentativa direta com fetch padrão (Web / PWA)
+  // 3. Tentar Ponte Nativa Android (window.androidBridge)
+  if (typeof window !== 'undefined' && window.androidBridge?.fetchText) {
+    try {
+      const result = await Promise.resolve(window.androidBridge.fetchText(url, timeoutMs));
+      if (typeof result === 'string') {
+        return result;
+      }
+    } catch (e) {
+      console.warn('androidBridge.fetchText falhou, tentando fallback:', e);
+    }
+  }
+
+  // 3. Obter proxy local ativo (CrossPlatformHost no macOS/Linux ou bridge local)
+  const localProxyPrefix = (typeof window !== 'undefined' && typeof window.__fluiLocalProxyUrl === 'string' && window.__fluiLocalProxyUrl.trim())
+    ? (window.__fluiLocalProxyUrl.trim().endsWith('/') ? window.__fluiLocalProxyUrl.trim() : `${window.__fluiLocalProxyUrl.trim()}/`)
+    : '';
+
+  // 4. Tentativa direta com fetch padrão (Web / PWA)
   const controller = (typeof AbortController !== 'undefined') ? new AbortController() : null;
   const timeoutId = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
 
@@ -111,20 +129,37 @@ export async function fetchRemoteText(url, timeoutMs = 60000) {
   } catch (err) {
     if (timeoutId) clearTimeout(timeoutId);
 
-    // 4. Fallback com Proxy CORS se falhou no navegador
+    // 5. Fallback com Proxy CORS ou Bridge Local (CrossPlatformHost)
     const cfg = storage.getSettings();
-    const proxy = cfg.corsProxy || 'https://api.allorigins.win/raw?url=';
+    let proxy = (cfg.corsProxy || '').trim();
+    if (!proxy && localProxyPrefix) {
+      proxy = `${localProxyPrefix}proxy?url=`;
+    }
+    if (!proxy) {
+      proxy = 'https://api.allorigins.win/raw?url=';
+    }
     const proxiedUrl = applyCorsProxy(proxy, url);
 
-    try {
-      const proxyRes = await fetch(proxiedUrl);
-      if (proxyRes.ok) {
-        return await decodeResponseText(proxyRes);
+    if (proxiedUrl !== url) {
+      const proxyController = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+      const proxyTimeoutId = proxyController ? setTimeout(() => proxyController.abort(), timeoutMs) : null;
+      try {
+        const proxyRes = await fetch(proxiedUrl, {
+          signal: proxyController ? proxyController.signal : undefined,
+          headers: { 'Accept': '*/*' }
+        });
+        if (proxyRes.ok) {
+          return await decodeResponseText(proxyRes);
+        }
+        throw new Error(`HTTP ${proxyRes.status} via Proxy`);
+      } catch (proxyErr) {
+        throw new Error(err.message || proxyErr.message || 'Falha ao buscar dados remotos');
+      } finally {
+        if (proxyTimeoutId) clearTimeout(proxyTimeoutId);
       }
-      throw new Error(`HTTP ${proxyRes.status} via Proxy`);
-    } catch (proxyErr) {
-      throw new Error(err.message || 'Falha ao buscar dados remotos');
     }
+
+    throw new Error(err.message || 'Falha ao buscar dados remotos');
   }
 }
 

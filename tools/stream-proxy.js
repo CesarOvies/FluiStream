@@ -21,14 +21,17 @@ function extractTargetUrl(reqUrl) {
   try {
     const parsed = new URL(reqUrl, 'http://localhost');
     const param = parsed.searchParams.get('url');
-    if (param) return decodeURIComponent(param);
+    if (param) {
+      let decoded = decodeURIComponent(param).trim().replace(/^\/+/, '');
+      if (decoded.startsWith('http://') || decoded.startsWith('https://')) return decoded;
+    }
   } catch {}
 
   let raw = reqUrl.replace(/^\/+(\?+\/*)?/, '');
   if (raw.startsWith('url=')) raw = raw.substring(4);
   
   try {
-    const decoded = decodeURIComponent(raw);
+    const decoded = decodeURIComponent(raw).replace(/^\/+/, '');
     if (decoded.startsWith('http://') || decoded.startsWith('https://')) return decoded;
   } catch {}
 
@@ -102,7 +105,13 @@ const server = http.createServer(async (req, res) => {
   if (parsedUrl.pathname === '/health') {
     res.statusCode = 200;
     res.setHeader('Content-Type', 'application/json');
-    res.end(JSON.stringify({ status: 'ok', name: 'FluiStream Stream Bridge', version: '1.0.0' }));
+    const host = req.headers.host || `127.0.0.1:${PORT}`;
+    res.end(JSON.stringify({
+      status: 'ok',
+      name: 'FluiStream Stream Bridge',
+      version: '1.0.0',
+      proxyUrl: `http://${host}/?`
+    }));
     return;
   }
 

@@ -749,10 +749,25 @@ body.app-header-hidden .split-sidebar {
   transition: transform 0.25s ease, background 0.15s ease;
 }
 
-.btn-bento-refresh:hover {
-  background: var(--accent-amber);
-  color: #06101E;
-  transform: rotate(90deg);
+.btn-bento-refresh:hover,
+.btn-bento-refresh:focus,
+.btn-bento-refresh:focus-visible {
+  background: var(--accent-amber) !important;
+  color: #06101E !important;
+  transform: scale(1.15) rotate(90deg);
+  outline: 3px solid var(--accent-amber) !important;
+  outline-offset: 3px !important;
+  box-shadow: 0 0 16px rgba(245, 158, 11, 0.7) !important;
+}
+
+body[data-effective-device-mode="tv"] .btn-bento-refresh:focus,
+body[data-device-mode="tv"] .btn-bento-refresh:focus,
+body[data-effective-device-mode="tv"] .btn-bento-refresh:focus-visible,
+body[data-device-mode="tv"] .btn-bento-refresh:focus-visible {
+  outline: 4px solid var(--accent-amber) !important;
+  outline-offset: 4px !important;
+  box-shadow: 0 0 24px rgba(245, 158, 11, 0.9) !important;
+  transform: scale(1.22);
 }
 
 .btn-bento-refresh.spinning {
@@ -1283,7 +1298,12 @@ body.app-header-hidden .split-sidebar {
 .player-wrapper.aspect-auto { aspect-ratio: 16 / 9; overflow: hidden; }
 
 .player-wrapper:fullscreen,
-.player-wrapper:-webkit-full-screen {
+.player-wrapper:-webkit-full-screen,
+body.desktop-fullscreen .player-wrapper,
+.player-wrapper.is-fullscreen {
+  position: fixed !important;
+  top: 0 !important;
+  left: 0 !important;
   width: 100vw !important;
   height: 100vh !important;
   max-width: 100vw !important;
@@ -1292,11 +1312,38 @@ body.app-header-hidden .split-sidebar {
   border-radius: 0 !important;
   border: none !important;
   background: #000 !important;
-  z-index: 99999;
+  z-index: 99999 !important;
+}
+
+body.desktop-fullscreen .app-header,
+body.desktop-fullscreen .category-nav-bar,
+body.desktop-fullscreen .browse-topbar,
+body.desktop-fullscreen .navbar,
+body.desktop-fullscreen .split-sidebar,
+body.desktop-fullscreen .sidebar-backdrop,
+body.desktop-fullscreen .player-meta-bar,
+body.desktop-fullscreen .player-epg-card,
+body.desktop-fullscreen .app-footer {
+  display: none !important;
+}
+
+body.desktop-fullscreen .split-pane-shell,
+body.desktop-fullscreen .split-main-pane,
+body.desktop-fullscreen .player-section,
+body.desktop-fullscreen .player-card {
+  display: block !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  border: none !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  max-height: none !important;
 }
 
 .player-wrapper:fullscreen video,
-.player-wrapper:-webkit-full-screen video {
+.player-wrapper:-webkit-full-screen video,
+body.desktop-fullscreen .player-wrapper video,
+.player-wrapper.is-fullscreen video {
   width: 100% !important;
   height: 100% !important;
   max-height: 100vh !important;
@@ -1305,13 +1352,19 @@ body.app-header-hidden .split-sidebar {
 
 .player-wrapper:fullscreen .btn-player-tools,
 .player-wrapper:-webkit-full-screen .btn-player-tools,
+body.desktop-fullscreen .player-wrapper .btn-player-tools,
+.player-wrapper.is-fullscreen .btn-player-tools,
 .player-wrapper:fullscreen .player-tools-menu,
-.player-wrapper:-webkit-full-screen .player-tools-menu {
+.player-wrapper:-webkit-full-screen .player-tools-menu,
+body.desktop-fullscreen .player-wrapper .player-tools-menu,
+.player-wrapper.is-fullscreen .player-tools-menu {
   z-index: 2147483647 !important;
 }
 
 .player-wrapper:fullscreen.is-user-idle,
-.player-wrapper:-webkit-full-screen.is-user-idle {
+.player-wrapper:-webkit-full-screen.is-user-idle,
+body.desktop-fullscreen .player-wrapper.is-user-idle,
+.player-wrapper.is-fullscreen.is-user-idle {
   cursor: none;
 }
 

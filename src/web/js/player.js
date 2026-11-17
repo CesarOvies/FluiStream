@@ -23,7 +23,12 @@ export function computeOverlayLayout(stageEl, minDim = 1) {
   if (!stageEl || typeof document === 'undefined' || typeof window === 'undefined') {
     return { x: 0, y: 0, width: 0, height: 0, visible: false };
   }
-  const isFullscreen = Boolean(document.fullscreenElement || document.webkitFullscreenElement);
+  const isFullscreen = Boolean(
+    document.fullscreenElement ||
+    document.webkitFullscreenElement ||
+    document.body?.classList?.contains('desktop-fullscreen') ||
+    stageEl?.classList?.contains('is-fullscreen')
+  );
   const isPip = Boolean(document.body?.classList?.contains('desktop-mini-pip') || document.pictureInPictureElement);
   const hasBlockingOverlay = !isFullscreen && !isPip && Boolean(
     document.querySelector(BLOCKING_VIDEO_OVERLAY_SELECTOR)
@@ -152,15 +157,72 @@ export class VideoPlayerController {
       this.toggleFullscreen();
     });
 
-    // iOS Safari pausa o <video> e pode deixar o frame preto ao sair do fullscreen nativo (webkitendfullscreen)
-    this.video.addEventListener('webkitbeginfullscreen', () => {
-      this._inNativeFullscreen = true;
-      this._resumeAfterFullscreen = !this.video.paused && !this.isStopped;
-    });
-    this.video.addEventListener('webkitendfullscreen', () => {
-      this._inNativeFullscreen = false;
-      this._resumePlaybackAfterFullscreenExit();
-    });
+    // iOS/macOS Safari eventos de reprodução em tela cheia e PiP (webkitpresentationmode)
+    if (this.video) {
+      this.video.addEventListener('webkitbeginfullscreen', () => {
+        this._inNativeFullscreen = true;
+        this._resumeAfterFullscreen = !this.video.paused && !this.isStopped;
+      });
+      this.video.addEventListener('webkitendfullscreen', () => {
+        this._inNativeFullscreen = false;
+        this._resumePlaybackAfterFullscreenExit();
+      });
+      this.video.addEventListener('webkitpresentationmodechanged', () => {
+        const mode = this.video.webkitPresentationMode;
+        if (mode === 'picture-in-picture') {
+          document.body?.classList?.add('desktop-mini-pip');
+        } else if (mode === 'inline' && !this._isDesktopHostPip) {
+          document.body?.classList?.remove('desktop-mini-pip');
+        }
+        this.reportLayout();
+      });
+    }
+
+    if (typeof window !== 'undefined') {
+      if (window.external?.receiveMessage) {
+        window.external.receiveMessage((rawMsg) => {
+          try {
+            const data = typeof rawMsg === 'string' ? JSON.parse(rawMsg) : rawMsg;
+            if (data?.type === 'WINDOW_STATE') {
+              this._isDesktopHostPip = Boolean(data.isPip);
+              if (data.isPip) {
+                document.body?.classList?.add('desktop-mini-pip');
+              } else {
+                document.body?.classList?.remove('desktop-mini-pip');
+              }
+              // O fullscreen da janela do app NÃO força o player a entrar em tela cheia exclusiva.
+              // Apenas se a janela saiu de tela cheia enquanto o player estava em modo exclusivo, sincronizamos a saída.
+              if (data.isFullscreen === false && this._isDesktopFullscreen) {
+                this._isDesktopFullscreen = false;
+                document.body?.classList?.remove('desktop-fullscreen');
+                this.container?.classList?.remove('is-fullscreen');
+              }
+              this.reportLayout();
+            }
+          } catch {}
+        });
+      }
+
+      if (window.chrome?.webview?.addEventListener) {
+        window.chrome.webview.addEventListener('message', (e) => {
+          const data = e.data;
+          if (data?.type === 'WINDOW_STATE') {
+            this._isDesktopHostPip = Boolean(data.isPip);
+            if (data.isPip) {
+              document.body?.classList?.add('desktop-mini-pip');
+            } else {
+              document.body?.classList?.remove('desktop-mini-pip');
+            }
+            if (data.isFullscreen === false && this._isDesktopFullscreen) {
+              this._isDesktopFullscreen = false;
+              document.body?.classList?.remove('desktop-fullscreen');
+              this.container?.classList?.remove('is-fullscreen');
+            }
+            this.reportLayout();
+          }
+        });
+      }
+    }
 
     if (typeof document !== 'undefined') {
       const onFullscreenChange = () => {
@@ -173,8 +235,15 @@ export class VideoPlayerController {
         }
         const isFs = Boolean(fsEl);
         if (isFs) {
+          this._isDesktopFullscreen = true;
           this._resumeAfterFullscreen = !this.video.paused && !this.isStopped;
+          document.body?.classList?.add('desktop-fullscreen');
+          this.container?.classList?.add('is-fullscreen');
         } else {
+          this._isDesktopFullscreen = false;
+          document.body?.classList?.remove('desktop-fullscreen');
+          this.container?.classList?.remove('is-fullscreen');
+          this.notifyDesktopHost('EXIT_FULLSCREEN');
           this._resumePlaybackAfterFullscreenExit();
           this.reportLayout();
         }
@@ -316,9 +385,65 @@ export class VideoPlayerController {
   }
 
   /**
+   * Notifica host nativo (WebView2 C# ou Photino macOS/Linux) sobre comandos de janela e player
+   */
+  notifyDesktopHost(action, data = {}) {
+    let sent = false;
+    if (typeof window !== 'undefined' && window.chrome?.webview?.postMessage) {
+      try {
+        window.chrome.webview.postMessage({
+          type: 'DESKTOP_COMMAND',
+          action,
+          ...data
+        });
+        sent = true;
+      } catch {}
+    }
+
+    if (!sent && typeof window !== 'undefined' && window.external?.sendMessage) {
+      try {
+        window.external.sendMessage(JSON.stringify({
+          type: 'DESKTOP_COMMAND',
+          action,
+          ...data
+        }));
+        sent = true;
+      } catch {}
+    } else if (!sent && typeof window !== 'undefined' && window.webkit?.messageHandlers?.photinointerop?.postMessage) {
+      try {
+        window.webkit.messageHandlers.photinointerop.postMessage(JSON.stringify({
+          type: 'DESKTOP_COMMAND',
+          action,
+          ...data
+        }));
+        sent = true;
+      } catch {}
+    }
+
+    if (!sent) {
+      const localHostUrl = (typeof window !== 'undefined' && window.__fluiLocalProxyUrl)
+        ? window.__fluiLocalProxyUrl
+        : (typeof window !== 'undefined' && window.location?.origin?.startsWith('http://127.0.0.1') ? window.location.origin : '');
+
+      if (localHostUrl && (
+        action === 'TOGGLE_FULLSCREEN' || action === 'ENTER_FULLSCREEN' || action === 'EXIT_FULLSCREEN' ||
+        action === 'TOGGLE_PIP' || action === 'ENTER_PIP' || action === 'EXIT_PIP'
+      )) {
+        fetch(`${localHostUrl.replace(/\/+$/, '')}/api/window?action=${encodeURIComponent(action)}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' }
+        }).catch(() => {});
+      }
+    }
+  }
+
+  /**
    * Notifica host nativo (WebView2 C#) sobre reprodução VLC se disponível
    */
   notifyNativeVlc(action, data = {}) {
+    if (action === 'TOGGLE_FULLSCREEN' || action === 'TOGGLE_PIP' || action === 'EXIT_FULLSCREEN') {
+      this.notifyDesktopHost(action, data);
+    }
     if (typeof window !== 'undefined' && window.chrome?.webview?.postMessage) {
       if (action === 'VLC_LAYOUT_UPDATE') {
         window.chrome.webview.postMessage({
@@ -835,26 +960,71 @@ export class VideoPlayerController {
   }
 
   async togglePip() {
+    const now = Date.now();
+    if (this._lastPipToggleTime && (now - this._lastPipToggleTime) < 350) return;
+    this._lastPipToggleTime = now;
+
     if (this.currentEngine === 'vlc' && typeof window !== 'undefined' && window.chrome?.webview) {
       this.notifyNativeVlc('TOGGLE_PIP');
       return;
     }
 
-    if (!this.video) return;
-    try {
-      if (document.pictureInPictureElement) {
-        await document.exitPictureInPicture();
-      } else if (document.pictureInPictureEnabled || this.video.requestPictureInPicture) {
-        await this.video.requestPictureInPicture();
-      } else if (typeof window !== 'undefined' && window.chrome?.webview) {
-        this.notifyNativeVlc('TOGGLE_PIP');
+    // Se estiver rodando como Desktop App (macOS Photino, Windows WebView2 ou proxy local ativo)
+    const isDesktopApp = typeof window !== 'undefined' && Boolean(
+      window.chrome?.webview ||
+      window.external?.sendMessage ||
+      window.webkit?.messageHandlers?.photinointerop ||
+      (typeof window.__fluiLocalProxyUrl === 'string' && window.__fluiLocalProxyUrl.length > 0)
+    );
+
+    if (isDesktopApp) {
+      const isCurrentlyPip = Boolean(document.body?.classList?.contains('desktop-mini-pip'));
+      const targetAction = isCurrentlyPip ? 'EXIT_PIP' : 'ENTER_PIP';
+      if (isCurrentlyPip) {
+        document.body?.classList?.remove('desktop-mini-pip');
+      } else {
+        document.body?.classList?.add('desktop-mini-pip');
       }
-    } catch (err) {
-      console.warn('PiP error, attempting native fallback:', err);
-      if (typeof window !== 'undefined' && window.chrome?.webview) {
-        this.notifyNativeVlc('TOGGLE_PIP');
+      this.notifyDesktopHost(targetAction);
+      this.reportLayout();
+      return;
+    }
+
+    // Modo Web convencional (fora do app Desktop)
+    if (document.pictureInPictureElement) {
+      try {
+        await document.exitPictureInPicture();
+        return;
+      } catch (e) {
+        console.warn('Erro ao sair do PiP:', e);
       }
     }
+
+    if (this.video && typeof this.video.requestPictureInPicture === 'function') {
+      try {
+        await this.video.requestPictureInPicture();
+        return;
+      } catch (err) {
+        console.warn('W3C requestPictureInPicture falhou:', err);
+      }
+    }
+
+    if (this.video && typeof this.video.webkitSetPresentationMode === 'function' && this.video.webkitSupportsPresentationMode?.('picture-in-picture')) {
+      try {
+        const mode = this.video.webkitPresentationMode === 'picture-in-picture' ? 'inline' : 'picture-in-picture';
+        this.video.webkitSetPresentationMode(mode);
+        return;
+      } catch (e) {
+        console.warn('WebKit PresentationMode PiP falhou:', e);
+      }
+    }
+
+    if (document.body?.classList?.contains('desktop-mini-pip')) {
+      document.body.classList.remove('desktop-mini-pip');
+    } else {
+      document.body?.classList?.add('desktop-mini-pip');
+    }
+    this.reportLayout();
   }
 
   _resumePlaybackAfterFullscreenExit() {
@@ -878,6 +1048,10 @@ export class VideoPlayerController {
   }
 
   async toggleFullscreen() {
+    const now = Date.now();
+    if (this._lastFsToggleTime && (now - this._lastFsToggleTime) < 350) return;
+    this._lastFsToggleTime = now;
+
     if (this.currentEngine === 'vlc' && typeof window !== 'undefined' && window.chrome?.webview) {
       this.notifyNativeVlc('TOGGLE_FULLSCREEN');
       return;
@@ -886,28 +1060,65 @@ export class VideoPlayerController {
     const target = this.container || this.video;
     if (!target) return;
 
-    try {
-      if (!document.fullscreenElement && !document.webkitFullscreenElement) {
-        if (target.requestFullscreen) {
-          await target.requestFullscreen();
-        } else if (target.webkitRequestFullscreen) {
-          await target.webkitRequestFullscreen();
-        } else if (this.video && this.video.webkitEnterFullscreen) {
-          this.video.webkitEnterFullscreen();
-        }
-      } else {
-        if (document.exitFullscreen) {
-          await document.exitFullscreen();
-        } else if (document.webkitExitFullscreen) {
-          await document.webkitExitFullscreen();
-        }
+    const isCurrentlyFs = Boolean(
+      this._isDesktopFullscreen ||
+      document.fullscreenElement ||
+      document.webkitFullscreenElement ||
+      document.body?.classList?.contains('desktop-fullscreen') ||
+      target.classList?.contains('is-fullscreen')
+    );
+
+    if (isCurrentlyFs) {
+      this._isDesktopFullscreen = false;
+      let handled = false;
+      if (document.fullscreenElement && document.exitFullscreen) {
+        try { await document.exitFullscreen(); handled = true; } catch {}
+      } else if (document.webkitFullscreenElement && document.webkitExitFullscreen) {
+        try { await document.webkitExitFullscreen(); handled = true; } catch {}
       }
-    } catch (err) {
-      console.warn('Fullscreen error:', err);
-      if (typeof window !== 'undefined' && window.chrome?.webview) {
-        this.notifyNativeVlc('TOGGLE_FULLSCREEN');
+      document.body?.classList?.remove('desktop-fullscreen');
+      target.classList?.remove('is-fullscreen');
+      this.notifyDesktopHost('EXIT_FULLSCREEN');
+      this.reportLayout();
+      return;
+    }
+
+    this._isDesktopFullscreen = true;
+    const isDesktopApp = typeof window !== 'undefined' && Boolean(
+      window.chrome?.webview ||
+      window.external?.sendMessage ||
+      window.webkit?.messageHandlers?.photinointerop ||
+      (typeof window.__fluiLocalProxyUrl === 'string' && window.__fluiLocalProxyUrl.length > 0)
+    );
+
+    if (!isDesktopApp) {
+      if (target.requestFullscreen) {
+        try {
+          await target.requestFullscreen();
+        } catch (err) {
+          console.warn('target.requestFullscreen não permitido, usando fallback desktop:', err);
+        }
+      } else if (target.webkitRequestFullscreen) {
+        try {
+          await target.webkitRequestFullscreen();
+        } catch (err) {
+          console.warn('target.webkitRequestFullscreen não permitido, usando fallback desktop:', err);
+        }
+      } else if (this.video && typeof this.video.webkitEnterFullscreen === 'function') {
+        try {
+          this.video.webkitEnterFullscreen();
+        } catch {}
+      } else if (this.video && typeof this.video.webkitSetPresentationMode === 'function' && this.video.webkitSupportsPresentationMode?.('fullscreen')) {
+        try {
+          this.video.webkitSetPresentationMode('fullscreen');
+        } catch {}
       }
     }
+
+    document.body?.classList?.add('desktop-fullscreen');
+    target.classList?.add('is-fullscreen');
+    this.notifyDesktopHost('ENTER_FULLSCREEN');
+    this.reportLayout();
   }
 
   togglePlay() {
