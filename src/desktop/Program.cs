@@ -1,8 +1,6 @@
 using System;
 #if WINDOWS
 using System.Windows.Forms;
-#else
-using System.Threading.Tasks;
 #endif
 
 namespace FluiStream.Desktop;
@@ -18,9 +16,10 @@ internal static class Program
         Application.Run(new MainForm());
     }
 #else
-    private static async Task Main(string[] args)
+    [STAThread]
+    private static void Main(string[] args)
     {
-        await CrossPlatformHost.RunAsync(args);
+        CrossPlatformHost.Run(args);
     }
 #endif
 }

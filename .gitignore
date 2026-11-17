@@ -29,6 +29,9 @@ ehthumbs.db
 *.log
 *.tmp
 *.bak
+.local/
+.nuget/
+Library/
 
 # WebView2 user data
 *.WebView2/

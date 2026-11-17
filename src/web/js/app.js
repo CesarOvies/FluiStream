@@ -1198,7 +1198,7 @@ class FluiStreamApp {
         }, { passive: true });
       });
       this.dom.playerContainer.addEventListener('mouseleave', () => {
-        if (this._isPlayerPlaying && this.dom.playerToolsMenu?.classList.contains('hidden') && !document.fullscreenElement && !document.webkitFullscreenElement) {
+        if (this._isPlayerPlaying && this.dom.playerToolsMenu?.classList.contains('hidden') && !document.fullscreenElement && !document.webkitFullscreenElement && !document.body?.classList?.contains('desktop-fullscreen')) {
           clearTimeout(this._playerIdleTimer);
           this.dom.playerContainer?.classList.add('is-user-idle');
         }
@@ -1212,12 +1212,19 @@ class FluiStreamApp {
     if (this.dom.btnPlayerStop) this.dom.btnPlayerStop.addEventListener('click', () => this.stopPlayback());
     if (this.dom.btnPlayerClose) this.dom.btnPlayerClose.addEventListener('click', () => this.closePlayerAndReset());
     if (this.dom.btnPlayerFullscreen) {
-      this.dom.btnPlayerFullscreen.addEventListener('click', () => {
+      this.dom.btnPlayerFullscreen.addEventListener('click', (e) => {
+        e.stopPropagation();
         this.closePlayerToolsMenu(false);
         this.player.toggleFullscreen();
       });
     }
-    if (this.dom.btnPlayerPip) this.dom.btnPlayerPip.addEventListener('click', () => this.player.togglePip());
+    if (this.dom.btnPlayerPip) {
+      this.dom.btnPlayerPip.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.closePlayerToolsMenu(false);
+        this.player.togglePip();
+      });
+    }
     if (this.dom.selectPlayerAudio) {
       this.dom.selectPlayerAudio.addEventListener('change', (e) => this.player.setAudioTrack(parseInt(e.target.value, 10)));
     }
@@ -1969,10 +1976,23 @@ class FluiStreamApp {
       }
     }
 
-    if ((e.key === 'Escape') && !isModalOpen && this.dom.playerToolsMenu && !this.dom.playerToolsMenu.classList.contains('hidden')) {
-      e.preventDefault();
-      this.closePlayerToolsMenu(true);
-      return;
+    if ((e.key === 'Escape') && !isModalOpen) {
+      if (document.body?.classList?.contains('desktop-fullscreen') || document.fullscreenElement || document.webkitFullscreenElement || this.player?._isDesktopFullscreen) {
+        e.preventDefault();
+        this.player?.toggleFullscreen();
+        return;
+      }
+      if (document.body?.classList?.contains('desktop-mini-pip')) {
+        e.preventDefault();
+        this.player?.togglePip();
+        return;
+      }
+      if (this.dom.playerToolsMenu && !this.dom.playerToolsMenu.classList.contains('hidden')) {
+        e.preventDefault();
+        this.closePlayerToolsMenu(true);
+        return;
+      }
+      this.player?.notifyDesktopHost?.('EXIT_FULLSCREEN');
     }
 
     if ((e.key === 'Backspace' || e.key === 'GoBack' || e.key === 'BrowserBack') && !isModalOpen) {
@@ -4388,8 +4408,15 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
         listName = this.dom.profileNameInput?.value.trim() || user;
         this.dom.importStatusMsg.textContent = i18n.get('statusAuthenticatingXtream');
         const cfg = storage.getSettings();
-        const xtream = new XtreamApi(server, user, pass, cfg.corsProxy);
+        const localProxyPrefix = (typeof window !== 'undefined' && typeof window.__fluiLocalProxyUrl === 'string' && window.__fluiLocalProxyUrl.trim())
+          ? (window.__fluiLocalProxyUrl.trim().endsWith('/') ? window.__fluiLocalProxyUrl.trim() : `${window.__fluiLocalProxyUrl.trim()}/`)
+          : '';
+        const effectiveCorsProxy = (cfg.corsProxy || '').trim() || (localProxyPrefix ? `${localProxyPrefix}proxy?url=` : '');
+        const xtream = new XtreamApi(server, user, pass, effectiveCorsProxy);
         const auth = await xtream.authenticate();
+        if (!auth || !auth.success) {
+          throw new Error(auth?.error || i18n.get('errorNetwork'));
+        }
 
         this.dom.importStatusMsg.textContent = i18n.get('statusParsingM3u');
         m3uContent = await xtream.fetchM3uContent();
@@ -4552,7 +4579,11 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
       if (server && user && pass) {
         if (this.dom.accRefreshStatus) this.dom.accRefreshStatus.textContent = '...';
         const cfg = storage.getSettings();
-        const xtream = new XtreamApi(server, user, pass, prof.corsProxy || cfg.corsProxy);
+        const localProxyPrefix = (typeof window !== 'undefined' && typeof window.__fluiLocalProxyUrl === 'string' && window.__fluiLocalProxyUrl.trim())
+          ? (window.__fluiLocalProxyUrl.trim().endsWith('/') ? window.__fluiLocalProxyUrl.trim() : `${window.__fluiLocalProxyUrl.trim()}/`)
+          : '';
+        const effectiveCorsProxy = (prof.corsProxy || cfg.corsProxy || '').trim() || (localProxyPrefix ? `${localProxyPrefix}proxy?url=` : '');
+        const xtream = new XtreamApi(server, user, pass, effectiveCorsProxy);
         const auth = await xtream.authenticate();
         if (this.dom.accRefreshStatus) this.dom.accRefreshStatus.textContent = '';
 
@@ -5084,24 +5115,30 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
       const server = prof.url || prof.serverUrl || prof.xtreamServer || '';
       const user = prof.username || prof.xtreamUser || '';
       const pass = prof.password || prof.xtreamPass || '';
-      const xtream = new XtreamApi(server, user, pass, prof.corsProxy || cfg.corsProxy);
+      const localProxyPrefix = (typeof window !== 'undefined' && typeof window.__fluiLocalProxyUrl === 'string' && window.__fluiLocalProxyUrl.trim())
+        ? (window.__fluiLocalProxyUrl.trim().endsWith('/') ? window.__fluiLocalProxyUrl.trim() : `${window.__fluiLocalProxyUrl.trim()}/`)
+        : '';
+      const effectiveCorsProxy = (prof.corsProxy || cfg.corsProxy || '').trim() || (localProxyPrefix ? `${localProxyPrefix}proxy?url=` : '');
+      const xtream = new XtreamApi(server, user, pass, effectiveCorsProxy);
       let nextProfile = prof;
       try {
         const auth = await xtream.authenticate();
-        const accInfo = auth?.accountInfo || auth?.user;
-        if (accInfo) {
-          nextProfile = {
-            ...prof,
-            accountInfo: {
-              ...(prof.accountInfo || {}),
-              username: accInfo.username || user,
-              status: accInfo.status || prof.accountInfo?.status || 'Active',
-              expDate: accInfo.expDate ? accInfo.expDate.toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', year: 'numeric' }) : (prof.accountInfo?.expDate || 'Active'),
-              isTrial: accInfo.isTrial ?? prof.accountInfo?.isTrial ?? 'No',
-              activeCons: String(accInfo.activeCons ?? prof.accountInfo?.activeCons ?? '0'),
-              maxConnections: String(accInfo.maxConnections ?? prof.accountInfo?.maxConnections ?? '1')
-            }
-          };
+        if (auth && auth.success) {
+          const accInfo = auth.accountInfo || auth.user;
+          if (accInfo) {
+            nextProfile = {
+              ...prof,
+              accountInfo: {
+                ...(prof.accountInfo || {}),
+                username: accInfo.username || user,
+                status: accInfo.status || prof.accountInfo?.status || 'Active',
+                expDate: accInfo.expDate ? accInfo.expDate.toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', year: 'numeric' }) : (prof.accountInfo?.expDate || 'Active'),
+                isTrial: accInfo.isTrial ?? prof.accountInfo?.isTrial ?? 'No',
+                activeCons: String(accInfo.activeCons ?? prof.accountInfo?.activeCons ?? '0'),
+                maxConnections: String(accInfo.maxConnections ?? prof.accountInfo?.maxConnections ?? '1')
+              }
+            };
+          }
         }
       } catch (_) { /* Keep cached accountInfo if only M3U endpoint responds */ }
       const m3uContent = await fetchRemoteText(xtream.getM3uUrl());
@@ -5212,9 +5249,17 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
 
   _buildActiveXtreamApi() {
     const prof = storage.getActiveProfile();
-    if (!prof || prof.type !== 'xtream' || !prof.xtream) return null;
+    if (!prof || prof.type !== 'xtream') return null;
+    const server = prof.xtream?.server || prof.url || prof.serverUrl || prof.xtreamServer || '';
+    const user = prof.xtream?.user || prof.username || prof.xtreamUser || '';
+    const pass = prof.xtream?.pass || prof.password || prof.xtreamPass || '';
+    if (!server || !user || !pass) return null;
     const cfg = storage.getSettings();
-    return new XtreamApi(prof.xtream.server, prof.xtream.user, prof.xtream.pass, cfg.corsProxy || '');
+    const localProxyPrefix = (typeof window !== 'undefined' && typeof window.__fluiLocalProxyUrl === 'string' && window.__fluiLocalProxyUrl.trim())
+      ? (window.__fluiLocalProxyUrl.trim().endsWith('/') ? window.__fluiLocalProxyUrl.trim() : `${window.__fluiLocalProxyUrl.trim()}/`)
+      : '';
+    const effectiveCorsProxy = (prof.corsProxy || cfg.corsProxy || '').trim() || (localProxyPrefix ? `${localProxyPrefix}proxy?url=` : '');
+    return new XtreamApi(server, user, pass, effectiveCorsProxy);
   }
 
   async openSeriesDetailModal(series) {
