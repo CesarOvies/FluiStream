@@ -42,6 +42,21 @@ jobs:
         run: |
           dotnet build src/desktop/FluiStream.Desktop.csproj -c Release --nologo
 
+  build-desktop-windows:
+    name: Build Desktop Windows (.NET 10 WinForms)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Build Desktop Windows
+        run: |
+          dotnet build src/desktop/FluiStream.Desktop.csproj -c Release --nologo
+
   build-android:
     name: Build Android APK
     runs-on: ubuntu-latest
