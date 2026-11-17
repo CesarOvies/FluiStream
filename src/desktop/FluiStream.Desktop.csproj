@@ -41,6 +41,7 @@
     <PackageReference Include="LibVLCSharp.WinForms" Version="3.10.2" />
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.3124.44" />
     <PackageReference Include="VideoLAN.LibVLC.Windows" Version="3.0.24" />
+    <Compile Remove="CrossPlatformHost.cs" />
   </ItemGroup>
 
   <ItemGroup Condition="'$(TargetFramework)' != 'net10.0-windows'">

@@ -1,3 +1,4 @@
+#if !WINDOWS
 using System;
 using System.Diagnostics;
 using System.Drawing;
@@ -14,7 +15,6 @@ using Photino.NET;
 
 namespace FluiStream.Desktop;
 
-#if !WINDOWS
 public static class CrossPlatformHost
 {
     private static readonly HttpClient HttpClient = new(new HttpClientHandler
