@@ -4544,7 +4544,9 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
         this.updateCurrentEpgDisplay();
       }
     } else if (shouldFetchEpg) {
-      this.fetchAndParseEpg(profile.epgUrl, profile.id, { background });
+      setTimeout(() => {
+        this.fetchAndParseEpg(profile.epgUrl, profile.id, { background });
+      }, 1200);
     }
 
     if (!background) {

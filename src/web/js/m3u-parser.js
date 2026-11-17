@@ -23,15 +23,29 @@ export class M3UParser {
       return { epgUrl: null, items: [], summary: { total: 0, live: 0, movies: 0, series: 0 } };
     }
 
-    const lines = content.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
     let epgUrl = null;
     const items = [];
-
     let currentItem = null;
     let currentGroup = 'Geral';
 
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i].trim();
+    let liveCount = 0;
+    let movieCount = 0;
+    let seriesCount = 0;
+
+    let lineStart = 0;
+    const len = content.length;
+
+    while (lineStart < len) {
+      let lineEnd = content.indexOf('\n', lineStart);
+      if (lineEnd === -1) lineEnd = len;
+
+      let line = content.substring(lineStart, lineEnd);
+      lineStart = lineEnd + 1;
+
+      if (line.endsWith('\r')) {
+        line = line.slice(0, -1);
+      }
+      line = line.trim();
       if (!line) continue;
 
       // Cabeçalho #EXTM3U e extração de url-tvg / x-tvg-url
@@ -67,6 +81,9 @@ export class M3UParser {
         // Classificação inteligente do item
         const classified = this.classifyItem(currentItem);
         items.push(classified);
+        if (classified.type === ItemType.LIVE) liveCount++;
+        else if (classified.type === ItemType.MOVIE) movieCount++;
+        else if (classified.type === ItemType.SERIES) seriesCount++;
         currentItem = null;
       }
     }
@@ -75,9 +92,9 @@ export class M3UParser {
 
     const summary = {
       total: items.length,
-      live: items.filter(x => x.type === ItemType.LIVE).length,
-      movies: items.filter(x => x.type === ItemType.MOVIE).length,
-      series: items.filter(x => x.type === ItemType.SERIES).length
+      live: liveCount,
+      movies: movieCount,
+      series: seriesCount
     };
 
     return { epgUrl, items, summary };

@@ -74,7 +74,14 @@ class NativeBridge(private val activity: MainActivity) {
         if (safeUrl.isEmpty()) {
             throw IllegalArgumentException("URL cannot be empty")
         }
-        return activity.fetchRemoteTextDirectly(safeUrl, if (timeoutMs > 0) timeoutMs else 60_000)
+        return try {
+            activity.fetchRemoteTextDirectly(safeUrl, if (timeoutMs > 0) timeoutMs else 60_000)
+        } catch (e: OutOfMemoryError) {
+            System.gc()
+            throw RuntimeException("Lista muito grande para a memória do dispositivo (OOM). Tente reduzir o número de canais.")
+        } catch (e: Throwable) {
+            throw RuntimeException(e.message ?: "Falha ao baixar dados remotos")
+        }
     }
 
     @JavascriptInterface
@@ -84,7 +91,8 @@ class NativeBridge(private val activity: MainActivity) {
         val pm = activity.packageManager
         @Suppress("DEPRECATION")
         return pm.hasSystemFeature(PackageManager.FEATURE_LEANBACK) ||
-            pm.hasSystemFeature(PackageManager.FEATURE_TELEVISION)
+            pm.hasSystemFeature(PackageManager.FEATURE_TELEVISION) ||
+            !pm.hasSystemFeature(PackageManager.FEATURE_TOUCHSCREEN)
     }
 
     @JavascriptInterface

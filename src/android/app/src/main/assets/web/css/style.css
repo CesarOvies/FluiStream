@@ -128,9 +128,24 @@ body[data-device-mode="tv"] .sidebar-item-row {
 }
 
 body[data-effective-device-mode="tv"] .settings-tile,
-body[data-device-mode="tv"] .settings-tile {
-  min-height: 92px;
-  padding: 1.15rem;
+body[data-device-mode="tv"] .settings-tile,
+body.is-android-app .settings-tile {
+  min-height: 68px;
+  padding: 0.7rem 0.85rem;
+}
+
+body[data-effective-device-mode="tv"] .settings-tile-grid,
+body[data-device-mode="tv"] .settings-tile-grid,
+body.is-android-app .settings-tile-grid {
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 0.65rem;
+}
+
+body[data-effective-device-mode="tv"] .settings-tile-icon,
+body[data-device-mode="tv"] .settings-tile-icon,
+body.is-android-app .settings-tile-icon {
+  width: 40px;
+  height: 40px;
 }
 
 body[data-effective-device-mode="tv"] .btn-icon,
@@ -2202,7 +2217,10 @@ body.desktop-mini-pip .player-wrapper {
 .subscreen-view {
   display: flex;
   flex-direction: column;
-  gap: 1.25rem;
+  gap: 1rem;
+  overflow-y: auto;
+  max-height: calc(100vh - 80px);
+  padding-bottom: 1.5rem;
 }
 
 .subscreen-topbar {
@@ -2794,7 +2812,9 @@ body.desktop-mini-pip .player-wrapper {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: max(0.75rem, env(safe-area-inset-top)) max(0.75rem, env(safe-area-inset-right)) max(0.75rem, env(safe-area-inset-bottom)) max(0.75rem, env(safe-area-inset-left));
+  padding: max(0.5rem, env(safe-area-inset-top)) max(0.75rem, env(safe-area-inset-right)) max(0.5rem, env(safe-area-inset-bottom)) max(0.75rem, env(safe-area-inset-left));
+  box-sizing: border-box;
+  overflow: hidden;
 }
 
 .modal-backdrop.hidden {
@@ -2805,25 +2825,30 @@ body.desktop-mini-pip .player-wrapper {
   background: var(--bg-surface-solid);
   border: 1px solid var(--border-glass);
   border-radius: 14px;
-  width: 100%;
+  width: min(92%, 560px);
   max-width: 560px;
   box-shadow: 0 20px 44px rgba(0, 0, 0, 0.65);
   display: flex;
   flex-direction: column;
-  max-height: 90vh;
-  max-height: calc(100dvh - 1.5rem - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+  height: auto;
+  min-height: 0;
+  max-height: 86%;
+  max-height: min(86%, calc(100vh - 2rem));
+  max-height: min(86%, calc(100dvh - 1.5rem - env(safe-area-inset-top) - env(safe-area-inset-bottom)));
+  overflow: hidden;
 }
 
-.modal-lg { max-width: 860px; }
-.modal-xl { max-width: 1040px; }
+.modal-lg { max-width: min(92%, 860px); }
+.modal-xl { max-width: min(94%, 1040px); }
 
 .modal-header {
-  padding: 1rem 1.25rem;
+  padding: 0.85rem 1.15rem;
   border-bottom: 1px solid var(--border-subtle);
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 0.75rem;
+  flex-shrink: 0;
 }
 
 .modal-header h3 {
@@ -2840,6 +2865,7 @@ body.desktop-mini-pip .player-wrapper {
   line-height: 1;
   padding: 0.15rem 0.4rem;
   border-radius: 6px;
+  flex-shrink: 0;
 }
 
 .modal-close-btn:hover {
@@ -2848,23 +2874,24 @@ body.desktop-mini-pip .player-wrapper {
 }
 
 .modal-body {
-  padding: 1.25rem;
+  padding: 1rem 1.15rem;
   overflow-y: auto;
   overscroll-behavior: contain;
   display: flex;
   flex-direction: column;
-  gap: 1rem;
+  gap: 0.85rem;
   min-height: 0;
   flex: 1 1 auto;
 }
 
 .modal-footer {
-  padding: 1rem 1.25rem;
+  padding: 0.85rem 1.15rem;
   border-top: 1px solid var(--border-subtle);
   display: flex;
   justify-content: flex-end;
   gap: 0.75rem;
   flex-wrap: wrap;
+  flex-shrink: 0;
 }
 
 .modal-brand-hero {
@@ -3886,11 +3913,12 @@ body.is-android-app .player-wrapper {
     display: none;
   }
   .settings-tile-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 0.6rem;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 0.55rem;
   }
   .settings-tile {
-    padding: 0.7rem;
+    min-height: 62px;
+    padding: 0.6rem 0.75rem;
   }
 }
 
@@ -3992,10 +4020,32 @@ body.is-android-app .modal-footer button {
   font-size: 0.95rem;
 }
 
-body[data-effective-device-mode="tv"] #modal-import .modal-dialog,
-body[data-device-mode="tv"] #modal-import .modal-dialog,
-body.is-android-app #modal-import .modal-dialog {
-  max-height: min(92vh, 92dvh);
+body[data-effective-device-mode="tv"] .modal-dialog,
+body[data-device-mode="tv"] .modal-dialog,
+body.is-android-app .modal-dialog {
+  max-height: 84%;
+  max-height: min(84%, calc(100vh - 2.5rem));
+  max-width: min(88%, 560px);
+}
+
+body[data-effective-device-mode="tv"] .modal-dialog.modal-lg,
+body[data-device-mode="tv"] .modal-dialog.modal-lg,
+body.is-android-app .modal-dialog.modal-lg {
+  max-width: min(90%, 860px);
+}
+
+body[data-effective-device-mode="tv"] .modal-dialog.modal-xl,
+body[data-device-mode="tv"] .modal-dialog.modal-xl,
+body.is-android-app .modal-dialog.modal-xl {
+  max-width: min(92%, 1040px);
+}
+
+body[data-effective-device-mode="tv"] .main-layout,
+body[data-device-mode="tv"] .main-layout,
+body.is-android-app .main-layout {
+  padding-left: max(1.8vw, env(safe-area-inset-left));
+  padding-right: max(1.8vw, env(safe-area-inset-right));
+  padding-bottom: max(1.5rem, env(safe-area-inset-bottom));
 }
 
 /* =====================================================
