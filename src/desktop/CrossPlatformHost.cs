@@ -28,6 +28,90 @@ public static class CrossPlatformHost
         Timeout = Timeout.InfiniteTimeSpan
     };
 
+    private static readonly object _externalUrlLock = new();
+    private static string _lastExternalUrl = "";
+    private static long _lastExternalUrlTick = 0;
+
+    private static string GetAppVersion()
+    {
+        return Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "1.2.0";
+    }
+
+    private static string GetHostPlatform()
+    {
+        return OperatingSystem.IsMacOS() ? "macos" : (OperatingSystem.IsLinux() ? "linux" : "windows");
+    }
+
+    public static void OpenExternalUrl(string? rawUrl)
+    {
+        if (string.IsNullOrWhiteSpace(rawUrl)) return;
+        if (!Uri.TryCreate(rawUrl.Trim(), UriKind.Absolute, out var uri) ||
+            (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
+        {
+            return;
+        }
+
+        string safeUrl = uri.ToString();
+        lock (_externalUrlLock)
+        {
+            long now = Environment.TickCount64;
+            if (string.Equals(safeUrl, _lastExternalUrl, StringComparison.Ordinal) && (now - _lastExternalUrlTick) < 800)
+            {
+                return;
+            }
+            _lastExternalUrl = safeUrl;
+            _lastExternalUrlTick = now;
+        }
+
+        try
+        {
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
+            {
+                var psi = new ProcessStartInfo("open")
+                {
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                };
+                psi.ArgumentList.Add(safeUrl);
+                Process.Start(psi);
+
+                if (uri.AbsolutePath.EndsWith(".dmg", StringComparison.OrdinalIgnoreCase))
+                {
+                    try
+                    {
+                        var notifyPsi = new ProcessStartInfo("osascript")
+                        {
+                            UseShellExecute = false,
+                            CreateNoWindow = true
+                        };
+                        notifyPsi.ArgumentList.Add("-e");
+                        notifyPsi.ArgumentList.Add("display notification \"Download do novo DMG iniciado no navegador. Abra o arquivo .dmg baixado e arraste o FluiStream para Aplicativos.\" with title \"FluiStream\"");
+                        Process.Start(notifyPsi);
+                    }
+                    catch { }
+                }
+            }
+            else if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+            {
+                var psi = new ProcessStartInfo("xdg-open")
+                {
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                };
+                psi.ArgumentList.Add(safeUrl);
+                Process.Start(psi);
+            }
+            else
+            {
+                Process.Start(new ProcessStartInfo(safeUrl) { UseShellExecute = true });
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[FluiStream] Erro ao abrir URL externa ({safeUrl}): {ex.Message}");
+        }
+    }
+
     private static class MacNative
     {
         [DllImport("/usr/lib/libobjc.A.dylib", EntryPoint = "objc_getClass")]
@@ -331,6 +415,22 @@ public static class CrossPlatformHost
                             if (string.IsNullOrWhiteSpace(rawMsg)) return;
                             try
                             {
+                                if (rawMsg.Contains("OPEN_URL", StringComparison.OrdinalIgnoreCase))
+                                {
+                                    using var doc = System.Text.Json.JsonDocument.Parse(rawMsg);
+                                    string? msgAction = doc.RootElement.TryGetProperty("action", out var actEl) ? actEl.GetString() : null;
+                                    string? msgType = doc.RootElement.TryGetProperty("type", out var typeEl) ? typeEl.GetString() : null;
+                                    if (string.Equals(msgAction, "OPEN_URL", StringComparison.OrdinalIgnoreCase) ||
+                                        string.Equals(msgType, "OPEN_URL", StringComparison.OrdinalIgnoreCase))
+                                    {
+                                        if (doc.RootElement.TryGetProperty("url", out var urlEl))
+                                        {
+                                            OpenExternalUrl(urlEl.GetString());
+                                        }
+                                        return;
+                                    }
+                                }
+
                                 string action = "";
                                 if (rawMsg.Contains("ENTER_FULLSCREEN", StringComparison.OrdinalIgnoreCase)) action = "ENTER_FULLSCREEN";
                                 else if (rawMsg.Contains("EXIT_FULLSCREEN", StringComparison.OrdinalIgnoreCase)) action = "EXIT_FULLSCREEN";
@@ -448,7 +548,7 @@ public static class CrossPlatformHost
 
     private static void PrintBanner(string url)
     {
-        string version = Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "1.2.0";
+        string version = GetAppVersion();
         Console.ForegroundColor = ConsoleColor.Cyan;
         Console.WriteLine("====================================================");
         Console.WriteLine($"   FluiStream v{version} — Desktop Portable Runner      ");
@@ -519,6 +619,8 @@ public static class CrossPlatformHost
                 {
                     status = "ok",
                     mode = "cross-platform-host",
+                    version = GetAppVersion(),
+                    platform = GetHostPlatform(),
                     proxyUrl = originBase
                 });
                 byte[] okBytes = Encoding.UTF8.GetBytes(payload);
@@ -531,19 +633,45 @@ public static class CrossPlatformHost
             if (path.Equals("/api/window", StringComparison.OrdinalIgnoreCase))
             {
                 string? action = req.QueryString["action"];
-                if (string.IsNullOrWhiteSpace(action) && req.HasEntityBody)
+                string? targetUrl = req.QueryString["url"];
+                if (req.HasEntityBody)
                 {
                     using var reader = new StreamReader(req.InputStream, req.ContentEncoding);
                     string body = await reader.ReadToEndAsync();
-                    if (body.Contains("ENTER_FULLSCREEN", StringComparison.OrdinalIgnoreCase)) action = "ENTER_FULLSCREEN";
-                    else if (body.Contains("EXIT_FULLSCREEN", StringComparison.OrdinalIgnoreCase)) action = "EXIT_FULLSCREEN";
-                    else if (body.Contains("TOGGLE_FULLSCREEN", StringComparison.OrdinalIgnoreCase)) action = "TOGGLE_FULLSCREEN";
-                    else if (body.Contains("ENTER_PIP", StringComparison.OrdinalIgnoreCase)) action = "ENTER_PIP";
-                    else if (body.Contains("EXIT_PIP", StringComparison.OrdinalIgnoreCase)) action = "EXIT_PIP";
-                    else if (body.Contains("TOGGLE_PIP", StringComparison.OrdinalIgnoreCase)) action = "TOGGLE_PIP";
+                    if (!string.IsNullOrWhiteSpace(body))
+                    {
+                        try
+                        {
+                            using var doc = System.Text.Json.JsonDocument.Parse(body);
+                            if (string.IsNullOrWhiteSpace(action) && doc.RootElement.TryGetProperty("action", out var actEl))
+                            {
+                                action = actEl.GetString();
+                            }
+                            if (string.IsNullOrWhiteSpace(targetUrl) && doc.RootElement.TryGetProperty("url", out var urlEl))
+                            {
+                                targetUrl = urlEl.GetString();
+                            }
+                        }
+                        catch
+                        {
+                            if (string.IsNullOrWhiteSpace(action))
+                            {
+                                if (body.Contains("ENTER_FULLSCREEN", StringComparison.OrdinalIgnoreCase)) action = "ENTER_FULLSCREEN";
+                                else if (body.Contains("EXIT_FULLSCREEN", StringComparison.OrdinalIgnoreCase)) action = "EXIT_FULLSCREEN";
+                                else if (body.Contains("TOGGLE_FULLSCREEN", StringComparison.OrdinalIgnoreCase)) action = "TOGGLE_FULLSCREEN";
+                                else if (body.Contains("ENTER_PIP", StringComparison.OrdinalIgnoreCase)) action = "ENTER_PIP";
+                                else if (body.Contains("EXIT_PIP", StringComparison.OrdinalIgnoreCase)) action = "EXIT_PIP";
+                                else if (body.Contains("TOGGLE_PIP", StringComparison.OrdinalIgnoreCase)) action = "TOGGLE_PIP";
+                            }
+                        }
+                    }
                 }
 
-                if (!string.IsNullOrWhiteSpace(action))
+                if (string.Equals(action, "OPEN_URL", StringComparison.OrdinalIgnoreCase))
+                {
+                    OpenExternalUrl(targetUrl);
+                }
+                else if (!string.IsNullOrWhiteSpace(action))
                 {
                     onWindowCommand?.Invoke(action);
                 }
@@ -731,7 +859,9 @@ public static class CrossPlatformHost
             if (path.Equals("/index.html", StringComparison.OrdinalIgnoreCase))
             {
                 string html = await File.ReadAllTextAsync(fullPath, Encoding.UTF8);
-                const string inject = "<script>window.__fluiLocalProxyUrl = window.location.origin + '/'; window.__fluiLocalHostApp = true;</script></head>";
+                string versionJson = System.Text.Json.JsonSerializer.Serialize(GetAppVersion());
+                string platformJson = System.Text.Json.JsonSerializer.Serialize(GetHostPlatform());
+                string inject = $"<script>window.__fluiLocalProxyUrl = window.location.origin + '/'; window.__fluiLocalHostApp = true; window.__fluiAppVersion = {versionJson}; window.__fluiHostPlatform = {platformJson};</script></head>";
                 if (html.Contains("</head>", StringComparison.OrdinalIgnoreCase))
                 {
                     html = Regex.Replace(html, "</head>", inject, RegexOptions.IgnoreCase);

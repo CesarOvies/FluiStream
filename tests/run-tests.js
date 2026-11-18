@@ -190,16 +190,19 @@ await test('Deve detectar corretamente se há versão mais recente no Git', () =
   assert.equal(isNewerVersion('v0.9.8', '1.0.0'), false);
 });
 
-await test('Deve selecionar assets Windows, Android APK e SHA256SUMS.txt da release', () => {
+await test('Deve selecionar assets Windows, macOS DMG, Android APK e SHA256SUMS.txt da release', () => {
   const assets = [
     { name: 'FluiStream-v1.2.0-linux-x64-portable.zip', browser_download_url: 'https://github.com/CesarOvies/FluiStream/releases/download/v1.2.0/FluiStream-v1.2.0-linux-x64-portable.zip' },
     { name: 'FluiStream-v1.2.0-win-x64-portable.zip', browser_download_url: 'https://github.com/CesarOvies/FluiStream/releases/download/v1.2.0/FluiStream-v1.2.0-win-x64-portable.zip' },
+    { name: 'FluiStream-v1.2.0-macOS.dmg', browser_download_url: 'https://github.com/CesarOvies/FluiStream/releases/download/v1.2.0/FluiStream-v1.2.0-macOS.dmg' },
     { name: 'FluiStream-v1.2.0-android.apk', browser_download_url: 'https://github.com/CesarOvies/FluiStream/releases/download/v1.2.0/FluiStream-v1.2.0-android.apk' },
     { name: 'SHA256SUMS.txt', browser_download_url: 'https://github.com/CesarOvies/FluiStream/releases/download/v1.2.0/SHA256SUMS.txt' }
   ];
 
   const selected = selectReleaseAssets(assets);
   assert.equal(selected.winDownloadUrl, 'https://github.com/CesarOvies/FluiStream/releases/download/v1.2.0/FluiStream-v1.2.0-win-x64-portable.zip');
+  assert.equal(selected.macDmgDownloadUrl, 'https://github.com/CesarOvies/FluiStream/releases/download/v1.2.0/FluiStream-v1.2.0-macOS.dmg');
+  assert.equal(selected.macDmgAssetName, 'FluiStream-v1.2.0-macOS.dmg');
   assert.equal(selected.apkDownloadUrl, 'https://github.com/CesarOvies/FluiStream/releases/download/v1.2.0/FluiStream-v1.2.0-android.apk');
   assert.equal(selected.apkAssetName, 'FluiStream-v1.2.0-android.apk');
   assert.equal(selected.sha256SumsUrl, 'https://github.com/CesarOvies/FluiStream/releases/download/v1.2.0/SHA256SUMS.txt');
@@ -2777,6 +2780,170 @@ await test('Home Hub D-Pad alcança .btn-bento-refresh via ArrowDown, navega hor
   // 7. refreshHomePlaylist restaura foco em clickedBtn após reabilitar os botões
   assert.match(appJs, /const hadFocus = typeof document !== 'undefined' && document\.activeElement === clickedBtn;/);
   assert.match(appJs, /if \(hadFocus && !clickedBtn\.disabled\) \{\s*clickedBtn\.focus\(\{ preventScroll: true \}\);\s*\}/);
+});
+
+await test('macOS: versão injetada pelo host (__fluiAppVersion), download direto do .dmg via OPEN_URL e build scripts estampam versão', async () => {
+  const prevFetch = globalThis.fetch;
+  const prevWindow = globalThis.window;
+  const prevDoc = globalThis.document;
+
+  const fetchCalls = [];
+  const hostCommands = [];
+  const openedModals = [];
+  const subFooterClasses = new Set();
+
+  globalThis.window = {
+    __fluiAppVersion: '1.2.7',
+    __fluiHostPlatform: 'macos',
+    __fluiLocalHostApp: true,
+    __fluiLocalProxyUrl: 'http://127.0.0.1:5055/',
+    location: { origin: 'http://127.0.0.1:5055' }
+  };
+  globalThis.fetch = async (url, opts) => {
+    fetchCalls.push({ url: String(url), opts });
+    return {
+      ok: true,
+      json: async () => ({
+        tag_name: 'v1.2.7',
+        body: 'macOS release',
+        html_url: 'https://github.com/CesarOvies/FluiStream/releases/tag/v1.2.7',
+        assets: [
+          { name: 'FluiStream-v1.2.7-macOS.dmg', browser_download_url: 'https://github.com/CesarOvies/FluiStream/releases/download/v1.2.7/FluiStream-v1.2.7-macOS.dmg' }
+        ]
+      })
+    };
+  };
+
+  try {
+    assert.equal(getCurrentVersion(), '1.2.7');
+    assert.ok(i18n.get('settingsVersion').includes('1.2.7'), 'settingsVersion deve refletir window.__fluiAppVersion');
+    const upToDate = await checkForUpdate();
+    assert.equal(upToDate.available, false);
+    assert.equal(upToDate.currentVersion, '1.2.7');
+    assert.equal(upToDate.macDmgAssetName, 'FluiStream-v1.2.7-macOS.dmg');
+
+    const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+    const appJs = readFileSync(resolve(rootDir, 'src/web/js/app.js'), 'utf-8');
+    const crossHostCs = readFileSync(resolve(rootDir, 'src/desktop/CrossPlatformHost.cs'), 'utf-8');
+    const mainFormCs = readFileSync(resolve(rootDir, 'src/desktop/MainForm.cs'), 'utf-8');
+    const updateServiceCs = readFileSync(resolve(rootDir, 'src/desktop/UpdateService.cs'), 'utf-8');
+    const buildMacSh = readFileSync(resolve(rootDir, 'build-macos.sh'), 'utf-8');
+    const buildAllPs1 = readFileSync(resolve(rootDir, 'build-all.ps1'), 'utf-8');
+    const releaseYml = readFileSync(resolve(rootDir, '.github/workflows/release.yml'), 'utf-8');
+
+    const { runInNewContext } = await import('node:vm');
+    const extractMethod = (name) => {
+      const start = appJs.indexOf(`  ${name}(`);
+      assert.ok(start >= 0, `Método ${name} deve existir em app.js`);
+      let i = appJs.indexOf('{', start);
+      let depth = 0;
+      for (; i < appJs.length; i++) {
+        const ch = appJs[i];
+        if (ch === '{') depth++;
+        else if (ch === '}') {
+          depth--;
+          if (depth === 0) return appJs.slice(start, i + 1);
+        }
+      }
+      throw new Error(`Fechamento de chaves não encontrado para ${name}`);
+    };
+
+    const settingsUpdateStatusEl = { textContent: '' };
+    const subTitleEl = { textContent: '' };
+    const subBodyEl = { innerHTML: '' };
+    const subFooterEl = {
+      classList: {
+        add: (c) => subFooterClasses.add(c),
+        remove: (c) => subFooterClasses.delete(c)
+      }
+    };
+    const subModalEl = { id: 'modal-settings-sub' };
+    const fakeBtn = { addEventListener: () => {} };
+
+    globalThis.document = {
+      getElementById: () => fakeBtn
+    };
+
+    const MacUpdateApp = runInNewContext(`(() => class MacUpdateApp {
+      constructor() {
+        this.player = { notifyDesktopHost: (action, data) => hostCommands.push({ action, data }) };
+        this.dom = {
+          settingsUpdateStatus: settingsUpdateStatusEl,
+          modalSettingsSub: subModalEl,
+          modalSettingsSubTitle: subTitleEl,
+          modalSettingsSubBody: subBodyEl,
+          modalSettingsSubFooter: subFooterEl
+        };
+      }
+      escapeHtml(s) { return String(s || ''); }
+      openModal(m) { openedModals.push(m); }
+      closeModal() {}
+      ${extractMethod('isMacOSPlatform')}
+      ${extractMethod('resolveMacDmgDownloadUrl')}
+      ${extractMethod('openExternalUrl')}
+      ${extractMethod('showMacUpdateInstructions')}
+      ${extractMethod('triggerAppUpdate')}
+    })()`, {
+      window: globalThis.window,
+      document: globalThis.document,
+      navigator: { userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0)', platform: 'MacIntel' },
+      fetch: globalThis.fetch,
+      i18n,
+      hostCommands,
+      settingsUpdateStatusEl,
+      subModalEl,
+      subTitleEl,
+      subBodyEl,
+      subFooterEl,
+      openedModals
+    });
+
+    fetchCalls.length = 0;
+    const app = new MacUpdateApp();
+    assert.equal(app.isMacOSPlatform(), true);
+    assert.equal(
+      app.resolveMacDmgDownloadUrl({ updateVersion: '1.2.8' }),
+      'https://github.com/CesarOvies/FluiStream/releases/download/v1.2.8/FluiStream-v1.2.8-macOS.dmg'
+    );
+
+    app.triggerAppUpdate({
+      updateVersion: '1.2.8',
+      macDmgDownloadUrl: 'https://github.com/CesarOvies/FluiStream/releases/download/v1.2.8/FluiStream-v1.2.8-macOS.dmg',
+      macDmgAssetName: 'FluiStream-v1.2.8-macOS.dmg'
+    });
+
+    assert.equal(hostCommands.length, 1);
+    assert.equal(hostCommands[0].action, 'OPEN_URL');
+    assert.equal(
+      hostCommands[0].data.url,
+      'https://github.com/CesarOvies/FluiStream/releases/download/v1.2.8/FluiStream-v1.2.8-macOS.dmg'
+    );
+    assert.ok(
+      fetchCalls.some(c => c.url.includes('/api/window?action=OPEN_URL&url=https%3A%2F%2Fgithub.com%2FCesarOvies%2FFluiStream%2Freleases%2Fdownload%2Fv1.2.8%2FFluiStream-v1.2.8-macOS.dmg')),
+      'Deve enviar OPEN_URL para /api/window no host local macOS'
+    );
+    assert.ok(settingsUpdateStatusEl.textContent.includes('FluiStream-v1.2.8-macOS.dmg'));
+    assert.equal(openedModals.length, 1);
+    assert.ok(subFooterClasses.has('hidden'));
+    assert.ok(subBodyEl.innerHTML.includes('FluiStream-v1.2.8-macOS.dmg'));
+
+    assert.match(crossHostCs, /window\.__fluiAppVersion/);
+    assert.match(crossHostCs, /window\.__fluiHostPlatform/);
+    assert.match(crossHostCs, /OpenExternalUrl\(/);
+    assert.match(crossHostCs, /"OPEN_URL"/);
+    assert.match(mainFormCs, /window\.__fluiAppVersion/);
+    assert.match(updateServiceCs, /\.dmg/);
+    assert.equal(buildMacSh.includes('grep -oPm1'), false, 'build-macos.sh não deve usar grep -P incompatível com macOS BSD grep');
+    assert.match(buildMacSh, /export const APP_VERSION = /);
+    assert.match(buildAllPs1, /Update-PackagedWebVersion/);
+    assert.match(releaseYml, /Verify macOS Bundle Version Matches Release/);
+  } finally {
+    globalThis.fetch = prevFetch;
+    if (prevWindow === undefined) delete globalThis.window;
+    else globalThis.window = prevWindow;
+    if (prevDoc === undefined) delete globalThis.document;
+    else globalThis.document = prevDoc;
+  }
 });
 
 console.log(`\n========================================`);

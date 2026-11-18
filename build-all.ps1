@@ -1,4 +1,4 @@
-﻿# FluiStream — Script de Compilação Automatizada Multiplataforma
+# FluiStream — Script de Compilação Automatizada Multiplataforma
 # Padrão Cesar Ovies Engineering Standards (win-x64, linux-x64, linux-arm64, osx-arm64)
 
 param (
@@ -8,6 +8,33 @@ param (
 )
 
 $ErrorActionPreference = "Stop"
+$Version = $Version.Trim().TrimStart('v', 'V')
+
+function Update-PackagedWebVersion {
+    param (
+        [string]$WebPath,
+        [string]$Ver
+    )
+    if (-not (Test-Path $WebPath)) { return }
+    $utf8 = [System.Text.UTF8Encoding]::new($false)
+    $patches = @(
+        @{ Rel = "js\version.js"; Pattern = "(export const APP_VERSION = ')[^']+(')"; Repl = "`${1}$Ver`${2}" },
+        @{ Rel = "js\localization.js"; Pattern = "(settingsVersion:\s*'[^']*?)\d+\.\d+\.\d+"; Repl = "`${1}$Ver" },
+        @{ Rel = "sw.js"; Pattern = "(const CACHE_NAME = 'fluistream-v)[^']+(')"; Repl = "`${1}$Ver`${2}" },
+        @{ Rel = "index.html"; Pattern = '(data-i18n="settingsVersion">[^<]*?)\d+\.\d+\.\d+'; Repl = "`${1}$Ver" }
+    )
+    foreach ($p in $patches) {
+        $file = Join-Path $WebPath $p.Rel
+        if (Test-Path $file) {
+            $content = [System.IO.File]::ReadAllText($file, [System.Text.Encoding]::UTF8)
+            $updated = [regex]::Replace($content, $p.Pattern, $p.Repl)
+            if ($updated -eq $content -and -not $content.Contains($Ver)) {
+                throw "Failed to stamp version $Ver in $file"
+            }
+            [System.IO.File]::WriteAllText($file, $updated, $utf8)
+        }
+    }
+}
 
 Write-Host "==========================================" -ForegroundColor Cyan
 Write-Host "   Iniciando Build de FluiStream v$Version" -ForegroundColor Cyan
@@ -53,6 +80,8 @@ dotnet publish $desktopProj `
     -o $winOut `
     --nologo
 
+Update-PackagedWebVersion -WebPath (Join-Path $winOut "web") -Ver $Version
+
 $winZip = Join-Path $dist "FluiStream-v$Version-win-x64-portable.zip"
 Write-Host "--> Gerando pacote zip Windows: $winZip..." -ForegroundColor Yellow
 Compress-Archive -Path "$winOut\*" -DestinationPath $winZip -Force
@@ -70,6 +99,8 @@ dotnet publish $desktopProj `
     -p:SelfContained=true `
     -o $linuxOut `
     --nologo
+
+Update-PackagedWebVersion -WebPath (Join-Path $linuxOut "web") -Ver $Version
 
 $linuxZip = Join-Path $dist "FluiStream-v$Version-linux-x64-portable.zip"
 Write-Host "--> Gerando pacote zip Linux x64: $linuxZip..." -ForegroundColor Yellow
@@ -93,6 +124,8 @@ dotnet publish $desktopProj `
     -o $linuxArmOut `
     --nologo
 
+Update-PackagedWebVersion -WebPath (Join-Path $linuxArmOut "web") -Ver $Version
+
 $linuxArmZip = Join-Path $dist "FluiStream-v$Version-linux-arm64-portable.zip"
 Write-Host "--> Gerando pacote zip Linux ARM64: $linuxArmZip..." -ForegroundColor Yellow
 Compress-Archive -Path "$linuxArmOut\*" -DestinationPath $linuxArmZip -Force
@@ -114,6 +147,8 @@ dotnet publish $desktopProj `
     -p:SelfContained=true `
     -o $osxOut `
     --nologo
+
+Update-PackagedWebVersion -WebPath (Join-Path $osxOut "web") -Ver $Version
 
 $osxZip = Join-Path $dist "FluiStream-v$Version-osx-arm64-portable.zip"
 Write-Host "--> Gerando pacote zip macOS: $osxZip..." -ForegroundColor Yellow

@@ -84,6 +84,8 @@ public static class UpdateService
             if (IsNewerVersion(tagName, currentVer))
             {
                 string targetRid = GetCurrentRuntimeIdentifier();
+                string? dmgDownloadUrl = null;
+                string? dmgAssetName = null;
                 string? zipDownloadUrl = null;
                 string? zipAssetName = null;
                 string? tarDownloadUrl = null;
@@ -101,6 +103,14 @@ public static class UpdateService
                         if (name.Equals("SHA256SUMS.txt", StringComparison.OrdinalIgnoreCase))
                         {
                             sha256SumsUrl = browserUrl;
+                        }
+                        else if (OperatingSystem.IsMacOS() && name.EndsWith(".dmg", StringComparison.OrdinalIgnoreCase))
+                        {
+                            if (dmgDownloadUrl is null || name.Contains("macOS", StringComparison.OrdinalIgnoreCase))
+                            {
+                                dmgDownloadUrl = browserUrl;
+                                dmgAssetName = name;
+                            }
                         }
                         else if (name.Contains(targetRid, StringComparison.OrdinalIgnoreCase))
                         {
@@ -120,8 +130,12 @@ public static class UpdateService
                     }
                 }
 
-                string? downloadUrl = zipDownloadUrl ?? tarDownloadUrl;
-                string? assetName = zipAssetName ?? tarAssetName;
+                string? downloadUrl = OperatingSystem.IsMacOS()
+                    ? (dmgDownloadUrl ?? zipDownloadUrl ?? tarDownloadUrl)
+                    : (zipDownloadUrl ?? tarDownloadUrl);
+                string? assetName = OperatingSystem.IsMacOS()
+                    ? (dmgAssetName ?? zipAssetName ?? tarAssetName)
+                    : (zipAssetName ?? tarAssetName);
 
                 if (!string.IsNullOrEmpty(downloadUrl) &&
                     !string.IsNullOrEmpty(assetName) &&

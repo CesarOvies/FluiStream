@@ -14,8 +14,11 @@ TARGET_RID="${1:-osx-arm64}"
 VERSION="${2:-}"
 
 if [ -z "$VERSION" ]; then
-    VERSION=$(grep -oPm1 '(?<=<Version>)[^<]+' "$ROOT_DIR/src/desktop/FluiStream.Desktop.csproj" || echo "1.2.0")
+    VERSION=$(sed -n 's/.*<Version>\([^<]*\)<\/Version>.*/\1/p' "$ROOT_DIR/src/desktop/FluiStream.Desktop.csproj" | head -n 1 || true)
+    VERSION="${VERSION:-1.2.0}"
 fi
+VERSION="${VERSION#v}"
+VERSION="${VERSION#V}"
 
 BUNDLE_ID="com.cesarovies.fluistream"
 APP_BUNDLE="$DIST_DIR/$APP_NAME.app"
@@ -76,6 +79,26 @@ rsync -a "$ROOT_DIR/src/web/" "$RESOURCES_DIR/web/"
 if [ -d "$ROOT_DIR/public" ]; then
     rsync -a "$ROOT_DIR/public/" "$RESOURCES_DIR/web/" 2>/dev/null || true
 fi
+node - "$RESOURCES_DIR/web" "$VERSION" <<'NODE'
+const fs = require('fs');
+const path = require('path');
+const webDir = process.argv[2];
+const ver = process.argv[3].replace(/^[vV]/, '');
+const patches = [
+  ['js/version.js', /(export const APP_VERSION = ')[^']+(')/, `$1${ver}$2`],
+  ['js/localization.js', /(settingsVersion:\s*'[^']*?)\d+\.\d+\.\d+/g, `$1${ver}`],
+  ['sw.js', /(const CACHE_NAME = 'fluistream-v)[^']+(')/, `$1${ver}$2`],
+  ['index.html', /(data-i18n="settingsVersion">[^<]*?)\d+\.\d+\.\d+/g, `$1${ver}`]
+];
+for (const [rel, re, repl] of patches) {
+  const file = path.join(webDir, rel);
+  const src = fs.readFileSync(file, 'utf8');
+  if (!new RegExp(re.source, re.flags.replace('g', '')).test(src)) {
+    throw new Error(`Failed to stamp version ${ver} in ${rel}`);
+  }
+  fs.writeFileSync(file, src.replace(re, repl), 'utf8');
+}
+NODE
 mkdir -p "$MACOS_DIR/web"
 rsync -a "$RESOURCES_DIR/web/" "$MACOS_DIR/web/"
 

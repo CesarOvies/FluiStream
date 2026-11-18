@@ -325,12 +325,13 @@ public partial class MainForm : Form
 
             // Inicia proxy HTTP user-space local (127.0.0.1) e injeta headers IPTV no WebView2
             StartLocalStreamProxy();
-            if (!string.IsNullOrEmpty(_localProxyBaseUrl))
-            {
-                await _webView.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(
-                    $"window.__fluiLocalProxyUrl = {System.Text.Json.JsonSerializer.Serialize(_localProxyBaseUrl)};"
-                );
-            }
+            string hostVer = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "1.2.0";
+            string proxyScript = !string.IsNullOrEmpty(_localProxyBaseUrl)
+                ? $"window.__fluiLocalProxyUrl = {System.Text.Json.JsonSerializer.Serialize(_localProxyBaseUrl)}; "
+                : "";
+            await _webView.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(
+                $"{proxyScript}window.__fluiAppVersion = {System.Text.Json.JsonSerializer.Serialize(hostVer)}; window.__fluiHostPlatform = \"windows\";"
+            );
 
             _webView.CoreWebView2.AddWebResourceRequestedFilter("*", CoreWebView2WebResourceContext.All);
             _webView.CoreWebView2.WebResourceRequested += (_, reqArgs) =>
