@@ -534,6 +534,33 @@ class FluiStreamApp {
         this.player.notifyTracks();
       }
     };
+    if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+      window.addEventListener('android-player-stopped', () => {
+        if (!this.currentPlayingItem) return;
+        if (this.player && !this.player.isStopped) {
+          this.stopPlayback();
+        } else {
+          this.currentPlayingItem = null;
+          this._isPlayerPlaying = false;
+          this.clearPlayerIdleTimer();
+          this.updatePlayPauseUi(false);
+          if (this.activeScreen === 'browse') this.syncBrowseViewLayout();
+        }
+      });
+      window.addEventListener('android-fullscreen-changed', (e) => {
+        const isFs = Boolean(e?.detail?.fullscreen);
+        if (this.player) {
+          this.player._isDesktopFullscreen = isFs;
+        }
+        this.wakePlayerControls();
+        if (typeof requestAnimationFrame === 'function') {
+          requestAnimationFrame(() => this.updateNativeOverlayVisibility());
+        }
+        setTimeout(() => {
+          if (this.currentPlayingItem) this.updateNativeOverlayVisibility();
+        }, 120);
+      });
+    }
   }
 
   syncVolumeUi() {
@@ -1187,6 +1214,7 @@ class FluiStreamApp {
         }
         if (this.isSingleClickFullscreenMode()) {
           clearTimeout(centerClickTimer);
+          if (Date.now() < (this._suppressAutoFullscreenUntil || 0)) return;
           this.player.toggleFullscreen();
           return;
         }
@@ -1207,6 +1235,7 @@ class FluiStreamApp {
         if (!this.currentPlayingItem) return;
         this.wakePlayerControls();
         if (!this.isSingleClickFullscreenMode()) return;
+        if (Date.now() < (this._suppressAutoFullscreenUntil || 0)) return;
         if (e.target.closest('.player-error-overlay, #player-center-hit, #btn-player-tools, #player-tools-menu, button, select, input, a')) return;
         this.player.toggleFullscreen();
       });
@@ -3332,28 +3361,135 @@ class FluiStreamApp {
     const enabled = Boolean(cfg.parentalPinHash);
     this.dom.modalSettingsSubTitle.textContent = i18n.get('settingsParentalControl');
     this.dom.modalSettingsSubFooter.classList.remove('hidden');
+    const newPinLabel = enabled ? i18n.get('parentalNewPin') : i18n.get('parentalSetPin');
     this.dom.modalSettingsSubBody.innerHTML = `
-      <label class="checkbox-label">
-        <input type="checkbox" id="sub-parental-enable" ${enabled ? 'checked' : ''} />
-        <span>${this.escapeHtml(i18n.get('parentalEnable'))}</span>
-      </label>
-      <div class="form-group">
-        <label>${this.escapeHtml(i18n.get('parentalSetPin'))}</label>
-        <input type="password" inputmode="numeric" maxlength="8" id="sub-parental-pin" class="form-control" placeholder="••••" />
-      </div>
+      <form id="sub-parental-form" novalidate>
+        <label class="checkbox-label" for="sub-parental-enable">
+          <input type="checkbox" id="sub-parental-enable" name="parentalEnable" ${enabled ? 'checked' : ''} />
+          <span>${this.escapeHtml(i18n.get('parentalEnable'))}</span>
+        </label>
+        ${enabled ? `
+          <div class="form-group">
+            <label for="sub-parental-current-pin">${this.escapeHtml(i18n.get('parentalCurrentPin'))}</label>
+            <input type="password" inputmode="numeric" maxlength="8" id="sub-parental-current-pin" name="currentParentalPin" autocomplete="current-password" class="form-control" placeholder="••••" aria-describedby="sub-parental-error" />
+          </div>
+        ` : ''}
+        <div id="sub-parental-new-fields" class="${enabled ? '' : 'hidden'}">
+          <div class="form-group">
+            <label for="sub-parental-pin">${this.escapeHtml(newPinLabel)}</label>
+            <input type="password" inputmode="numeric" maxlength="8" id="sub-parental-pin" name="newParentalPin" autocomplete="new-password" class="form-control" placeholder="••••" aria-describedby="sub-parental-error" ${enabled ? '' : 'disabled'} />
+          </div>
+          <div class="form-group">
+            <label for="sub-parental-pin-confirm">${this.escapeHtml(i18n.get('parentalConfirmPin'))}</label>
+            <input type="password" inputmode="numeric" maxlength="8" id="sub-parental-pin-confirm" name="confirmParentalPin" autocomplete="new-password" class="form-control" placeholder="••••" aria-describedby="sub-parental-error" ${enabled ? '' : 'disabled'} />
+          </div>
+        </div>
+        <p id="sub-parental-error" class="hidden" role="alert" style="color: var(--error-red); font-size: 0.82rem; margin-top: 0.35rem;"></p>
+      </form>
     `;
+
+    const formEl = document.getElementById('sub-parental-form');
+    const enableCheck = document.getElementById('sub-parental-enable');
+    const newFieldsWrap = document.getElementById('sub-parental-new-fields');
+    const currentPinInput = document.getElementById('sub-parental-current-pin');
+    const pinInput = document.getElementById('sub-parental-pin');
+    const confirmInput = document.getElementById('sub-parental-pin-confirm');
+    const errEl = document.getElementById('sub-parental-error');
+
+    const clearParentalError = () => {
+      if (errEl) {
+        errEl.textContent = '';
+        errEl.classList.add('hidden');
+      }
+      [currentPinInput, pinInput, confirmInput].forEach(inp => inp?.removeAttribute('aria-invalid'));
+    };
+
+    const showParentalError = (msgKey, targetInput = null) => {
+      if (errEl) {
+        errEl.textContent = i18n.get(msgKey);
+        errEl.classList.remove('hidden');
+      }
+      if (targetInput) {
+        targetInput.setAttribute('aria-invalid', 'true');
+        targetInput.focus?.();
+      }
+    };
+
+    const syncNewFieldsState = () => {
+      const checked = Boolean(enableCheck?.checked);
+      newFieldsWrap?.classList.toggle('hidden', !checked);
+      if (pinInput) pinInput.disabled = !checked;
+      if (confirmInput) confirmInput.disabled = !checked;
+      clearParentalError();
+    };
+
+    enableCheck?.addEventListener('change', syncNewFieldsState);
+    [currentPinInput, pinInput, confirmInput].forEach(inp => {
+      inp?.addEventListener('input', clearParentalError);
+    });
+    formEl?.addEventListener('submit', (e) => {
+      e.preventDefault();
+      this.dom.btnSaveSettingsSub?.click();
+    });
+
     this.dom.btnSaveSettingsSub.onclick = async () => {
-      const wantEnable = Boolean(document.getElementById('sub-parental-enable')?.checked);
-      const pin = document.getElementById('sub-parental-pin')?.value.trim() || '';
+      clearParentalError();
+      const wantEnable = Boolean(enableCheck?.checked);
+      const currentPin = currentPinInput?.value.trim() || '';
+      const pin = pinInput?.value.trim() || '';
+      const confirmPin = confirmInput?.value.trim() || '';
+
+      const verifyCurrentPin = async () => {
+        if (!enabled) return true;
+        if (currentPin.length > 0) {
+          const hashedCurrent = await this.hashPin(currentPin);
+          if (hashedCurrent !== cfg.parentalPinHash) {
+            showParentalError('parentalWrongPin', currentPinInput);
+            return false;
+          }
+          return true;
+        }
+        const ok = await this.promptParentalPin();
+        if (!ok) {
+          showParentalError('parentalDisableConfirm', currentPinInput);
+          return false;
+        }
+        return true;
+      };
+
       if (!wantEnable) {
+        if (enabled && !(await verifyCurrentPin())) return;
         storage.saveSettings({ parentalPinHash: '' });
         this.parentalUnlocked = false;
-      } else if (pin.length >= 4) {
-        const hash = await this.hashPin(pin);
-        storage.saveSettings({ parentalPinHash: hash });
-        this.parentalUnlocked = false;
+      } else {
+        const wantsPinChange = !enabled || pin.length > 0 || confirmPin.length > 0;
+        if (wantsPinChange) {
+          if (pin.length < 4) {
+            showParentalError('parentalPinTooShort', pinInput);
+            return;
+          }
+          if (pin !== confirmPin) {
+            showParentalError('parentalPinMismatch', confirmInput);
+            return;
+          }
+          if (enabled && !(await verifyCurrentPin())) return;
+          const hash = await this.hashPin(pin);
+          storage.saveSettings({ parentalPinHash: hash });
+          this.parentalUnlocked = false;
+        } else if (enabled && currentPin.length > 0) {
+          const hashedCurrent = await this.hashPin(currentPin);
+          if (hashedCurrent !== cfg.parentalPinHash) {
+            showParentalError('parentalWrongPin', currentPinInput);
+            return;
+          }
+        }
       }
+
       this.updateSettingsTileSubtitles();
+      if (this.activeScreen === 'browse') {
+        this.renderSidebarPanel();
+        this.updateCurrentEpgDisplay();
+      }
       this.closeModal(this.dom.modalSettingsSub);
     };
     this.openModal(this.dom.modalSettingsSub);
@@ -3366,13 +3502,20 @@ class FluiStreamApp {
       if (this.dom.inputParentalPinVerify) this.dom.inputParentalPinVerify.value = '';
       this.dom.parentalPinError?.classList.add('hidden');
 
+      let settled = false;
       const cleanup = (ok) => {
+        if (settled) return;
+        settled = true;
+        this._cancelParentalPinPrompt = null;
         this.dom.btnConfirmParentalPin.onclick = null;
         this.dom.btnCancelParentalPin.onclick = null;
         this.dom.btnCloseParentalPin.onclick = null;
-        this.closeModal(this.dom.modalParentalPin);
+        if (!this.dom.modalParentalPin?.classList.contains('hidden')) {
+          this.closeModal(this.dom.modalParentalPin);
+        }
         resolve(ok);
       };
+      this._cancelParentalPinPrompt = () => cleanup(false);
 
       this.dom.btnConfirmParentalPin.onclick = async () => {
         const entered = this.dom.inputParentalPinVerify?.value.trim() || '';
@@ -4487,6 +4630,9 @@ class FluiStreamApp {
     try { window.androidBridge?.hideKeyboard?.(); } catch (_) { /* ignore */ }
     modal.classList.add('hidden');
     modal.removeAttribute('data-modal-open');
+    if (modal === this.dom.modalParentalPin && typeof this._cancelParentalPinPrompt === 'function') {
+      this._cancelParentalPinPrompt();
+    }
 
     const stillOpen = Boolean(document.querySelector('.modal-backdrop:not(.hidden)'));
     if (!stillOpen) {
@@ -5855,6 +6001,7 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
 
   playChannel(item, opts = {}) {
     this.currentPlayingItem = item;
+    this._suppressAutoFullscreenUntil = Date.now() + 450;
     if (item.type === ItemType.LIVE) {
       if (!opts.preserveEpgMode) this.browseEpgMode = 'channel';
     } else {
@@ -5870,8 +6017,10 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
       this.ensureLocalProxyStarted();
     }
 
-    this.player.playStream(item, cfg.corsProxy, activeStreamMode, activeEngine);
-    this.dom.playerCenterHit?.classList.toggle('hidden', activeEngine === 'vlc' && Boolean(window.chrome?.webview));
+    this.dom.playerCenterHit?.classList.toggle(
+      'hidden',
+      (activeEngine === 'vlc' && Boolean(window.chrome?.webview)) || Boolean(window.androidBridge)
+    );
     this.clearPlayerIdleTimer();
     this.syncVolumeUi();
 
@@ -5897,6 +6046,14 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
     } else {
       this.updateCurrentEpgDisplay();
     }
+
+    this.player.playStream(item, cfg.corsProxy, activeStreamMode, activeEngine);
+    if (typeof requestAnimationFrame === 'function') {
+      requestAnimationFrame(() => this.updateNativeOverlayVisibility());
+    }
+    setTimeout(() => {
+      if (this.currentPlayingItem) this.updateNativeOverlayVisibility();
+    }, 120);
   }
 
   stopPlayback() {

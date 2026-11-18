@@ -141,6 +141,16 @@ class MainActivity : AppCompatActivity() {
                     "window.dispatchEvent(new CustomEvent('android-player-stopped'));",
                     null
                 )
+            },
+            onFullscreenChanged = { fullscreen ->
+                configureSystemBars()
+                if (!fullscreen) {
+                    webView.requestFocus()
+                }
+                webView.evaluateJavascript(
+                    "window.dispatchEvent(new CustomEvent('android-fullscreen-changed', { detail: { fullscreen: $fullscreen } }));",
+                    null
+                )
             }
         )
 
@@ -516,8 +526,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun handleBackNavigation(): Boolean {
-        if (videoPlayerManager.isOverlayVisible()) {
-            videoPlayerManager.stop()
+        if (videoPlayerManager.isFullscreen()) {
+            videoPlayerManager.setFullscreen(false)
             return true
         }
 

@@ -130,7 +130,7 @@ public partial class MainForm : Form
             _videoView = new VideoView
             {
                 MediaPlayer = _vlcPlayer,
-                Dock = DockStyle.Fill,
+                Dock = DockStyle.None,
                 Visible = false,
                 BackColor = Color.Black
             };
@@ -297,26 +297,7 @@ public partial class MainForm : Form
             {
                 BeginInvoke(() =>
                 {
-                    if (_webView.CoreWebView2.ContainsFullScreenElement)
-                    {
-                        _previousWindowState = WindowState;
-                        _previousBorderStyle = FormBorderStyle;
-                        _previousBounds = Bounds;
-
-                        SuspendLayout();
-                        FormBorderStyle = FormBorderStyle.None;
-                        WindowState = FormWindowState.Normal;
-                        Bounds = Screen.FromControl(this).Bounds;
-                        ResumeLayout(true);
-                    }
-                    else
-                    {
-                        SuspendLayout();
-                        FormBorderStyle = _previousBorderStyle;
-                        WindowState = _previousWindowState;
-                        Bounds = _previousBounds;
-                        ResumeLayout(true);
-                    }
+                    ApplyFormFullscreenBounds(_webView.CoreWebView2.ContainsFullScreenElement);
                 });
             };
 
@@ -621,6 +602,11 @@ public partial class MainForm : Form
                                     }
                                 });
                             }
+                        }
+                        else if (msgType == "DESKTOP_COMMAND")
+                        {
+                            string action = doc.RootElement.TryGetProperty("action", out var actEl) ? (actEl.GetString() ?? "") : "";
+                            BeginInvoke(() => HandleDesktopWindowCommand(action));
                         }
                         else if (msgType == "NATIVE_FETCH")
                         {
@@ -1230,6 +1216,89 @@ public partial class MainForm : Form
         }
     }
 
+    private void ApplyFormFullscreenBounds(bool fullscreen, Action? beforeResume = null)
+    {
+        if (fullscreen)
+        {
+            _previousWindowState = WindowState;
+            _previousBorderStyle = FormBorderStyle;
+            _previousBounds = WindowState == FormWindowState.Normal ? Bounds : RestoreBounds;
+
+            SuspendLayout();
+            FormBorderStyle = FormBorderStyle.None;
+            WindowState = FormWindowState.Normal;
+            Bounds = Screen.FromControl(this).Bounds;
+            beforeResume?.Invoke();
+            ResumeLayout(true);
+        }
+        else
+        {
+            SuspendLayout();
+            FormBorderStyle = _previousBorderStyle;
+            if (WindowState != FormWindowState.Normal)
+            {
+                WindowState = FormWindowState.Normal;
+            }
+            if (_previousBounds.Width > 0 && _previousBounds.Height > 0)
+            {
+                Bounds = _previousBounds;
+            }
+            WindowState = _previousWindowState;
+            beforeResume?.Invoke();
+            ResumeLayout(true);
+        }
+    }
+
+    private void HandleDesktopWindowCommand(string action)
+    {
+        if (string.IsNullOrWhiteSpace(action)) return;
+        if (_isVlcActive)
+        {
+            // VLC fullscreen/PiP toggles are handled via VLC_PLAYER_COMMAND; only honor idempotent exits here.
+            if (string.Equals(action, "EXIT_FULLSCREEN", StringComparison.OrdinalIgnoreCase) && _isFullScreen)
+            {
+                SetVlcFullscreen(false);
+            }
+            else if (string.Equals(action, "EXIT_PIP", StringComparison.OrdinalIgnoreCase) && _isPipMode)
+            {
+                SetMiniPlayerPip(false);
+            }
+            return;
+        }
+
+        if (string.Equals(action, "ENTER_FULLSCREEN", StringComparison.OrdinalIgnoreCase))
+        {
+            SetHtmlFullscreen(true);
+        }
+        else if (string.Equals(action, "EXIT_FULLSCREEN", StringComparison.OrdinalIgnoreCase))
+        {
+            SetHtmlFullscreen(false);
+        }
+        else if (string.Equals(action, "TOGGLE_FULLSCREEN", StringComparison.OrdinalIgnoreCase))
+        {
+            SetHtmlFullscreen(!_isFullScreen);
+        }
+        else if (string.Equals(action, "ENTER_PIP", StringComparison.OrdinalIgnoreCase))
+        {
+            SetMiniPlayerPip(true);
+        }
+        else if (string.Equals(action, "EXIT_PIP", StringComparison.OrdinalIgnoreCase))
+        {
+            SetMiniPlayerPip(false);
+        }
+        else if (string.Equals(action, "TOGGLE_PIP", StringComparison.OrdinalIgnoreCase))
+        {
+            ToggleMiniPlayerPip();
+        }
+    }
+
+    private void SetHtmlFullscreen(bool fullscreen)
+    {
+        if (_isFullScreen == fullscreen) return;
+        _isFullScreen = fullscreen;
+        ApplyFormFullscreenBounds(_isFullScreen);
+    }
+
     private void ToggleVlcFullscreen()
     {
         SetVlcFullscreen(!_isFullScreen);
@@ -1249,18 +1318,11 @@ public partial class MainForm : Form
             _lastVlcActivityTick = Environment.TickCount64;
             _vlcFullscreenHudVisible = true;
 
-            _previousWindowState = WindowState;
-            _previousBorderStyle = FormBorderStyle;
-            _previousBounds = Bounds;
-
-            SuspendLayout();
-            FormBorderStyle = FormBorderStyle.None;
-            WindowState = FormWindowState.Normal;
-            Bounds = Screen.FromControl(this).Bounds;
-
-            _videoView.Dock = DockStyle.Fill;
-            _videoView.Visible = true;
-            ResumeLayout(true);
+            ApplyFormFullscreenBounds(true, () =>
+            {
+                _videoView.Dock = DockStyle.Fill;
+                _videoView.Visible = true;
+            });
 
             ShowExitFullscreenButton();
             RepositionVlcOverlays();
@@ -1274,13 +1336,10 @@ public partial class MainForm : Form
                 _fullscreenTimer?.Stop();
                 _vlcFullscreenHudVisible = false;
             }
-            SuspendLayout();
-            FormBorderStyle = _previousBorderStyle;
-            WindowState = _previousWindowState;
-            Bounds = _previousBounds;
-
-            _videoView.Dock = DockStyle.None;
-            ResumeLayout(true);
+            ApplyFormFullscreenBounds(false, () =>
+            {
+                _videoView.Dock = DockStyle.None;
+            });
 
             if (_btnExitFullscreen != null)
             {
@@ -1291,8 +1350,19 @@ public partial class MainForm : Form
                 _pnlVlcToolsMenu.Visible = false;
             }
 
+            _webView.CoreWebView2?.ExecuteScriptAsync(
+                "document.body?.classList?.remove('desktop-fullscreen'); document.getElementById('player-wrapper')?.classList?.remove('is-fullscreen'); window.fluiStreamApp?.player?.reportLayout();"
+            );
             UpdateVideoViewLayout();
             RepositionVlcOverlays();
+            _ = Task.Delay(80).ContinueWith(_ =>
+            {
+                if (!IsDisposed) BeginInvoke(() => { UpdateVideoViewLayout(); RepositionVlcOverlays(); });
+            });
+            _ = Task.Delay(220).ContinueWith(_ =>
+            {
+                if (!IsDisposed) BeginInvoke(() => { UpdateVideoViewLayout(); RepositionVlcOverlays(); });
+            });
         }
     }
 

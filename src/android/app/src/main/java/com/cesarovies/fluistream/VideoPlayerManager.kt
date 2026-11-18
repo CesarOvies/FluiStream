@@ -1,6 +1,7 @@
 package com.cesarovies.fluistream
 
 import android.content.Context
+import android.graphics.Rect
 import android.net.Uri
 import android.view.View
 import android.widget.Button
@@ -37,7 +38,8 @@ class VideoPlayerManager(
     private val aspectButton: Button,
     private val closeButton: Button,
     private val onOpened: () -> Unit = {},
-    private val onClosed: () -> Unit
+    private val onClosed: () -> Unit,
+    private val onFullscreenChanged: (Boolean) -> Unit = {}
 ) {
 
     private var exoPlayer: ExoPlayer? = null
@@ -48,6 +50,10 @@ class VideoPlayerManager(
     private var currentPlayTitle: String = ""
     private var currentPlayItemType: String = "live"
     private var currentPlayStreamMode: String = "auto"
+    private var isPlayingStream: Boolean = false
+    private var isFullscreenMode: Boolean = false
+    private val lastBounds: Rect = Rect(0, 0, 0, 0)
+    private var lastLayoutVisible: Boolean = true
 
     private val aspectCycle = listOf("auto", "16:9", "4:3", "fill")
 
@@ -58,17 +64,24 @@ class VideoPlayerManager(
         }
 
         closeButton.setOnClickListener {
-            stop()
+            if (isFullscreenMode) {
+                setFullscreen(false)
+            } else {
+                stop()
+            }
         }
 
         playerView.setControllerVisibilityListener(
             PlayerView.ControllerVisibilityListener { visibility ->
-                topHud.visibility = visibility
+                topHud.visibility = if (isFullscreenMode) visibility else View.GONE
             }
         )
+        updateInteractionMode()
     }
 
     fun isOverlayVisible(): Boolean = overlayContainer.visibility == View.VISIBLE
+
+    fun isFullscreen(): Boolean = isFullscreenMode && isPlayingStream
 
     fun setPendingFallbackUrls(urls: List<String>) {
         pendingFallbackUrls.clear()
@@ -86,6 +99,8 @@ class VideoPlayerManager(
         currentPlayTitle = title
         currentPlayItemType = itemType
         currentPlayStreamMode = streamMode
+        isPlayingStream = true
+        isFullscreenMode = false
 
         if (!hasExplicitFallbackUrls) {
             pendingFallbackUrls.clear()
@@ -107,19 +122,53 @@ class VideoPlayerManager(
 
         titleText.text = title.ifBlank { context.getString(R.string.app_name) }
         errorText.visibility = View.GONE
-        overlayContainer.visibility = View.VISIBLE
-        topHud.visibility = View.VISIBLE
+        updateInteractionMode()
+        applyOverlayLayout()
         onOpened()
 
         startPlaybackUrl(url)
 
         applyAspectRatio(currentAspectRatio)
-        playerView.showController()
-        playerView.requestFocus()
+    }
+
+    fun updateLayout(x: Int, y: Int, width: Int, height: Int, visible: Boolean) {
+        lastLayoutVisible = visible
+        if (!isFullscreenMode && width > 0 && height > 0) {
+            lastBounds.set(x, y, x + width, y + height)
+        }
+        applyOverlayLayout()
+    }
+
+    fun setFullscreen(fullscreen: Boolean) {
+        if (!isPlayingStream && fullscreen) return
+        if (isFullscreenMode == fullscreen) {
+            applyOverlayLayout()
+            return
+        }
+        isFullscreenMode = fullscreen
+        updateInteractionMode()
+        applyOverlayLayout()
+        applyAspectRatio(currentAspectRatio)
+        if (isFullscreenMode) {
+            topHud.visibility = View.VISIBLE
+            playerView.showController()
+            playerView.requestFocus()
+        } else {
+            playerView.hideController()
+            topHud.visibility = View.GONE
+        }
+        onFullscreenChanged(isFullscreenMode)
+    }
+
+    fun toggleFullscreen() {
+        setFullscreen(!isFullscreenMode)
     }
 
     fun stop() {
-        val wasVisible = isOverlayVisible()
+        val wasActive = isPlayingStream || isOverlayVisible()
+        val wasFullscreen = isFullscreenMode
+        isPlayingStream = false
+        isFullscreenMode = false
         pendingFallbackUrls.clear()
         hasExplicitFallbackUrls = false
         exoPlayer?.let { player ->
@@ -128,10 +177,98 @@ class VideoPlayerManager(
             player.clearMediaItems()
         }
         errorText.visibility = View.GONE
+        updateInteractionMode()
         overlayContainer.visibility = View.GONE
-        if (wasVisible) {
+        if (wasFullscreen) {
+            onFullscreenChanged(false)
+        }
+        if (wasActive) {
             onClosed()
         }
+    }
+
+    private fun updateInteractionMode() {
+        if (isFullscreenMode) {
+            playerView.useController = true
+            playerView.isClickable = false
+            playerView.setOnClickListener(null)
+            overlayContainer.isClickable = false
+            overlayContainer.setOnClickListener(null)
+            overlayContainer.isFocusable = false
+            playerView.isFocusable = true
+            topHud.visibility = View.VISIBLE
+        } else {
+            playerView.useController = false
+            playerView.hideController()
+            topHud.visibility = View.GONE
+            overlayContainer.isFocusable = false
+            playerView.isFocusable = false
+            val enterFullscreenOnTap = View.OnClickListener {
+                if (!isFullscreenMode && isPlayingStream) {
+                    setFullscreen(true)
+                }
+            }
+            playerView.isClickable = true
+            playerView.setOnClickListener(enterFullscreenOnTap)
+            overlayContainer.isClickable = true
+            overlayContainer.setOnClickListener(enterFullscreenOnTap)
+        }
+    }
+
+    private fun applyOverlayLayout() {
+        if (!isPlayingStream) {
+            if (overlayContainer.visibility != View.GONE) {
+                overlayContainer.visibility = View.GONE
+            }
+            return
+        }
+
+        if (isFullscreenMode) {
+            val lp = (overlayContainer.layoutParams as? FrameLayout.LayoutParams)
+                ?: FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.MATCH_PARENT
+                )
+            if (lp.width != FrameLayout.LayoutParams.MATCH_PARENT ||
+                lp.height != FrameLayout.LayoutParams.MATCH_PARENT ||
+                lp.leftMargin != 0 ||
+                lp.topMargin != 0
+            ) {
+                lp.width = FrameLayout.LayoutParams.MATCH_PARENT
+                lp.height = FrameLayout.LayoutParams.MATCH_PARENT
+                lp.setMargins(0, 0, 0, 0)
+                overlayContainer.layoutParams = lp
+            }
+            if (overlayContainer.visibility != View.VISIBLE) {
+                overlayContainer.visibility = View.VISIBLE
+            }
+            overlayContainer.requestLayout()
+            playerView.requestLayout()
+            return
+        }
+
+        val w = lastBounds.width()
+        val h = lastBounds.height()
+        if (!lastLayoutVisible || w <= 0 || h <= 0) {
+            if (overlayContainer.visibility != View.GONE) {
+                overlayContainer.visibility = View.GONE
+            }
+            return
+        }
+
+        val lp = (overlayContainer.layoutParams as? FrameLayout.LayoutParams)
+            ?: FrameLayout.LayoutParams(w, h)
+        if (lp.width != w || lp.height != h || lp.leftMargin != lastBounds.left || lp.topMargin != lastBounds.top) {
+            lp.width = w
+            lp.height = h
+            lp.setMargins(lastBounds.left, lastBounds.top, 0, 0)
+            overlayContainer.layoutParams = lp
+        }
+        if (overlayContainer.visibility != View.VISIBLE) {
+            overlayContainer.visibility = View.VISIBLE
+        }
+        overlayContainer.requestLayout()
+        playerView.requestLayout()
     }
 
     fun togglePlayPause() {
