@@ -20,7 +20,10 @@ import {
   selectBestYouTubeTrailerFromHtml,
   resolveYouTubeTrailerId,
   resolveTrailerPlayback,
-  resolveMediaMetadata
+  resolveMediaMetadata,
+  resolveKnownChannelLogo,
+  normalizeLiveChannelKey,
+  buildProxyLogoFallbackUrl
 } from '../src/web/js/media-metadata.js';
 import { StorageService } from '../src/web/js/storage.js';
 import { applyCorsProxy } from '../src/web/js/network.js';
@@ -2944,6 +2947,137 @@ await test('macOS: versão injetada pelo host (__fluiAppVersion), download diret
     if (prevDoc === undefined) delete globalThis.document;
     else globalThis.document = prevDoc;
   }
+});
+
+console.log('\n--- 26. Testes de Correção de Logos (M3U vírgula em aspas, normalização, fallback e Android WebView) ---');
+
+await test('M3UParser.parseExtInf preserva tvg-logo e group-title quando tvg-name ou tvg-logo contém vírgula entre aspas', () => {
+  const m3u = `#EXTM3U
+#EXTINF:-1 tvg-id="" tvg-name="24h Coragem, o Cão Covarde" tvg-logo="http://32q0d.xyz/images/coragem.png" group-title="⏰ CANAIS 24H",24h Coragem, o Cão Covarde
+https://netlez.uno:443/live/1
+#EXTINF:-1 tvg-id="C3 TV" tvg-name="C3 TV" tvg-logo="https://static.wixstatic.com/media/abc/v1/fill/w_50,h_52,al_c/c3.png" group-title="VARIEDADES",C3 TV
+https://netlez.uno:443/live/2
+#EXTINF:-1 tvg-name="Pokémon, o Filme: Segredos da Selva (2020)" tvg-logo="https://image.tmdb.org/t/p/w600_and_h900_bestv2/eqw2li.jpg" group-title="Filmes | Infantil",Pokémon, o Filme: Segredos da Selva (2020)
+https://netlez.uno:443/movie/3.mp4`;
+
+  const parsed = M3UParser.parse(m3u);
+  assert.equal(parsed.items.length, 3);
+  assert.equal(parsed.items[0].name, '24h Coragem, o Cão Covarde');
+  assert.equal(parsed.items[0].group, '⏰ CANAIS 24H');
+  assert.equal(parsed.items[0].logo, 'https://i0.wp.com/32q0d.xyz/images/coragem.png');
+
+  assert.equal(parsed.items[1].name, 'C3 TV');
+  assert.equal(parsed.items[1].group, 'VARIEDADES');
+  assert.equal(parsed.items[1].logo, 'https://static.wixstatic.com/media/abc/v1/fill/w_50,h_52,al_c/c3.png');
+
+  assert.equal(parsed.items[2].name, 'Pokémon, o Filme: Segredos da Selva (2020)');
+  assert.equal(parsed.items[2].group, 'Filmes | Infantil');
+  assert.equal(parsed.items[2].logo, 'https://image.tmdb.org/t/p/w600_and_h900_bestv2/eqw2li.jpg');
+});
+
+await test('M3UParser.normalizeLogoUrl reescreve domínios bloqueados/mortos e preserva URLs válidas', () => {
+  assert.equal(
+    M3UParser.normalizeLogoUrl('https://www.fontedecanais.io/logos/canais/espn3.png'),
+    'https://i0.wp.com/www.fontedecanais.io/logos/canais/espn3.png'
+  );
+  assert.equal(
+    M3UParser.normalizeLogoUrl('http://32q0d.xyz/images/logos/89c82ac7b48190d42c202057b99b354b.png'),
+    'https://i0.wp.com/32q0d.xyz/images/logos/89c82ac7b48190d42c202057b99b354b.png'
+  );
+  assert.equal(
+    M3UParser.normalizeLogoUrl('https://static.wikia.nocookie.net/logopedia/images/8/8e/RB_de_televisao_2021.png/revision/latest/scale-to-width-down/200'),
+    'https://i0.wp.com/static.wikia.nocookie.net/logopedia/images/8/8e/RB_de_televisao_2021.png'
+  );
+  assert.equal(
+    M3UParser.normalizeLogoUrl('http://tv.factoryiptv.com:80/images/weAvkxl0dnPevIKD8fwHjiOi6tc_small.jpg'),
+    'https://image.tmdb.org/t/p/w600_and_h900_bestv2/weAvkxl0dnPevIKD8fwHjiOi6tc.jpg'
+  );
+  assert.equal(M3UParser.normalizeLogoUrl('https://s10.aconvert.com/convert/p3r68-cdx67/a8b7t-9ep3d.png'), '');
+  assert.equal(M3UParser.normalizeLogoUrl('https://easypr1.com/logos/cancao_nova.png'), '');
+  assert.equal(M3UParser.normalizeLogoUrl('https://cdn.guiademarcas.globo/logo_globo_corporativa_restrita_branco.png'), 'https://cdn.guiademarcas.globo/logo_globo_corporativa_restrita_branco.png');
+  assert.equal(M3UParser.normalizeLogoUrl('http://iptv.example.com:8080/logo.png'), 'http://iptv.example.com:8080/logo.png');
+  assert.equal(M3UParser.normalizeLogoUrl('http://192.168.1.10/logo.png'), 'http://192.168.1.10/logo.png');
+});
+
+await test('resolveKnownChannelLogo, EPGParser.getChannelIcon e fallback de irmãos resolvem canais ao vivo sem logo', async () => {
+  assert.match(resolveKnownChannelLogo('ESPN 3 FHD', 'ESPN.3.HD.uy'), /^https:\/\//);
+  assert.match(resolveKnownChannelLogo('HBO + PLUS FHD', 'HBO.PLUS.HD.uy'), /^https:\/\//);
+  assert.match(resolveKnownChannelLogo('ADULT SWIM HD', 'Adult.Swim.ca2'), /^https:\/\//);
+  assert.match(resolveKnownChannelLogo('CARTOON NETWORK FHD', 'Cartoon.Network.HD.za'), /^https:\/\//);
+  assert.match(resolveKnownChannelLogo('SBT+ KIDS', ''), /^https:\/\//);
+  assert.match(resolveKnownChannelLogo('DISNEY+ 1', ''), /^https:\/\//);
+  assert.equal(
+    buildProxyLogoFallbackUrl('https://example.com/logo.png'),
+    'https://wsrv.nl/?url=https%3A%2F%2Fexample.com%2Flogo.png'
+  );
+  assert.equal(
+    buildProxyLogoFallbackUrl('https://wsrv.nl/?url=https%3A%2F%2Fexample.com%2Flogo.png'),
+    'https://i0.wp.com/example.com/logo.png'
+  );
+  assert.equal(
+    buildProxyLogoFallbackUrl('https://i0.wp.com/example.com/logo.png', 'http://127.0.0.1:5055/'),
+    'http://127.0.0.1:5055/proxy?url=https%3A%2F%2Fexample.com%2Flogo.png'
+  );
+  assert.equal(
+    buildProxyLogoFallbackUrl('http://192.168.1.10:8080/logo.png', 'http://127.0.0.1:5055/'),
+    'http://127.0.0.1:5055/proxy?url=http%3A%2F%2F192.168.1.10%3A8080%2Flogo.png'
+  );
+  assert.equal(
+    buildProxyLogoFallbackUrl('http://127.0.0.1:5055/proxy?url=http%3A%2F%2Fexample.com%2Flogo.png', 'http://127.0.0.1:5055/'),
+    ''
+  );
+
+  const epg = new EPGParser();
+  epg.parse(`<?xml version="1.0" encoding="UTF-8"?><tv>
+    <channel id="cancaonova.br"><display-name>CANÇÃO NOVA SD</display-name><icon src="https://logodownload.org/wp-content/uploads/2018/12/cancao-nova-logo.png" /></channel>
+  </tv>`);
+  assert.equal(
+    epg.getChannelIcon('cancaonova.br', 'CANÇÃO NOVA SD'),
+    'https://logodownload.org/wp-content/uploads/2018/12/cancao-nova-logo.png'
+  );
+
+  const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+  const appJs = readFileSync(resolve(rootDir, 'src/web/js/app.js'), 'utf8');
+  const extractMethod = (name) => {
+    const start = appJs.indexOf(`  ${name}(`);
+    assert.ok(start !== -1, `Método ${name} não encontrado`);
+    const nextMatch = appJs.slice(start + 10).search(/\n  (?:async\s+)?[a-zA-Z0-9_]+\(/);
+    const end = nextMatch === -1 ? appJs.length : start + 10 + nextMatch;
+    return appJs.slice(start, end);
+  };
+
+  const LogoApp = new Function('M3UParser', 'ItemType', 'EPGParser', 'resolveKnownChannelLogo', 'normalizeLiveChannelKey', `
+    return class {
+      constructor() {
+        this.playlist = {
+          items: [
+            { id: 'c1', name: 'CANÇÃO NOVA FHD', tvgId: 'cn.br', type: ItemType.LIVE, logo: 'https://logodownload.org/wp-content/uploads/2018/12/cancao-nova-logo.png' },
+            { id: 'c2', name: 'CANÇÃO NOVA SD', tvgId: 'cn.sd', type: ItemType.LIVE, logo: '' },
+            { id: 'c3', name: 'SBT+ KIDS', tvgId: '', type: ItemType.LIVE, logo: 'https://s10.aconvert.com/convert/p3r68-cdx67/a8b7t-9ep3d.png' }
+          ]
+        };
+        this.epg = new EPGParser();
+        this._posterCacheMap = new Map();
+      }
+      ${extractMethod('_ensurePlaylistIndexes')}
+      ${extractMethod('_getPosterCacheKey')}
+      ${extractMethod('_getCachedPoster')}
+    };
+  `)(M3UParser, ItemType, EPGParser, resolveKnownChannelLogo, normalizeLiveChannelKey);
+
+  const inst = new LogoApp();
+  inst._ensurePlaylistIndexes();
+  assert.equal(inst._getCachedPoster(inst.playlist.items[1], false), 'https://logodownload.org/wp-content/uploads/2018/12/cancao-nova-logo.png');
+  assert.match(inst._getCachedPoster(inst.playlist.items[2], false), /^https:\/\/cdn\.jsdelivr\.net\/gh\/tv-logo\/tv-logos/);
+
+  const mainActivityKt = readFileSync(resolve(rootDir, 'src/android/app/src/main/java/com/cesarovies/fluistream/MainActivity.kt'), 'utf8');
+  assert.match(mainActivityKt, /!k\.equals\("Referer", ignoreCase = true\)/);
+  assert.match(mainActivityKt, /!k\.equals\("X-Requested-With", ignoreCase = true\)/);
+  assert.match(mainActivityKt, /!rawMsg\.isNullOrBlank\(\)/);
+  assert.match(mainActivityKt, /safeCode/);
+  assert.match(mainActivityKt, /https:\/\/i0\.wp\.com\/\$host\$encodedPath\$encodedQuery/);
+  assert.match(appJs, /referrerpolicy="no-referrer"/);
+  assert.match(appJs, /referrerPolicy\s*=\s*'no-referrer'/);
 });
 
 console.log(`\n========================================`);

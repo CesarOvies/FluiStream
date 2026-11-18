@@ -266,6 +266,39 @@ export class EPGParser {
   }
 
   /**
+   * Obtém o ícone (<icon src="...">) do canal a partir do XMLTV por tvg-id ou nome
+   */
+  getChannelIcon(tvgId, channelName = '') {
+    if (tvgId && this.channels.has(tvgId)) {
+      const icon = this.channels.get(tvgId)?.icon;
+      if (icon) return icon;
+    }
+
+    if (tvgId) {
+      const cleanTvg = EPGParser.normalizeKey(tvgId);
+      const id = this.nameIndex.get(cleanTvg);
+      const icon = id ? this.channels.get(id)?.icon : '';
+      if (icon) return icon;
+    }
+
+    if (channelName) {
+      const cleanName = EPGParser.normalizeKey(channelName);
+      const id = this.nameIndex.get(cleanName);
+      if (id && this.channels.get(id)?.icon) {
+        return this.channels.get(id).icon;
+      }
+
+      const strippedClean = EPGParser.normalizeKey(EPGParser.stripQuality(channelName));
+      const strippedId = strippedClean ? this.nameIndex.get(strippedClean) : null;
+      if (strippedId && this.channels.get(strippedId)?.icon) {
+        return this.channels.get(strippedId).icon;
+      }
+    }
+
+    return '';
+  }
+
+  /**
    * Encontra a lista de programas para um canal buscando por tvg-id ou nome
    */
   getChannelPrograms(tvgId, channelName = '') {
@@ -309,6 +342,39 @@ export class EPGParser {
     }
 
     return null;
+  }
+
+  /**
+   * Obtém o ícone (<icon src="...">) do canal a partir do XMLTV por tvg-id ou nome
+   */
+  getChannelIcon(tvgId, channelName = '') {
+    if (tvgId && this.channels.has(tvgId)) {
+      const icon = this.channels.get(tvgId)?.icon;
+      if (icon) return icon;
+    }
+
+    if (tvgId) {
+      const cleanTvg = EPGParser.normalizeKey(tvgId);
+      const id = this.nameIndex.get(cleanTvg);
+      const icon = id ? this.channels.get(id)?.icon : '';
+      if (icon) return icon;
+    }
+
+    if (channelName) {
+      const cleanName = EPGParser.normalizeKey(channelName);
+      const id = this.nameIndex.get(cleanName);
+      if (id && this.channels.get(id)?.icon) {
+        return this.channels.get(id).icon;
+      }
+
+      const strippedClean = EPGParser.normalizeKey(EPGParser.stripQuality(channelName));
+      const strippedId = strippedClean ? this.nameIndex.get(strippedClean) : null;
+      if (strippedId && this.channels.get(strippedId)?.icon) {
+        return this.channels.get(strippedId).icon;
+      }
+    }
+
+    return '';
   }
 
   /**

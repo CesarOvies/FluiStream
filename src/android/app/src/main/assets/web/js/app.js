@@ -13,7 +13,7 @@ import { storage } from './storage.js';
 import { VideoPlayerController, MultiScreenController } from './player.js';
 import { fetchRemoteText } from './network.js';
 import { UpdateChecker, getCurrentVersion } from './version.js';
-import { resolveMediaMetadata, resolveTrailerPlayback } from './media-metadata.js';
+import { resolveMediaMetadata, resolveTrailerPlayback, resolveKnownChannelLogo, normalizeLiveChannelKey, buildProxyLogoFallbackUrl } from './media-metadata.js';
 
 const PARENTAL_CATEGORY_RE = /(?:adult|xxx|18\+|\+18|porn|erotic|sexy|hentai|nsfw)/i;
 
@@ -1419,14 +1419,46 @@ class FluiStreamApp {
         const img = e.target;
         if (!img || img.tagName !== 'IMG' || !img.classList.contains('sidebar-item-thumb')) return;
         const itemId = img.getAttribute('data-thumb-id');
-        if (!itemId) return;
+        if (!itemId) {
+          img.src = 'assets/logo.svg';
+          return;
+        }
         const isSeries = this._isSeriesGroupingActive();
         const pool = isSeries ? (this.currentFilteredSeries || []) : (this.currentFilteredItems || []);
         const entry = pool.find(x => String(x.id) === String(itemId));
-        if (entry && !entry._logoFailed) {
-          entry._logoFailed = true;
-          this._enqueuePosterPreload([entry], isSeries);
+        if (!entry) {
+          img.src = 'assets/logo.svg';
+          return;
         }
+
+        const currentSrc = img.getAttribute('src') || entry.logo || '';
+        const proxyStage = entry._proxyTried || 0;
+        if (proxyStage < 3 && currentSrc && !currentSrc.endsWith('assets/logo.svg')) {
+          const proxyUrl = buildProxyLogoFallbackUrl(currentSrc);
+          if (proxyUrl && proxyUrl !== currentSrc) {
+            entry._proxyTried = proxyStage + 1;
+            entry.logo = proxyUrl;
+            img.src = proxyUrl;
+            return;
+          }
+        }
+
+        if (currentSrc && !currentSrc.endsWith('assets/logo.svg')) {
+          entry._failedLogoUrl = currentSrc;
+        }
+        if (!entry._logoFailed) {
+          entry._logoFailed = true;
+          entry.logo = '';
+          const syncFallback = this._getCachedPoster(entry, isSeries);
+          if (syncFallback && syncFallback !== currentSrc) {
+            img.src = syncFallback;
+            return;
+          }
+          img.src = 'assets/logo.svg';
+          this._enqueuePosterPreload([entry], isSeries);
+          return;
+        }
+        img.src = 'assets/logo.svg';
       }, true);
     }
 
@@ -2401,10 +2433,10 @@ class FluiStreamApp {
         this.dom.homeFeaturedList.innerHTML = list.map(item => {
           const prog = item.type !== ItemType.LIVE ? storage.getWatchProgress(item.id) : null;
           const pct = prog?.percent || 0;
-          const logo = item.logo || 'assets/logo.svg';
+          const logo = this._getCachedPoster(item, false) || M3UParser.normalizeLogoUrl(item.logo) || 'assets/logo.svg';
           return `
             <div class="featured-item-row" data-featured-url="${this.escapeHtml(item.url)}" data-featured-id="${this.escapeHtml(item.id)}" tabindex="0" role="button">
-              <img class="featured-item-thumb" src="${logo}" alt="" loading="lazy" onerror="this.src='assets/logo.svg'" />
+              <img class="featured-item-thumb" src="${logo}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.onerror=null;this.src='assets/logo.svg'" />
               <div class="featured-item-meta">
                 <div class="featured-item-title">${this.escapeHtml(item.name)}</div>
                 <div class="featured-item-sub">${this.escapeHtml(item.group || item.type || '')}</div>
@@ -2443,18 +2475,37 @@ class FluiStreamApp {
     this._indexedPlaylistLen = len;
     this._seriesCache = new Map();
     this._epgItemByChannelKey = new Map();
+    this._liveLogoByChannelKey = new Map();
     const items = this.playlist.items || [];
     M3UParser.ensureUniqueItemIds(items);
     for (let i = 0; i < items.length; i++) {
       const it = items[i];
+      if (!it.logo && typeof it.name === 'string' && /tvg-logo=["']([^"']+)["']/i.test(it.name)) {
+        const logoM = it.name.match(/tvg-logo=["']([^"']+)["']/i);
+        const grpM = it.name.match(/group-title=["']([^"']+)["']/i);
+        if (logoM?.[1]) it.tvgLogo = logoM[1].trim();
+        if (grpM?.[1]) it.group = grpM[1].trim();
+        const tailComma = M3UParser.findHeaderCommaIndex(it.name);
+        if (tailComma !== -1) {
+          it.name = it.name.slice(tailComma + 1).trim();
+        }
+      }
+      if (it.logo || it.tvgLogo) {
+        it.logo = M3UParser.normalizeLogoUrl(it.logo || it.tvgLogo || '');
+      }
       if (it.type !== ItemType.LIVE) continue;
       if (it.tvgId) {
         const k = it.tvgId.toLowerCase();
         if (!this._epgItemByChannelKey.has(k)) this._epgItemByChannelKey.set(k, it);
+        if (it.logo && !this._liveLogoByChannelKey.has(k)) this._liveLogoByChannelKey.set(k, it.logo);
       }
       if (it.name) {
         const n = it.name.toLowerCase();
         if (!this._epgItemByChannelKey.has(n)) this._epgItemByChannelKey.set(n, it);
+        const normLive = normalizeLiveChannelKey(it.name);
+        if (normLive && it.logo && !this._liveLogoByChannelKey.has(normLive)) {
+          this._liveLogoByChannelKey.set(normLive, it.logo);
+        }
       }
     }
   }
@@ -2844,18 +2895,57 @@ class FluiStreamApp {
   }
 
   _getPosterCacheKey(entry, isSeries) {
-    const kind = isSeries || entry?.type === ItemType.SERIES ? 'series' : 'movie';
+    const kind = isSeries || entry?.type === ItemType.SERIES
+      ? 'series'
+      : (entry?.type === ItemType.LIVE ? 'live' : 'movie');
     const raw = isSeries ? (entry?.seriesTitle || entry?.name || '') : (entry?.name || '');
     return `${kind}:${String(raw).toLowerCase().trim()}`;
   }
 
   _getCachedPoster(entry, isSeries) {
     if (!entry) return '';
+    if (entry.logo || entry.tvgLogo) {
+      const norm = M3UParser.normalizeLogoUrl(entry.logo || entry.tvgLogo || '');
+      if (norm !== entry.logo && !entry._logoFailed) entry.logo = norm;
+    }
     if (entry.logo && entry.logo !== 'assets/logo.svg' && !entry._logoFailed) return entry.logo;
+
+    const failedUrl = entry._failedLogoUrl || '';
+    if (!isSeries && entry.type === ItemType.LIVE) {
+      this._ensurePlaylistIndexes();
+      let candidate = '';
+      if (entry.tvgId && this._liveLogoByChannelKey) {
+        const sibById = this._liveLogoByChannelKey.get(entry.tvgId.toLowerCase()) || '';
+        if (sibById && sibById !== failedUrl) candidate = sibById;
+      }
+      if (!candidate && entry.name && this._liveLogoByChannelKey) {
+        const normKey = normalizeLiveChannelKey(entry.name);
+        const sibByName = normKey ? (this._liveLogoByChannelKey.get(normKey) || '') : '';
+        if (sibByName && sibByName !== failedUrl) candidate = sibByName;
+      }
+      if (!candidate && this.epg?.getChannelIcon) {
+        const epgIcon = M3UParser.normalizeLogoUrl(this.epg.getChannelIcon(entry.tvgId, entry.name) || '');
+        if (epgIcon && epgIcon !== failedUrl) candidate = epgIcon;
+      }
+      if (!candidate) {
+        const known = resolveKnownChannelLogo(entry.name, entry.tvgId);
+        if (known && known !== failedUrl) candidate = known;
+      }
+      if (candidate) {
+        entry.logo = candidate;
+        entry._logoFailed = false;
+        return candidate;
+      }
+    }
+
     const key = this._getPosterCacheKey(entry, isSeries);
     const cached = this._posterCacheMap.get(key) || '';
-    if (cached) entry.logo = cached;
-    return cached;
+    if (cached && cached !== failedUrl) {
+      entry.logo = cached;
+      entry._logoFailed = false;
+      return cached;
+    }
+    return '';
   }
 
   _enqueuePosterPreload(batch, isSeries) {
@@ -2863,7 +2953,7 @@ class FluiStreamApp {
     for (const entry of batch) {
       const kind = isSeries || entry?.type === ItemType.SERIES
         ? 'series'
-        : (entry?.type === ItemType.MOVIE ? 'movie' : null);
+        : (entry?.type === ItemType.MOVIE ? 'movie' : (entry?.type === ItemType.LIVE ? 'live' : null));
       if (!kind) continue;
       if (this._getCachedPoster(entry, isSeries)) continue;
       const key = `${this._getPosterCacheKey(entry, isSeries)}|${entry.id}`;
@@ -2976,7 +3066,7 @@ class FluiStreamApp {
         const isPlayingSeries = Boolean(this.currentPlayingItem && this.activeSeries?.id === entry.id);
         return `
           <div class="sidebar-item-row ${isPlayingSeries ? 'playing' : ''}" data-id="${this.escapeHtml(entry.id)}" tabindex="0" role="button">
-            <img class="sidebar-item-thumb" data-thumb-id="${this.escapeHtml(entry.id)}" src="${logoUrl}" alt="" loading="lazy" onerror="this.onerror=null;this.src='assets/logo.svg'" />
+            <img class="sidebar-item-thumb" data-thumb-id="${this.escapeHtml(entry.id)}" src="${logoUrl}" alt="" loading="lazy" referrerpolicy="no-referrer" />
             <div class="sidebar-item-meta">
               <div class="sidebar-item-name">${this.escapeHtml(entry.seriesTitle)}</div>
               <div class="sidebar-item-sub">${this.escapeHtml(seasonText)} • ${this.escapeHtml(epText)}</div>
@@ -2999,7 +3089,7 @@ class FluiStreamApp {
 
       return `
         <div class="sidebar-item-row ${isPlaying ? 'playing' : ''}" data-id="${this.escapeHtml(entry.id)}" tabindex="0" role="button">
-          <img class="sidebar-item-thumb" data-thumb-id="${this.escapeHtml(entry.id)}" src="${logoUrl}" alt="" loading="lazy" onerror="this.onerror=null;this.src='assets/logo.svg'" />
+          <img class="sidebar-item-thumb" data-thumb-id="${this.escapeHtml(entry.id)}" src="${logoUrl}" alt="" loading="lazy" referrerpolicy="no-referrer" />
           <div class="sidebar-item-meta">
             <div class="sidebar-item-name">${this.escapeHtml(entry.name)}</div>
             <div class="sidebar-item-sub">${this.escapeHtml(subText)}</div>
@@ -3679,10 +3769,11 @@ class FluiStreamApp {
       });
 
       const isPlaying = playingId && String(ch.id) === String(playingId);
+      const chLogo = this._getCachedPoster(ch, false) || M3UParser.normalizeLogoUrl(ch.logo) || 'assets/logo.svg';
       return `
         <div class="epg-timeline-channel-row ${isPlaying ? 'is-playing' : ''}">
           <div class="epg-timeline-ch-info" ${playAttrName}="${this.escapeHtml(ch.id)}" tabindex="0" role="button">
-            <img src="${ch.logo || 'assets/logo.svg'}" alt="" loading="lazy" onerror="this.src='assets/logo.svg'" />
+            <img src="${chLogo}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.onerror=null;this.src='assets/logo.svg'" />
             <span class="epg-timeline-ch-name">${this.escapeHtml(ch.name)}</span>
           </div>
           <div class="epg-timeline-progs">
@@ -5513,7 +5604,7 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
 
     const isFav = storage.isFavorite(id);
     const isSeries = Boolean(item.totalSeasons || item.type === ItemType.SERIES);
-    const logoUrl = this._getCachedPoster?.(item, isSeries) || item.logo || 'assets/logo.svg';
+    const logoUrl = this._getCachedPoster?.(item, isSeries) || M3UParser.normalizeLogoUrl(item.logo) || 'assets/logo.svg';
 
     let subText = item.group || '';
     if (item.type === ItemType.LIVE) {
@@ -5526,6 +5617,7 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
     }
 
     if (this.dom.channelActionsLogo) {
+      this.dom.channelActionsLogo.referrerPolicy = 'no-referrer';
       this.dom.channelActionsLogo.src = logoUrl;
     }
     if (this.dom.channelActionsName) {
@@ -5591,7 +5683,10 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
     this.dom.seriesTabsBar?.classList.remove('hidden');
     this.dom.seriesEpisodesContainer?.classList.remove('hidden');
 
-    if (this.dom.seriesPoster) this.dom.seriesPoster.src = series.logo || 'assets/logo.svg';
+    if (this.dom.seriesPoster) {
+      this.dom.seriesPoster.referrerPolicy = 'no-referrer';
+      this.dom.seriesPoster.src = series.logo || 'assets/logo.svg';
+    }
     if (this.dom.seriesTitle) this.dom.seriesTitle.textContent = series.seriesTitle;
     if (this.dom.seriesGenre) this.dom.seriesGenre.textContent = series.group || 'Série';
     if (this.dom.seriesStats) {
@@ -5659,7 +5754,10 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
     this.dom.seriesTabsBar?.classList.add('hidden');
     this.dom.seriesEpisodesContainer?.classList.add('hidden');
 
-    if (this.dom.seriesPoster) this.dom.seriesPoster.src = movie.logo || 'assets/logo.svg';
+    if (this.dom.seriesPoster) {
+      this.dom.seriesPoster.referrerPolicy = 'no-referrer';
+      this.dom.seriesPoster.src = movie.logo || 'assets/logo.svg';
+    }
     if (this.dom.seriesTitle) this.dom.seriesTitle.textContent = movie.name || 'Filme';
     if (this.dom.seriesGenre) this.dom.seriesGenre.textContent = movie.group || 'VOD';
     if (this.dom.seriesStats) {
@@ -5730,7 +5828,7 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
       const thumb = ep.logo || this.activeSeries.logo || 'assets/logo.svg';
       return `
         <div class="episode-item-row" data-ep-id="${this.escapeHtml(ep.id)}" tabindex="0" role="button">
-          <div class="episode-thumb-box"><img src="${thumb}" alt="" loading="lazy" /></div>
+          <div class="episode-thumb-box"><img src="${thumb}" alt="" loading="lazy" referrerpolicy="no-referrer" /></div>
           <div class="episode-row-info">
             <div class="episode-row-title">${this.escapeHtml(epTitle)}</div>
             <div class="episode-row-duration">⏱ ${durText}</div>
@@ -5780,8 +5878,10 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
     if (this.dom.currentChannelName) this.dom.currentChannelName.textContent = item.name;
     if (this.dom.currentChannelGroup) this.dom.currentChannelGroup.textContent = item.group || '';
     if (this.dom.currentChannelLogo) {
-      if (item.logo) {
-        this.dom.currentChannelLogo.src = item.logo;
+      this.dom.currentChannelLogo.referrerPolicy = 'no-referrer';
+      const resolvedLogo = this._getCachedPoster?.(item, false) || M3UParser.normalizeLogoUrl(item.logo) || '';
+      if (resolvedLogo) {
+        this.dom.currentChannelLogo.src = resolvedLogo;
         this.dom.currentChannelLogo.classList.remove('hidden');
       } else {
         this.dom.currentChannelLogo.classList.add('hidden');
