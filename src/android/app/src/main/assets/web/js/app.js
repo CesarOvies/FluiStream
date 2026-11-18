@@ -2187,6 +2187,24 @@ class FluiStreamApp {
           if (lr && lr.width > 0 && lr.height > 0) return lr;
         }
       }
+      if (el?.classList?.contains('bento-card')) {
+        const r = el.getBoundingClientRect();
+        const footer = el.querySelector('.bento-card-footer');
+        if (footer) {
+          const fr = footer.getBoundingClientRect();
+          if (fr.top > r.top + 8) {
+            return {
+              left: r.left,
+              right: r.right,
+              top: r.top,
+              bottom: fr.top,
+              width: r.width,
+              height: fr.top - r.top
+            };
+          }
+        }
+        return r;
+      }
       return el.getBoundingClientRect();
     };
 
@@ -2232,6 +2250,8 @@ class FluiStreamApp {
         || (el.classList.contains('bento-card') && current.classList.contains('btn-bento-refresh') && el.contains(current));
 
       if (isVertical && (current.contains(el) || el.contains(current)) && !isParentChildBento) continue;
+      if (!isVertical && isParentChildBento) continue;
+      if (!isVertical && ((current.classList.contains('btn-bento-refresh') && el.classList.contains('bento-card')) || (current.classList.contains('bento-card') && el.classList.contains('btn-bento-refresh'))) && el.closest('.home-hero-row')) continue;
       const elZone = getModalZone(el);
       if (direction === 'ArrowDown' && elZone < curZone) continue;
       if (direction === 'ArrowUp' && elZone > curZone) continue;
@@ -2251,32 +2271,48 @@ class FluiStreamApp {
       let centerDrift = 0;
 
       const inMsGrid = Boolean(current.closest('.multiscreen-grid') && el.closest('.multiscreen-grid'));
-      if (direction === 'ArrowRight' && x > curX + 4 && (r.right > curRect.right - 2 || (isParentChildBento && current.contains(el)))) {
+      if (direction === 'ArrowDown' && current.classList.contains('bento-card') && el.classList.contains('btn-bento-refresh') && current.contains(el)) {
+        valid = true;
+        edgeGap = 0;
+        perpGap = 0;
+        centerDrift = 0;
+      } else if (direction === 'ArrowUp' && current.classList.contains('btn-bento-refresh') && el.classList.contains('bento-card') && el.contains(current)) {
+        valid = true;
+        edgeGap = 0;
+        perpGap = 0;
+        centerDrift = 0;
+      } else if (direction === 'ArrowRight' && x > curX + 4 && r.right > curRect.right - 2) {
         perpGap = overlapY > 0 ? 0 : (r.top >= curRect.bottom ? r.top - curRect.bottom : curRect.top - r.bottom);
         if ((!inMsGrid && perpGap > 72) || (isModalOpen && current.closest('.modal-body, .modal-footer') && el.closest('.modal-header'))) continue;
         valid = true;
-        edgeGap = isParentChildBento ? Math.abs(dx) : (r.left - curRect.right);
+        edgeGap = r.left - curRect.right;
         centerDrift = Math.abs(dy);
-      } else if (direction === 'ArrowLeft' && x < curX - 4 && (r.left < curRect.left + 2 || (isParentChildBento && el.contains(current)))) {
+      } else if (direction === 'ArrowLeft' && x < curX - 4 && r.left < curRect.left + 2) {
         perpGap = overlapY > 0 ? 0 : (r.top >= curRect.bottom ? r.top - curRect.bottom : curRect.top - r.bottom);
         if ((!inMsGrid && perpGap > 72) || (isModalOpen && current.closest('.modal-body, .modal-footer') && el.closest('.modal-header'))) continue;
         valid = true;
-        edgeGap = isParentChildBento ? Math.abs(dx) : (curRect.left - r.right);
+        edgeGap = curRect.left - r.right;
         centerDrift = Math.abs(dy);
-      } else if (direction === 'ArrowDown' && (elZone > curZone || (y > curY + 4 && (r.bottom > curRect.bottom - 2 || (isParentChildBento && current.contains(el)))))) {
+      } else if (direction === 'ArrowDown' && (elZone > curZone || (y > curY + 4 && r.bottom > curRect.bottom - 2))) {
         valid = true;
-        edgeGap = isParentChildBento ? Math.max(0, r.top - curY) : (r.top - curRect.bottom);
+        edgeGap = r.top - curRect.bottom;
         perpGap = overlapX > 0 ? 0 : (r.left >= curRect.right ? r.left - curRect.right : curRect.left - r.right);
         centerDrift = Math.abs(dx);
-      } else if (direction === 'ArrowUp' && (elZone < curZone || (y < curY - 4 && (r.top < curRect.top + 2 || (isParentChildBento && el.contains(current)))))) {
+      } else if (direction === 'ArrowUp' && (elZone < curZone || (y < curY - 4 && r.top < curRect.top + 2))) {
         valid = true;
-        edgeGap = isParentChildBento ? Math.max(0, curY - r.bottom) : (curRect.top - r.bottom);
+        edgeGap = curRect.top - r.bottom;
         perpGap = overlapX > 0 ? 0 : (r.left >= curRect.right ? r.left - curRect.right : curRect.left - r.right);
         centerDrift = Math.abs(dx);
       }
       if (!valid) continue;
 
       validCandidates.push({ el, edgeGap, perpGap, centerDrift, zone: elZone });
+    }
+
+    if (!isVertical && validCandidates.length > 0 && (current.classList.contains('btn-bento-refresh') || current.closest('.home-hero-row'))) {
+      if (validCandidates.some(c => c.perpGap === 0)) {
+        validCandidates = validCandidates.filter(c => c.perpGap === 0);
+      }
     }
 
     if (isModalOpen && isVertical && validCandidates.length > 0) {
@@ -5204,6 +5240,7 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
     const { type } = section;
 
     this._isRefreshingPlaylist = true;
+    const hadFocus = typeof document !== 'undefined' && document.activeElement === clickedBtn;
     const buttons = [this.dom.btnRefreshLive, this.dom.btnRefreshMovies, this.dom.btnRefreshSeries].filter(Boolean);
     buttons.forEach(b => { b.disabled = true; });
     clickedBtn.classList.add('spinning');
@@ -5243,6 +5280,9 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
       buttons.forEach(b => { b.disabled = false; });
       clickedBtn.classList.remove('spinning');
       this.renderHomeHub();
+      if (hadFocus && !clickedBtn.disabled) {
+        clickedBtn.focus({ preventScroll: true });
+      }
     }
   }
 

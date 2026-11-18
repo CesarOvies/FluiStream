@@ -2626,6 +2626,159 @@ await test('Fast-path ao selecionar mesmo perfil dentro de 24h e controles de in
   }
 });
 
+await test('Home Hub D-Pad alcança .btn-bento-refresh via ArrowDown, navega horizontalmente entre refreshes e preserva foco após atualizar', async () => {
+  const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+  const appJs = readFileSync(resolve(rootDir, 'src/web/js/app.js'), 'utf-8');
+  const { runInNewContext } = await import('node:vm');
+
+  const extractMethod = (name) => {
+    const start = appJs.indexOf(`  ${name}(`);
+    assert.ok(start >= 0, `Método ${name} deve existir em app.js`);
+    let i = appJs.indexOf('{', start);
+    let depth = 0;
+    for (; i < appJs.length; i++) {
+      const ch = appJs[i];
+      if (ch === '{') depth++;
+      else if (ch === '}') {
+        depth--;
+        if (depth === 0) return appJs.slice(start, i + 1);
+      }
+    }
+    throw new Error(`Fechamento de chaves não encontrado para ${name}`);
+  };
+
+  let activeEl = null;
+  const makeNode = ({ id = '', tagName = 'DIV', classes = [], rect = { left: 0, right: 0, top: 0, bottom: 0, width: 0, height: 0 }, parent = null }) => {
+    const classSet = new Set(classes);
+    const el = {
+      id,
+      tagName,
+      disabled: false,
+      children: [],
+      dataset: {},
+      classList: {
+        contains: (c) => classSet.has(c),
+        add: (c) => classSet.add(c),
+        remove: (c) => classSet.delete(c)
+      },
+      focus: () => { activeEl = el; },
+      scrollIntoView: () => {},
+      getBoundingClientRect: () => rect,
+      contains: (other) => {
+        let cur = other;
+        while (cur) {
+          if (cur === el) return true;
+          cur = cur.parent;
+        }
+        return false;
+      },
+      closest: (sel) => {
+        const tokens = sel.split(',').map(s => s.trim());
+        let cur = el;
+        while (cur) {
+          if (tokens.some(t => t.startsWith('.') && cur.classList.contains(t.slice(1)))) return cur;
+          cur = cur.parent;
+        }
+        return null;
+      },
+      matches: (sel) => sel.split(',').some(t => {
+        const tok = t.trim();
+        if (tok.startsWith('.')) return el.classList.contains(tok.slice(1));
+        if (tok.startsWith('#')) return el.id === tok.slice(1);
+        return false;
+      }),
+      querySelectorAll: (sel) => {
+        const out = [];
+        const walk = (node) => {
+          for (const child of node.children) {
+            if (child.matches(sel)) out.push(child);
+            walk(child);
+          }
+        };
+        walk(el);
+        return out;
+      },
+      querySelector: (sel) => el.querySelectorAll(sel)[0] || null,
+      parent
+    };
+    if (parent) parent.children.push(el);
+    return el;
+  };
+
+  const mainLayout = makeNode({ id: 'main-layout', rect: { left: 0, right: 1280, top: 64, bottom: 720, width: 1280, height: 656 } });
+  const heroRow = makeNode({ classes: ['home-hero-row'], rect: { left: 24, right: 806, top: 80, bottom: 240, width: 782, height: 160 }, parent: mainLayout });
+
+  const bentoLive = makeNode({ id: 'bento-live', classes: ['bento-card'], rect: { left: 24, right: 274, top: 80, bottom: 240, width: 250, height: 160 }, parent: heroRow });
+  const footerLive = makeNode({ classes: ['bento-card-footer'], rect: { left: 42, right: 256, top: 190, bottom: 228, width: 214, height: 38 }, parent: bentoLive });
+  const btnRefreshLive = makeNode({ id: 'btn-refresh-live', tagName: 'BUTTON', classes: ['btn-bento-refresh'], rect: { left: 218, right: 256, top: 190, bottom: 228, width: 38, height: 38 }, parent: footerLive });
+
+  const bentoMovie = makeNode({ id: 'bento-movie', classes: ['bento-card'], rect: { left: 290, right: 540, top: 80, bottom: 240, width: 250, height: 160 }, parent: heroRow });
+  const footerMovie = makeNode({ classes: ['bento-card-footer'], rect: { left: 308, right: 522, top: 190, bottom: 228, width: 214, height: 38 }, parent: bentoMovie });
+  const btnRefreshMovies = makeNode({ id: 'btn-refresh-movies', tagName: 'BUTTON', classes: ['btn-bento-refresh'], rect: { left: 484, right: 522, top: 190, bottom: 228, width: 38, height: 38 }, parent: footerMovie });
+
+  const bentoSeries = makeNode({ id: 'bento-series', classes: ['bento-card'], rect: { left: 556, right: 806, top: 80, bottom: 240, width: 250, height: 160 }, parent: heroRow });
+  const footerSeries = makeNode({ classes: ['bento-card-footer'], rect: { left: 574, right: 788, top: 190, bottom: 228, width: 214, height: 38 }, parent: bentoSeries });
+  const btnRefreshSeries = makeNode({ id: 'btn-refresh-series', tagName: 'BUTTON', classes: ['btn-bento-refresh'], rect: { left: 750, right: 788, top: 190, bottom: 228, width: 38, height: 38 }, parent: footerSeries });
+
+  const tileLiveEpg = makeNode({ id: 'btn-home-live-epg', tagName: 'BUTTON', classes: ['gradient-tile'], rect: { left: 24, right: 407, top: 256, bottom: 330, width: 383, height: 74 }, parent: mainLayout });
+  const tileFavourite = makeNode({ id: 'btn-home-favourite', tagName: 'BUTTON', classes: ['gradient-tile'], rect: { left: 423, right: 806, top: 256, bottom: 330, width: 383, height: 74 }, parent: mainLayout });
+
+  const mockDoc = {
+    body: mainLayout,
+    get activeElement() { return activeEl; },
+    getElementById: (id) => (id === 'main-layout' ? mainLayout : null),
+    querySelector: () => null,
+    querySelectorAll: () => []
+  };
+
+  const HomeNav = runInNewContext(`(() => class HomeNav {
+    constructor() { this.dom = {}; }
+    _isTvNavigationMode() { return true; }
+    _isTextEntryElement() { return false; }
+    maybeAutoLoadMoreForElement() {}
+    ${extractMethod('moveSpatialFocus')}
+  })()`, { document: mockDoc });
+  const nav = new HomeNav();
+
+  // 1. ArrowDown em #bento-live foca #btn-refresh-live (não #btn-home-live-epg)
+  bentoLive.focus();
+  assert.equal(nav.moveSpatialFocus('ArrowDown', false), true);
+  assert.equal(activeEl, btnRefreshLive);
+
+  // 2. ArrowDown em #btn-refresh-live desce para #btn-home-live-epg
+  assert.equal(nav.moveSpatialFocus('ArrowDown', false), true);
+  assert.equal(activeEl, tileLiveEpg);
+
+  // 3. ArrowUp em #btn-home-live-epg volta para #btn-refresh-live
+  assert.equal(nav.moveSpatialFocus('ArrowUp', false), true);
+  assert.equal(activeEl, btnRefreshLive);
+
+  // 4. ArrowRight / ArrowLeft navegam entre #btn-refresh-live, #btn-refresh-movies e #btn-refresh-series
+  assert.equal(nav.moveSpatialFocus('ArrowRight', false), true);
+  assert.equal(activeEl, btnRefreshMovies);
+  assert.equal(nav.moveSpatialFocus('ArrowRight', false), true);
+  assert.equal(activeEl, btnRefreshSeries);
+  assert.equal(nav.moveSpatialFocus('ArrowLeft', false), true);
+  assert.equal(activeEl, btnRefreshMovies);
+  assert.equal(nav.moveSpatialFocus('ArrowLeft', false), true);
+  assert.equal(activeEl, btnRefreshLive);
+
+  // 5. ArrowUp em #btn-refresh-live volta para #bento-live; ArrowRight fica na linha de cards
+  assert.equal(nav.moveSpatialFocus('ArrowUp', false), true);
+  assert.equal(activeEl, bentoLive);
+  assert.equal(nav.moveSpatialFocus('ArrowRight', false), true);
+  assert.equal(activeEl, bentoMovie);
+
+  // 6. ArrowUp em #btn-home-favourite também alcança .btn-bento-refresh
+  tileFavourite.focus();
+  assert.equal(nav.moveSpatialFocus('ArrowUp', false), true);
+  assert.ok(activeEl === btnRefreshMovies || activeEl === btnRefreshSeries);
+
+  // 7. refreshHomePlaylist restaura foco em clickedBtn após reabilitar os botões
+  assert.match(appJs, /const hadFocus = typeof document !== 'undefined' && document\.activeElement === clickedBtn;/);
+  assert.match(appJs, /if \(hadFocus && !clickedBtn\.disabled\) \{\s*clickedBtn\.focus\(\{ preventScroll: true \}\);\s*\}/);
+});
+
 console.log(`\n========================================`);
 console.log(`Resultados dos Testes: ${passedTests}/${totalTests} passaram.`);
 console.log(`========================================\n`);
