@@ -362,8 +362,46 @@ class MainActivity : AppCompatActivity() {
             )
         }
 
+        val isImageRequest = (request.requestHeaders?.entries?.any {
+            it.key.equals("Accept", ignoreCase = true) && it.value.contains("image", ignoreCase = true)
+        } == true) || Regex("\\.(?:png|jpe?g|webp|gif|svg)(?:\\?.*)?$", RegexOption.IGNORE_CASE)
+            .containsMatchIn(uri.encodedPath ?: "")
+
+        val host = uri.host?.lowercase().orEmpty()
+        val isCustomPort = uri.port != -1 && uri.port != 80 && uri.port != 443
+        val isRawIp = Regex("^(?:\\d+\\.\\d+\\.\\d+\\.\\d+|\\[.*\\])$").matches(host)
+
+        val candidates = mutableListOf(uri.toString())
+        if (isImageRequest && !isCustomPort && !isRawIp &&
+            host != "i0.wp.com" && host != "wsrv.nl" &&
+            !host.endsWith(".wp.com") && !host.endsWith(".wsrv.nl")) {
+            val encodedPath = uri.encodedPath ?: ""
+            val encodedQuery = uri.encodedQuery?.let { "?$it" }.orEmpty()
+            candidates.add("https://i0.wp.com/$host$encodedPath$encodedQuery")
+        }
+
+        for (candidate in candidates) {
+            val res = executeInterceptRequest(candidate, method, request)
+            if (res != null) {
+                val status = res.statusCode
+                if (status in 200..399 || candidate == candidates.last()) {
+                    return res
+                }
+                runCatching { res.data?.close() }
+            }
+        }
+
+        Log.w("FluiStream", "shouldInterceptRequest remote fetch failed for $uri")
+        return null
+    }
+
+    private fun executeInterceptRequest(
+        initialUrl: String,
+        method: String,
+        request: WebResourceRequest
+    ): WebResourceResponse? {
         return runCatching {
-            var currentUrl = uri.toString()
+            var currentUrl = initialUrl
             var redirects = 0
             var conn: HttpURLConnection
             while (true) {
@@ -378,6 +416,8 @@ class MainActivity : AppCompatActivity() {
                     request.requestHeaders?.forEach { (k, v) ->
                         if (!k.equals("Host", ignoreCase = true) &&
                             !k.equals("Origin", ignoreCase = true) &&
+                            !k.equals("Referer", ignoreCase = true) &&
+                            !k.equals("X-Requested-With", ignoreCase = true) &&
                             !k.equals("Accept-Encoding", ignoreCase = true)) {
                             setRequestProperty(k, v)
                         }
@@ -403,7 +443,9 @@ class MainActivity : AppCompatActivity() {
             }
 
             val code = conn.responseCode
-            val statusMsg = conn.responseMessage ?: "OK"
+            val safeCode = if (code in 100..299 || code in 400..599) code else 200
+            val rawMsg = conn.responseMessage
+            val statusMsg = if (!rawMsg.isNullOrBlank() && rawMsg.all { it.code in 0x20..0x7E }) rawMsg else "OK"
             val rawContentType = conn.contentType ?: "application/octet-stream"
 
             var mimeType = "application/octet-stream"
@@ -454,15 +496,12 @@ class MainActivity : AppCompatActivity() {
             WebResourceResponse(
                 mimeType,
                 encoding ?: "UTF-8",
-                code,
+                safeCode,
                 statusMsg,
                 responseHeaders,
                 stream
             )
-        }.getOrElse { err ->
-            Log.w("FluiStream", "shouldInterceptRequest remote fetch failed for $uri: ${err.message}")
-            null
-        }
+        }.getOrNull()
     }
 
     private fun setupBackDispatcher() {

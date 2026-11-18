@@ -8,6 +8,219 @@ import { fetchRemoteText } from './network.js';
 
 const metadataCache = new Map();
 
+const KNOWN_CHANNEL_LOGOS = [
+  [/\bsbt\s*news\b/i, 'https://cdn.jsdelivr.net/gh/tv-logo/tv-logos@main/countries/brazil/sbt-news-br.png'],
+  [/\bsbt\s*\+|\+\s*sbt\b|\bsbt\b/i, 'https://cdn.jsdelivr.net/gh/tv-logo/tv-logos@main/countries/brazil/sbt-br.png'],
+  [/\bdisney\s*\+/i, 'https://logodownload.org/wp-content/uploads/2020/11/disney-plus-logo-1.png'],
+  [/\bapple\s*tv\b/i, 'https://i.imgur.com/5cjSPVE.png'],
+  [/\beleven\s*sports\b/i, 'https://i.imgur.com/AOu4FXH.png'],
+  [/\b(?:cine\s*)?sky\b/i, 'https://www.sky.com.br/documents/1407842/29152427/99x70_LOGO_SKY_FASHION_TV_PRETO.png'],
+  [/\bsabor\s*(?:&|e)\s*arte\b/i, 'https://cdn.jsdelivr.net/gh/tv-logo/tv-logos@main/countries/brazil/sabor-and-arte-br.png'],
+  [/\bcan[cç][aã]o\s*nova\b/i, 'https://cdn.jsdelivr.net/gh/tv-logo/tv-logos@main/countries/brazil/cancao-nova-tv-br.png'],
+  [/\brit\s*tv\b|\brit\b/i, 'https://cdn.jsdelivr.net/gh/tv-logo/tv-logos@main/countries/brazil/rit-br.png'],
+  [/\brs\s*21\b|\brede\s*s[eé]culo\s*21\b/i, 'https://cdn.jsdelivr.net/gh/tv-logo/tv-logos@main/countries/brazil/rede-21-br.png'],
+  [/\bboas\s*novas\b/i, 'https://i.imgur.com/ZqhizdP.png'],
+  [/\bgide[oõ]es\b/i, 'https://i.imgur.com/dDomKND.png'],
+  [/\bmaranata\b|\bman[aá]\b/i, 'https://i.imgur.com/7iSmccE.png'],
+  [/\bfurac[aã]o\s*tv\b|\bathletico\b/i, 'https://i0.wp.com/upload.wikimedia.org/wikipedia/commons/thumb/4/43/Athletico_Paranaense_%28Logo_2019%29.svg/960px-Athletico_Paranaense_%28Logo_2019%29.svg.png'],
+  [/\bbloomberg\b/i, 'https://i.imgur.com/A5ui53C.png'],
+  [/\bboa\s*vontade\b/i, 'https://i.imgur.com/Ms5tSgu.png'],
+  [/\brede\s*brasil\b/i, 'https://cdn.jsdelivr.net/gh/tv-logo/tv-logos@main/countries/brazil/rbtv-br.png'],
+  [/\bcnt\b/i, 'https://cdn.jsdelivr.net/gh/tv-logo/tv-logos@main/countries/brazil/rede-cnt-br.png'],
+  [/\bufc\b/i, 'https://i0.wp.com/static.wikia.nocookie.net/logopedia/images/6/62/UFC_FIGHTPASS_LOGO-645x370.png'],
+  [/\bdazn\b/i, 'https://i0.wp.com/www.sportspro.com/wp-content/uploads/2023/04/DAZN-1-3.png'],
+  [/\bespn\s*2\b/i, 'https://1.bp.blogspot.com/-uto56pmxCcQ/XXFWkBk_6OI/AAAAAAABZlU/JYiZAU-1wJgWkDqAw8U2dZVtS17LahKEwCLcBGAs/s640/ESPN%2B2.png'],
+  [/\bespn\s*3\b/i, 'https://i0.wp.com/www.fontedecanais.io/logos/canais/espn3.png'],
+  [/\bespn\s*4\b/i, 'https://cdn.jsdelivr.net/gh/tv-logo/tv-logos@main/countries/brazil/espn-4-br.png'],
+  [/\bespn\s*5\b/i, 'https://cdn.jsdelivr.net/gh/tv-logo/tv-logos@main/countries/brazil/espn-5-br.png'],
+  [/\bespn\s*6\b/i, 'https://i0.wp.com/www.fontedecanais.io/logos/canais/espn6.png'],
+  [/\bespn\b/i, 'https://a.espncdn.com/watchespn/images/web/network_logos/channel_logo_brazil_2x.png'],
+  [/\bhbo\s*2\b/i, 'https://cdn.jsdelivr.net/gh/tv-logo/tv-logos@main/countries/brazil/hbo-2-br.png'],
+  [/\bhbo\s*(?:\+\s*)?plus\b/i, 'https://cdn.jsdelivr.net/gh/tv-logo/tv-logos@main/countries/brazil/hbo-plus-br.png'],
+  [/\bhbo\s*family\b/i, 'https://cdn.jsdelivr.net/gh/tv-logo/tv-logos@main/countries/brazil/hbo-family-br.png'],
+  [/\bhbo\s*mundi\b/i, 'https://cdn.jsdelivr.net/gh/tv-logo/tv-logos@main/countries/brazil/hbo-mundi-br.png'],
+  [/\bhbo\s*pop\b/i, 'https://cdn.jsdelivr.net/gh/tv-logo/tv-logos@main/countries/brazil/hbo-pop-br.png'],
+  [/\bhbo\s*signature\b/i, 'https://cdn.jsdelivr.net/gh/tv-logo/tv-logos@main/countries/brazil/hbo-signature-br.png'],
+  [/\bhbo\s*xtreme\b/i, 'https://cdn.jsdelivr.net/gh/tv-logo/tv-logos@main/countries/brazil/hbo-xtreme-br.png'],
+  [/\bhbo\s*max\b/i, 'https://i0.wp.com/32q0d.xyz/images/max.png'],
+  [/\bhbo\b/i, 'https://cdn.jsdelivr.net/gh/tv-logo/tv-logos@main/countries/brazil/hbo-br.png'],
+  [/\badult\s*swi[mn]\b/i, 'https://i0.wp.com/www.fontedecanais.io/logos/canais/adultswim.png'],
+  [/\bcartoon\s*network\b/i, 'https://cdn.jsdelivr.net/gh/tv-logo/tv-logos@main/countries/brazil/cartoon-network-br.png'],
+  [/\bcartoonito\b/i, 'https://cdn.jsdelivr.net/gh/tv-logo/tv-logos@main/countries/brazil/cartoonito-br.png'],
+  [/\bdiscovery\s*kids\b/i, 'https://cdn.jsdelivr.net/gh/tv-logo/tv-logos@main/countries/brazil/discovery-kids-br.png'],
+  [/\bgloobinho\b/i, 'https://cdn.jsdelivr.net/gh/tv-logo/tv-logos@main/countries/brazil/gloobinho-br.png'],
+  [/\bgloob\b/i, 'https://cdn.jsdelivr.net/gh/tv-logo/tv-logos@main/countries/brazil/gloob-br.png'],
+  [/\btooncast\b/i, 'https://cdn.jsdelivr.net/gh/tv-logo/tv-logos@main/countries/brazil/tooncast-br.png'],
+  [/\btv\s*r[aá]\s*tim\s*bum\b/i, 'https://cdn.jsdelivr.net/gh/tv-logo/tv-logos@main/countries/brazil/tv-ra-tim-bum-br.png'],
+  [/\bzoomoo\b/i, 'https://cdn.jsdelivr.net/gh/tv-logo/tv-logos@main/countries/brazil/zoomoo-br.png'],
+  [/\bglobo\s*news\b/i, 'https://cdn.jsdelivr.net/gh/tv-logo/tv-logos@main/countries/brazil/globo-news-br.png'],
+  [/\bglobo\b/i, 'https://cdn.jsdelivr.net/gh/tv-logo/tv-logos@main/countries/brazil/globo-br.png'],
+  [/\brecord\b.*\bnews\b/i, 'https://cdn.jsdelivr.net/gh/tv-logo/tv-logos@main/countries/brazil/record-news-br.png'],
+  [/\brecord\b/i, 'https://cdn.jsdelivr.net/gh/tv-logo/tv-logos@main/countries/brazil/record-br.png'],
+  [/\bband\s*sports\b/i, 'https://cdn.jsdelivr.net/gh/tv-logo/tv-logos@main/countries/brazil/band-sports-br.png'],
+  [/\bband\s*news\b/i, 'https://cdn.jsdelivr.net/gh/tv-logo/tv-logos@main/countries/brazil/band-news-br.png'],
+  [/\bband\b/i, 'https://cdn.jsdelivr.net/gh/tv-logo/tv-logos@main/countries/brazil/band-br.png'],
+  [/\brede\s*tv\b/i, 'https://cdn.jsdelivr.net/gh/tv-logo/tv-logos@main/countries/brazil/rede-tv-br.png'],
+  [/\btv\s*cultura\b|\bcultura\b/i, 'https://cdn.jsdelivr.net/gh/tv-logo/tv-logos@main/countries/brazil/tv-cultura-br.png'],
+  [/\bfutura\b/i, 'https://cdn.jsdelivr.net/gh/tv-logo/tv-logos@main/countries/brazil/futura-br.png'],
+  [/\bcanal\s*brasil\b/i, 'https://cdn.jsdelivr.net/gh/tv-logo/tv-logos@main/countries/brazil/canal-brasil-br.png'],
+  [/\bsportv\s*2\b/i, 'https://cdn.jsdelivr.net/gh/tv-logo/tv-logos@main/countries/brazil/sportv2-br.png'],
+  [/\bsportv\s*3\b/i, 'https://cdn.jsdelivr.net/gh/tv-logo/tv-logos@main/countries/brazil/sportv3-br.png'],
+  [/\bsportv\b/i, 'https://cdn.jsdelivr.net/gh/tv-logo/tv-logos@main/countries/brazil/sportv-br.png'],
+  [/\bpremiere\b/i, 'https://cdn.jsdelivr.net/gh/tv-logo/tv-logos@main/countries/brazil/premiere-br.png'],
+  [/\bcombate\b/i, 'https://i0.wp.com/www.fontedecanais.io/logos/canais/combate.png'],
+  [/\b(?:telecine|tc)\s*action\b/i, 'https://cdn.jsdelivr.net/gh/tv-logo/tv-logos@main/countries/brazil/tele-cine-action-br.png'],
+  [/\b(?:telecine|tc)\s*cult\b/i, 'https://cdn.jsdelivr.net/gh/tv-logo/tv-logos@main/countries/brazil/tele-cine-cult-br.png'],
+  [/\b(?:telecine|tc)\s*fun\b/i, 'https://cdn.jsdelivr.net/gh/tv-logo/tv-logos@main/countries/brazil/tele-cine-fun-br.png'],
+  [/\b(?:telecine|tc)\s*pipoca\b/i, 'https://cdn.jsdelivr.net/gh/tv-logo/tv-logos@main/countries/brazil/tele-cine-pipoca-br.png'],
+  [/\b(?:telecine|tc)\s*premium\b/i, 'https://cdn.jsdelivr.net/gh/tv-logo/tv-logos@main/countries/brazil/tele-cine-premium-br.png'],
+  [/\b(?:telecine|tc)\s*touch\b/i, 'https://cdn.jsdelivr.net/gh/tv-logo/tv-logos@main/countries/brazil/tele-cine-touch-br.png'],
+  [/\bmegapix\b/i, 'https://cdn.jsdelivr.net/gh/tv-logo/tv-logos@main/countries/brazil/megapix-br.png'],
+  [/\bstudio\s*universal\b/i, 'https://cdn.jsdelivr.net/gh/tv-logo/tv-logos@main/countries/brazil/studio-universal-br.png'],
+  [/\buniversal\s*tv\b/i, 'https://cdn.jsdelivr.net/gh/tv-logo/tv-logos@main/countries/brazil/universal-tv-br.png'],
+  [/\btnt\s*s[eé]ries\b/i, 'https://cdn.jsdelivr.net/gh/tv-logo/tv-logos@main/countries/brazil/tnt-series-br.png'],
+  [/\btnt\b/i, 'https://cdn.jsdelivr.net/gh/tv-logo/tv-logos@main/countries/brazil/tnt-br.png'],
+  [/\bspace\b/i, 'https://cdn.jsdelivr.net/gh/tv-logo/tv-logos@main/countries/brazil/space-br.png'],
+  [/\bwarner\b/i, 'https://cdn.jsdelivr.net/gh/tv-logo/tv-logos@main/countries/brazil/warner-channel-br.png'],
+  [/\bsony\b/i, 'https://cdn.jsdelivr.net/gh/tv-logo/tv-logos@main/countries/brazil/sony-channel-br.png'],
+  [/\baxn\b/i, 'https://cdn.jsdelivr.net/gh/tv-logo/tv-logos@main/countries/brazil/axn-br.png'],
+  [/\bparamount\b/i, 'https://cdn.jsdelivr.net/gh/tv-logo/tv-logos@main/countries/brazil/paramount-network-br.png'],
+  [/\bamc\b/i, 'https://1000logos.net/wp-content/uploads/2023/05/AMC-TV-Logo.png'],
+  [/\bcinemax\b/i, 'https://cdn.jsdelivr.net/gh/tv-logo/tv-logos@main/countries/brazil/cinemax-br.png'],
+  [/\bdiscovery\s*h\s*&?\s*h\b|\bhome\s*(?:&|and)\s*health\b/i, 'https://i0.wp.com/www.fontedecanais.io/logos/canais/discoveryhh.png'],
+  [/\bdiscovery\s*turbo\b/i, 'https://cdn.jsdelivr.net/gh/tv-logo/tv-logos@main/countries/brazil/discovery-turbo-br.png'],
+  [/\bdiscovery\s*science\b/i, 'https://i0.wp.com/www.fontedecanais.io/logos/canais/discoveryscience.png'],
+  [/\bdiscovery\s*theat(?:er|her)\b/i, 'https://i0.wp.com/www.fontedecanais.io/logos/canais/discoverytheater.png'],
+  [/\bdiscovery\s*world\b/i, 'https://i0.wp.com/www.fontedecanais.io/logos/canais/discoveryworld.png'],
+  [/\bdiscovery\b/i, 'https://i0.wp.com/www.fontedecanais.io/logos/canais/discoverychannel.png'],
+  [/\banimal\s*planet\b/i, 'https://i0.wp.com/www.fontedecanais.io/logos/canais/animalplanet.png'],
+  [/\btlc\b/i, 'https://i0.wp.com/www.fontedecanais.io/logos/canais/tlc.png'],
+  [/\bdiscovery\s*id\b|\binvestiga[cç][aã]o\s*discovery\b/i, 'https://i0.wp.com/www.fontedecanais.io/logos/canais/id.png'],
+  [/\bhistory\s*2\b|\bh2\b/i, 'https://i0.wp.com/www.fontedecanais.io/logos/canais/h2.png'],
+  [/\bhistory\b/i, 'https://i0.wp.com/www.fontedecanais.io/logos/canais/history.png'],
+  [/\ba\s*&?\s*e\b/i, 'https://cdn.jsdelivr.net/gh/tv-logo/tv-logos@main/countries/brazil/a-and-e-br.png'],
+  [/\blifetime\b/i, 'https://i0.wp.com/www.fontedecanais.io/logos/canais/lifetime.png'],
+  [/\be!\b/i, 'https://i0.wp.com/www.fontedecanais.io/logos/canais/e.png'],
+  [/\bfood\s*network\b/i, 'https://i0.wp.com/www.fontedecanais.io/logos/canais/foodnetwork.png'],
+  [/\bhgtv\b/i, 'https://i0.wp.com/www.fontedecanais.io/logos/canais/hgtv.png'],
+  [/\barte\s*1\b/i, 'https://cdn.jsdelivr.net/gh/tv-logo/tv-logos@main/countries/brazil/arte1-br.png'],
+  [/\bcurta!?\b/i, 'https://i0.wp.com/32q0d.xyz/images/logos/15a528af09f0611530f704b661b56d07.png'],
+  [/\bmultishow\b/i, 'https://cdn.jsdelivr.net/gh/tv-logo/tv-logos@main/countries/brazil/multishow-br.png'],
+  [/\bgnt\b/i, 'https://cdn.jsdelivr.net/gh/tv-logo/tv-logos@main/countries/brazil/gnt-br.png'],
+  [/\bviva\b/i, 'https://cdn.mitvstatic.com/channels/br_viva_m.png'],
+  [/\bbis\b/i, 'https://cdn.jsdelivr.net/gh/tv-logo/tv-logos@main/countries/brazil/bis-br.png'],
+  [/\bcanal\s*off\b/i, 'https://i0.wp.com/www.fontedecanais.io/logos/canais/off.png'],
+  [/\bmodo\s*viagem\b/i, 'https://i0.wp.com/www.fontedecanais.io/logos/canais/modoviagem.png'],
+  [/\bcnn\s*brasil\b/i, 'https://cdn.jsdelivr.net/gh/tv-logo/tv-logos@main/countries/brazil/cnn-brasil-br.png'],
+  [/\bjovem\s*pan\b/i, 'https://cdn.jsdelivr.net/gh/tv-logo/tv-logos@main/countries/brazil/jovem-pan-news-br.png'],
+  [/\baparecida\b/i, 'https://cdn.jsdelivr.net/gh/tv-logo/tv-logos@main/countries/brazil/tv-aparecida-br.png'],
+  [/\brede\s*vida\b/i, 'https://cdn.jsdelivr.net/gh/tv-logo/tv-logos@main/countries/brazil/rede-vida-br.png'],
+  [/\bnovo\s*tempo\b/i, 'https://cdn.jsdelivr.net/gh/tv-logo/tv-logos@main/countries/brazil/novo-tempo-br.png'],
+  [/\bprime\s*video\b/i, 'https://i0.wp.com/www.fontedecanais.io/logos/canais/primevideo.png'],
+  [/\bcaz[eé]\s*tv\b/i, 'https://i0.wp.com/32q0d.xyz/images/caze.png'],
+  [/\bcanal\s*goat\b/i, 'https://i0.wp.com/32q0d.xyz/images/goat.png'],
+  [/\bplayboy\b/i, 'https://i.imgur.com/5di4Nis.png'],
+  [/\bsexy\s*hot\b/i, 'https://i.imgur.com/Fs8xVoY.png'],
+  [/\bvenus\b/i, 'https://i.imgur.com/4LFXPMk.png'],
+  [/\bblue\s*hustler\b/i, 'https://i.imgur.com/G1YaX0Q.png'],
+  [/\bhustler\b/i, 'https://i.imgur.com/41Ej2io.png'],
+  [/\bbrazzers\b/i, 'https://i.imgur.com/95nP0Pb.png'],
+  [/\bdorcel\b/i, 'https://i.imgur.com/RkzyjEd.png'],
+  [/\bpenthouse\b/i, 'https://i.imgur.com/lharlRZ.png'],
+  [/\bvivid\b/i, 'https://i.imgur.com/56k2iwG.png'],
+  [/\bprivate\b/i, 'https://i.imgur.com/2yt8MAA.png'],
+  [/\bredlight\b/i, 'https://i.imgur.com/g0QF5IG.png'],
+  [/\bbabes\s*tv\b|\bpure\s*babes\b/i, 'https://i.imgur.com/XK19a9v.png'],
+  [/\bvixen\b/i, 'https://i.imgur.com/4XWMriE.png'],
+  [/\bsextreme\b/i, 'https://i.imgur.com/jWsW2Rd.png'],
+  [/\bsex\s*prive\b/i, 'https://cdn.jsdelivr.net/gh/tv-logo/tv-logos@main/countries/brazil/sexprive-br.png']
+];
+
+export function normalizeLiveChannelKey(name) {
+  return String(name || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[¹²³⁴⁵⁶⁷⁸⁹⁰]/g, '')
+    .replace(/\[[^\]]*\]/g, ' ')
+    .replace(/\([^)]*\)/g, ' ')
+    .replace(/\b(?:4k|uhd|fhd|hd|sd|hevc|h\.?26[45]|1080p|720p)\b/gi, ' ')
+    .toLowerCase()
+    .replace(/[^a-z0-9+]+/g, '')
+    .trim();
+}
+
+export function resolveKnownChannelLogo(rawName, tvgId = '') {
+  const candidates = [String(rawName || '').trim(), String(tvgId || '').trim()].filter(Boolean);
+  for (const text of candidates) {
+    const cleaned = text
+      .replace(/\[[^\]]*\]/g, ' ')
+      .replace(/[¹²³⁴⁵⁶⁷⁸⁹⁰]/g, '')
+      .replace(/\b(?:4k|uhd|fhd|hd|sd|hevc|h\.?26[45]|1080p|720p)\b/gi, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    for (const [pattern, logoUrl] of KNOWN_CHANNEL_LOGOS) {
+      if (pattern.test(cleaned) || pattern.test(text)) {
+        return logoUrl;
+      }
+    }
+  }
+  return '';
+}
+
+export function buildProxyLogoFallbackUrl(failedUrl, localProxyBase = '') {
+  const u = String(failedUrl || '').trim();
+  if (!u || u === 'assets/logo.svg' || u.startsWith('data:') || u.startsWith('blob:') || u.startsWith('assets/')) {
+    return '';
+  }
+
+  const rawProxy = localProxyBase || (typeof window !== 'undefined' && typeof window.__fluiLocalProxyUrl === 'string'
+    ? window.__fluiLocalProxyUrl.trim()
+    : '');
+  const prefix = rawProxy ? (rawProxy.endsWith('/') ? rawProxy : `${rawProxy}/`) : '';
+
+  if (/\/(?:api\/)?proxy\?url=/i.test(u)) {
+    return '';
+  }
+
+  let inner = u;
+  let stage = 'direct';
+  if (/^https:\/\/wsrv\.nl\/\?url=/i.test(u)) {
+    stage = 'wsrv';
+    try {
+      inner = new URL(u).searchParams.get('url') || '';
+    } catch {
+      inner = '';
+    }
+  } else if (/^https:\/\/i0\.wp\.com\//i.test(u)) {
+    stage = 'i0';
+    inner = `https://${u.replace(/^https:\/\/i0\.wp\.com\//i, '')}`;
+  }
+
+  if (!inner) return '';
+
+  try {
+    const parsed = new URL(inner);
+    const isCustomPort = Boolean(parsed.port && parsed.port !== '80' && parsed.port !== '443');
+    const isRawIp = /^(?:\d+\.\d+\.\d+\.\d+|\[[0-9a-f:]+\])$/i.test(parsed.hostname);
+    if (isCustomPort || isRawIp) {
+      return prefix ? `${prefix}proxy?url=${encodeURIComponent(inner)}` : '';
+    }
+  } catch {
+    return '';
+  }
+
+  if (stage === 'direct') {
+    return `https://wsrv.nl/?url=${encodeURIComponent(inner)}`;
+  }
+  if (stage === 'wsrv') {
+    return `https://i0.wp.com/${inner.replace(/^https?:\/\//i, '')}`;
+  }
+  if (stage === 'i0') {
+    return prefix ? `${prefix}proxy?url=${encodeURIComponent(inner)}` : `https://wsrv.nl/?url=${encodeURIComponent(inner)}`;
+  }
+  return '';
+}
+
 export function cleanMediaTitle(rawName) {
   const raw = String(rawName || '').trim();
   const yearMatch = raw.match(/\((\d{4})\)/);
@@ -384,6 +597,17 @@ export async function resolveMediaMetadata(item, opts = {}) {
     duration: '',
     year
   };
+
+  if (kind === 'live') {
+    result.poster = resolveKnownChannelLogo(item?.name || rawName, item?.tvgId || '');
+    if (!result.poster) {
+      const cleanLive = cleanMediaTitle(item?.name || rawName).title;
+      const wiki = await fetchWikipedia(cleanLive, 'series', fetchJsonFn);
+      if (wiki?.poster) result.poster = wiki.poster;
+    }
+    metadataCache.set(cacheKey, result);
+    return result;
+  }
 
   // 1. Xtream VOD Info (para filmes)
   if (kind === 'movie' && opts.xtreamApi && item?.url) {

@@ -118,6 +118,90 @@ export class M3UParser {
   }
 
   /**
+   * Localiza a vírgula que separa os atributos #EXTINF do título do item, ignorando vírgulas entre aspas.
+   */
+  static findHeaderCommaIndex(line) {
+    if (!line || typeof line !== 'string') return -1;
+    let inQuote = false;
+    let quoteChar = '';
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+      if (!inQuote && (ch === '"' || ch === "'")) {
+        inQuote = true;
+        quoteChar = ch;
+      } else if (inQuote && ch === quoteChar) {
+        inQuote = false;
+        quoteChar = '';
+      } else if (!inQuote && ch === ',') {
+        return i;
+      }
+    }
+    return inQuote ? line.lastIndexOf(',') : -1;
+  }
+
+  /**
+   * Normaliza URLs de logos/capas para evitar falhas de DNS do provedor, hotlink 403, mixed content HTTP e hosts mortos.
+   */
+  static normalizeLogoUrl(rawUrl) {
+    let u = String(rawUrl || '').trim();
+    if (!u || u === 'assets/logo.svg') return '';
+    if (u.startsWith('data:') || u.startsWith('blob:') || u.startsWith('assets/')) return u;
+
+    // Preserva URLs já roteadas pelos proxies de imagem
+    if (/^https:\/\/(?:i0\.wp\.com|wsrv\.nl)\//i.test(u)) return u;
+
+    // Reescreve cache TMDB morto de servidores Xtream (ex: tv.factoryiptv.com:80/images/<27-char>_small.jpg)
+    const tmdbMatch = u.match(/^https?:\/\/[^/]*factoryiptv\.com(?::\d+)?\/images\/([a-zA-Z0-9]{26,32}?)(?:_(?:small|big))?\.(jpg|jpeg|png)$/i);
+    if (tmdbMatch && !/^[a-f0-9]{32}$/i.test(tmdbMatch[1])) {
+      return `https://image.tmdb.org/t/p/w600_and_h900_bestv2/${tmdbMatch[1]}.${tmdbMatch[2]}`;
+    }
+
+    try {
+      const parsed = new URL(u);
+      const host = parsed.hostname.toLowerCase();
+      if (host === 'localhost' || host === '127.0.0.1' || host === 'app.fluistream.local') {
+        return u;
+      }
+
+      // Hosts de logos mortos/expirados -> limpa para ativar o fallback imediato
+      if (/(?:^|\.)(?:s\d+\.aconvert\.com|easypr1\.com|97j91\.xyz|the-img\.xyz)$/i.test(host)) {
+        return '';
+      }
+      if (/(?:canalsaborearte\.uol\.com\.br\/wp-content\/uploads\/2024\/10\/SABOREARTE\.png|boasnovasfm\.com\.br\/admin\/assets\/img\/logo\.png|img\.elo7\.com\.br\/product\/.*maranata|tvmanabrasil\.com\/wp-content\/uploads\/2023\/05\/LOGO_TV_MANA|infonet\.com\.br\/wp-content\/uploads\/2019\/09\/legiao_boa_vontade)/i.test(u)) {
+        return '';
+      }
+
+      if (host === 'static.wikia.nocookie.net') {
+        u = u.replace(/\/revision\/latest.*$/i, '');
+      }
+
+      const isCustomPort = Boolean(parsed.port && parsed.port !== '80' && parsed.port !== '443');
+      const isRawIp = /^(?:\d+\.\d+\.\d+\.\d+|\[[0-9a-f:]+\])$/i.test(host);
+
+      if (isCustomPort || isRawIp) {
+        if (parsed.protocol === 'http:' && typeof window !== 'undefined' && typeof window.__fluiLocalProxyUrl === 'string' && window.__fluiLocalProxyUrl.trim()) {
+          const base = window.__fluiLocalProxyUrl.trim();
+          const prefix = base.endsWith('/') ? base : `${base}/`;
+          return `${prefix}proxy?url=${encodeURIComponent(u)}`;
+        }
+        return u;
+      }
+
+      // Domínios bloqueados em DNS de operadoras, com hotlink 403 ou HTTP sem TLS -> roteia via HTTPS Photon CDN
+      if (
+        /(?:^|\.)(?:fontedecanais\.(?:io|gs|live|bz)|32q0d\.xyz|sportspro\.com|static\.wikia\.nocookie\.net)$/i.test(host) ||
+        parsed.protocol === 'http:'
+      ) {
+        return `https://i0.wp.com/${u.replace(/^https?:\/\//i, '')}`;
+      }
+    } catch {
+      return '';
+    }
+
+    return u;
+  }
+
+  /**
    * Extrai atributos da linha #EXTINF
    */
   static parseExtInf(line, defaultGroup = 'Geral') {
@@ -138,8 +222,8 @@ export class M3UParser {
       hasCatchup: false
     };
 
-    // Separar parâmetros do nome (após a vírgula do header de metadados)
-    const commaIdx = line.indexOf(',');
+    // Separar parâmetros do nome (após a vírgula fora de aspas do header de metadados)
+    const commaIdx = this.findHeaderCommaIndex(line);
     let paramsPart = line;
     let titlePart = '';
 
@@ -181,7 +265,7 @@ export class M3UParser {
     item.hasCatchup = hasCatchupMode || item.catchupDays > 0 || Boolean(item.catchupSource);
 
     item.name = titlePart || item.tvgName || 'Sem Nome';
-    item.logo = item.tvgLogo || '';
+    item.logo = this.normalizeLogoUrl(item.tvgLogo) || '';
     item.rawTitle = titlePart;
     item.id = `${item.group || 'Geral'}_${item.name}`.replace(/\s+/g, '_');
 
