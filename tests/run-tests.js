@@ -131,7 +131,7 @@ await test('Todos os 3 idiomas (pt-BR, en-US, es) devem possuir o mesmo conjunto
   const enKeys = Object.keys(translations['en-US']).sort();
   const esKeys = Object.keys(translations['es']).sort();
 
-  assert.equal(ptKeys.length, 283, `Esperado exatamente 283 chaves i18n em pt-BR, obtido ${ptKeys.length}`);
+  assert.equal(ptKeys.length, 284, `Esperado exatamente 284 chaves i18n em pt-BR, obtido ${ptKeys.length}`);
   assert.deepEqual(ptKeys, enKeys, 'Chaves pt-BR e en-US devem ser idênticas');
   assert.deepEqual(ptKeys, esKeys, 'Chaves pt-BR e es devem ser idênticas');
 
@@ -2293,12 +2293,12 @@ await test('Android ExoPlayer: decoder fallback, TsExtractor IPTV flags, fallbac
   }
 });
 
-await test('StorageService: shouldRefreshProfile, intervalo autoRefreshIntervalHours e onboardingCompleted', async () => {
+await test('StorageService: shouldRefreshProfile, intervalo autoRefreshIntervalHours por perfil e onboardingCompleted', async () => {
   await withMockLocalStorage(async () => {
     const svc = new StorageService();
     const initial = svc.getSettings();
     assert.equal(initial.onboardingCompleted, false);
-    assert.equal(initial.autoRefreshIntervalHours, 6);
+    assert.equal(initial.autoRefreshIntervalHours, 24);
 
     svc.saveSettings({ onboardingCompleted: true, autoRefreshIntervalHours: 0 });
     assert.equal(svc.getSettings().onboardingCompleted, true);
@@ -2313,6 +2313,29 @@ await test('StorageService: shouldRefreshProfile, intervalo autoRefreshIntervalH
     assert.equal(svc.shouldRefreshProfile({ id: 'p_missing', type: 'xtream' }, now), true);
     assert.equal(svc.shouldRefreshProfile({ id: 'p_fresh', type: 'm3u_url', updatedAt: new Date(now - 2 * 3600000).toISOString() }, now), false);
     assert.equal(svc.shouldRefreshProfile({ id: 'p_stale', type: 'xtream', updatedAt: new Date(now - 6 * 3600000).toISOString() }, now), true);
+
+    // Timestamps numéricos (Date.now()) devem funcionar sem retornar NaN
+    assert.equal(svc.shouldRefreshProfile({ id: 'p_num_fresh', type: 'xtream', autoRefreshIntervalHours: 24, updatedAt: now - 2 * 3600000 }, now), false);
+    assert.equal(svc.shouldRefreshProfile({ id: 'p_num_stale', type: 'xtream', autoRefreshIntervalHours: 24, updatedAt: now - 25 * 3600000 }, now), true);
+
+    // Configuração independente por perfil
+    svc.saveProfile({ id: 'prof_24h', name: 'Casa 24h', type: 'xtream', autoRefreshIntervalHours: 24, updatedAt: now - 10 * 3600000, playlistUpdatedAt: now - 10 * 3600000 });
+    svc.saveProfile({ id: 'prof_6h', name: 'Sala 6h', type: 'm3u_url', autoRefreshIntervalHours: 6, updatedAt: now - 10 * 3600000, playlistUpdatedAt: now - 10 * 3600000 });
+    const saved24 = svc.getProfiles().find(p => p.id === 'prof_24h');
+    const saved6 = svc.getProfiles().find(p => p.id === 'prof_6h');
+    assert.equal(svc.shouldRefreshProfile(saved24, now), false, 'Perfil 24h não deve recarregar com 10h');
+    assert.equal(svc.shouldRefreshProfile(saved6, now), true, 'Perfil 6h deve recarregar com 10h');
+
+    svc.setActiveProfileId('prof_24h');
+    assert.equal(svc.getSettings().autoRefreshIntervalHours, 24);
+    svc.setActiveProfileId('prof_6h');
+    assert.equal(svc.getSettings().autoRefreshIntervalHours, 6);
+
+    // Edição cosmética de perfil preserva playlistUpdatedAt original
+    svc.saveProfile({ id: 'prof_24h', name: 'Casa 24h Editado', updatedAt: now });
+    const edited24 = svc.getProfiles().find(p => p.id === 'prof_24h');
+    assert.equal(edited24.playlistUpdatedAt, now - 10 * 3600000);
+    assert.equal(svc.shouldRefreshProfile(edited24, now), false);
 
     svc.saveSettings({ autoRefresh: true, autoRefreshIntervalHours: 12 });
     assert.equal(svc.shouldRefreshProfile({ id: 'p_fresh_auto', type: 'm3u_url', updatedAt: new Date(now - 60000).toISOString() }, now), true);
@@ -2507,6 +2530,8 @@ await test('Tela de Loading pós-seleção de perfil e ausência de pré-carrega
 
   // 1. Elementos HTML da tela de loading
   assert.match(html, /id="profile-loading-screen"/, 'Deve conter elemento #profile-loading-screen');
+  assert.match(html, /<span class="profile-loading-brand-text">FluiStream<\/span>/, 'Tela de loading deve exibir marca FluiStream');
+  assert.equal(/profile-loading-brand-text">\s*FLOW PLAY/i.test(html), false, 'Tela de loading não deve exibir FLOW PLAY');
   assert.match(html, /id="profile-loading-avatar"/, 'Deve conter elemento #profile-loading-avatar');
   assert.match(html, /id="profile-loading-title"[^>]*data-i18n="profileLoadingTitle"/, 'Deve conter #profile-loading-title com i18n');
   assert.match(html, /id="profile-loading-name"/, 'Deve conter #profile-loading-name');
@@ -2578,6 +2603,27 @@ await test('Testes de Correção HY300 Android / TV: Telas em %, ExoPlayer User-
 
   // 6. M3UParser deve iterar linha a linha sem replace() global duplicando strings na memória
   assert.doesNotMatch(m3uParserJs, /content\.replace\(/, 'M3UParser não deve usar replace() global em todo o conteúdo');
+});
+
+await test('Fast-path ao selecionar mesmo perfil dentro de 24h e controles de intervalo por perfil', () => {
+  const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+  const html = readFileSync(resolve(rootDir, 'src/web/index.html'), 'utf-8');
+  const appJs = readFileSync(resolve(rootDir, 'src/web/js/app.js'), 'utf-8');
+
+  assert.match(html, /id="settings-refresh-interval-select"[^>]*name="autoRefreshIntervalHours"/);
+  assert.match(html, /id="select-edit-refresh-interval"[^>]*name="editAutoRefreshIntervalHours"/);
+  assert.match(html, /<option value="24" selected>24h<\/option>/);
+  assert.match(html, /<label for="settings-refresh-interval-select"/);
+  assert.match(html, /<label for="select-edit-refresh-interval"/);
+
+  assert.match(appJs, /_preloadLastActiveProfileCache\(/);
+  assert.match(appJs, /this\._loadedProfileId/);
+  assert.match(appJs, /if\s*\(isAlreadyLoaded\s*&&\s*!needsRefresh\)\s*\{[\s\S]*?return;[\s\S]*?\}\s*\n\s*this\.closeModal\(this\.dom\.modalProfiles\);\s*\n\s*this\.showProfileLoading\(prof\);/);
+
+  for (const lang of ['pt-BR', 'en-US', 'es']) {
+    assert.ok(translations[lang].autoRefreshIntervalLabel, `${lang} deve ter autoRefreshIntervalLabel`);
+    assert.ok(translations[lang].autoRefreshIntervalHelp, `${lang} deve ter autoRefreshIntervalHelp`);
+  }
 });
 
 console.log(`\n========================================`);
