@@ -4028,6 +4028,8 @@ class FluiStreamApp {
       kind: 'app_update',
       updateVersion: ver,
       downloadUrl: info.downloadUrl || null,
+      macDmgDownloadUrl: info.macDmgDownloadUrl || null,
+      macDmgAssetName: info.macDmgAssetName || '',
       apkDownloadUrl: info.apkDownloadUrl || null,
       apkAssetName: info.apkAssetName || '',
       sha256SumsUrl: info.sha256SumsUrl || '',
@@ -4057,6 +4059,100 @@ class FluiStreamApp {
     });
   }
 
+  isMacOSPlatform() {
+    if (typeof window !== 'undefined' && window.__fluiHostPlatform === 'macos') return true;
+    if (typeof navigator === 'undefined') return false;
+    const ua = `${navigator.userAgent || ''} ${navigator.platform || ''}`;
+    if (/(?:iPhone|iPad|iPod)/i.test(ua)) return false;
+    return /(?:Macintosh|Mac OS X|MacIntel|MacPPC|Mac68K)/i.test(ua);
+  }
+
+  resolveMacDmgDownloadUrl(info) {
+    if (info?.macDmgDownloadUrl) return info.macDmgDownloadUrl;
+    if (typeof info?.downloadUrl === 'string' && info.downloadUrl.toLowerCase().endsWith('.dmg')) {
+      return info.downloadUrl;
+    }
+    const ver = String(info?.updateVersion || info?.latestVersion || '').trim().replace(/^[vV]/, '');
+    if (ver) {
+      return `https://github.com/CesarOvies/FluiStream/releases/download/v${ver}/FluiStream-v${ver}-macOS.dmg`;
+    }
+    return info?.releaseUrl || 'https://github.com/CesarOvies/FluiStream/releases/latest';
+  }
+
+  openExternalUrl(url) {
+    if (!url || typeof window === 'undefined') return;
+    const localOrigin = (typeof window.__fluiLocalProxyUrl === 'string' && window.__fluiLocalProxyUrl)
+      ? window.__fluiLocalProxyUrl
+      : (window.location?.origin?.startsWith('http://127.0.0.1') ? window.location.origin : '');
+    const isDesktopHost = !window.chrome?.webview && Boolean(
+      window.__fluiLocalHostApp ||
+      window.external?.sendMessage ||
+      window.webkit?.messageHandlers?.photinointerop ||
+      localOrigin
+    );
+
+    if (isDesktopHost) {
+      this.player?.notifyDesktopHost?.('OPEN_URL', { url });
+      if (localOrigin && typeof fetch === 'function') {
+        const base = localOrigin.replace(/\/+$/, '');
+        fetch(`${base}/api/window?action=OPEN_URL&url=${encodeURIComponent(url)}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'OPEN_URL', url })
+        }).catch(() => {});
+      }
+      return;
+    }
+
+    window.open?.(url, '_blank', 'noopener,noreferrer');
+  }
+
+  showMacUpdateInstructions(info, dmgUrl) {
+    const ver = String(info?.updateVersion || info?.latestVersion || '').trim().replace(/^[vV]/, '');
+    const assetLabel = info?.macDmgAssetName || (ver ? `FluiStream-v${ver}-macOS.dmg` : 'FluiStream-macOS.dmg');
+    const lang = i18n.currentLanguage || 'pt-BR';
+    const copyByLang = {
+      'pt-BR': {
+        summary: `Download de ${assetLabel} iniciado direto no navegador. Após concluir, abra o arquivo .dmg baixado e arraste o FluiStream para a pasta Aplicativos para atualizar.`,
+        redownload: 'Baixar DMG Novamente',
+        close: 'Entendi'
+      },
+      'en-US': {
+        summary: `Download of ${assetLabel} started directly in your browser. Once finished, open the downloaded .dmg file and drag FluiStream into Applications to update.`,
+        redownload: 'Download DMG Again',
+        close: 'Got It'
+      },
+      'es': {
+        summary: `Descarga de ${assetLabel} iniciada directamente en tu navegador. Al finalizar, abre el archivo .dmg descargado y arrastra FluiStream a la carpeta Aplicaciones para actualizar.`,
+        redownload: 'Descargar DMG de Nuevo',
+        close: 'Entendido'
+      }
+    };
+    const copy = copyByLang[lang] || copyByLang['pt-BR'];
+
+    if (this.dom?.settingsUpdateStatus) {
+      this.dom.settingsUpdateStatus.textContent = copy.summary;
+    }
+
+    if (this.dom?.modalSettingsSub && this.dom?.modalSettingsSubBody && this.dom?.modalSettingsSubTitle) {
+      this.dom.modalSettingsSubTitle.textContent = i18n.get('updateNotificationTitle');
+      this.dom.modalSettingsSubFooter?.classList.add('hidden');
+      this.dom.modalSettingsSubBody.innerHTML = `
+        <div style="display:flex; flex-direction:column; gap:0.85rem;">
+          <p style="margin:0; font-size:0.9rem; line-height:1.5; color:var(--text-primary);">${this.escapeHtml(copy.summary)}</p>
+          <div style="font-size:0.78rem; color:var(--text-secondary); word-break:break-all; background:var(--bg-surface); border:1px solid var(--border-subtle); border-radius:8px; padding:0.6rem 0.75rem;">${this.escapeHtml(dmgUrl)}</div>
+          <div style="display:flex; justify-content:flex-end; gap:0.5rem; flex-wrap:wrap; margin-top:0.25rem;">
+            <button type="button" class="btn-secondary" id="btn-mac-update-redownload">${this.escapeHtml(copy.redownload)}</button>
+            <button type="button" class="btn-amber" id="btn-mac-update-close">${this.escapeHtml(copy.close)}</button>
+          </div>
+        </div>
+      `;
+      document.getElementById('btn-mac-update-redownload')?.addEventListener('click', () => this.openExternalUrl(dmgUrl));
+      document.getElementById('btn-mac-update-close')?.addEventListener('click', () => this.closeModal(this.dom.modalSettingsSub));
+      this.openModal(this.dom.modalSettingsSub);
+    }
+  }
+
   triggerAppUpdate(info) {
     if (!info) return;
     if (window.androidBridge?.requestAppUpdate && info.apkDownloadUrl) {
@@ -4078,8 +4174,14 @@ class FluiStreamApp {
       });
       return;
     }
+    if (this.isMacOSPlatform()) {
+      const dmgUrl = this.resolveMacDmgDownloadUrl(info);
+      this.openExternalUrl(dmgUrl);
+      this.showMacUpdateInstructions(info, dmgUrl);
+      return;
+    }
     if (info.releaseUrl) {
-      window.open(info.releaseUrl, '_blank', 'noopener,noreferrer');
+      this.openExternalUrl(info.releaseUrl);
     }
   }
 
@@ -4111,7 +4213,7 @@ class FluiStreamApp {
       const dateStr = new Date(n.createdAt || Date.now()).toLocaleString(i18n.currentLanguage || 'pt-BR');
       const isUpdate = n.meta?.kind === 'app_update';
       return `
-        <div class="notification-card notif-${this.escapeHtml(n.type || 'info')}">
+        <div class="notification-card notif-${this.escapeHtml(n.type || 'info')}${isUpdate ? ' is-clickable-update' : ''}" ${isUpdate ? `data-notif-idx="${idx}" style="cursor:pointer;"` : ''}>
           <div>
             <strong style="display:block; font-size:0.9rem; color:var(--text-primary);">${this.escapeHtml(n.title)}</strong>
             <span style="font-size:0.82rem; color:var(--text-secondary);">${this.escapeHtml(n.message || '')}</span>
@@ -4125,8 +4227,17 @@ class FluiStreamApp {
     }).join('');
 
     this.dom.notificationsList.querySelectorAll('.btn-notif-update').forEach(btn => {
-      btn.addEventListener('click', () => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
         const idx = parseInt(btn.getAttribute('data-notif-idx'), 10);
+        const target = list[idx];
+        if (target?.meta) this.triggerAppUpdate(target.meta);
+      });
+    });
+
+    this.dom.notificationsList.querySelectorAll('.notification-card.is-clickable-update').forEach(card => {
+      card.addEventListener('click', () => {
+        const idx = parseInt(card.getAttribute('data-notif-idx'), 10);
         const target = list[idx];
         if (target?.meta) this.triggerAppUpdate(target.meta);
       });

@@ -210,6 +210,30 @@ jobs:
           chmod +x build-macos.sh
           ./build-macos.sh osx-arm64 "${{ needs.resolve-version.outputs.version }}"
 
+      - name: Verify macOS Bundle Version Matches Release
+        env:
+          RELEASE_VERSION: ${{ needs.resolve-version.outputs.version }}
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import os, plistlib, re, sys
+          expected = os.environ["RELEASE_VERSION"].lstrip("vV")
+          with open("dist/FluiStream.app/Contents/Info.plist", "rb") as f:
+              plist = plistlib.load(f)
+          if plist.get("CFBundleShortVersionString") != expected or plist.get("CFBundleVersion") != expected:
+              sys.exit(f"Info.plist version mismatch: {plist.get('CFBundleShortVersionString')!r} / {plist.get('CFBundleVersion')!r} != {expected!r}")
+          for rel in [
+              "dist/FluiStream.app/Contents/Resources/web/js/version.js",
+              "dist/FluiStream.app/Contents/MacOS/web/js/version.js",
+          ]:
+              with open(rel, "r", encoding="utf-8") as f:
+                  content = f.read()
+              m = re.search(r"export const APP_VERSION = '([^']+)'", content)
+              if not m or m.group(1) != expected:
+                  sys.exit(f"{rel} APP_VERSION mismatch: {m.group(1) if m else None!r} != {expected!r}")
+          print(f"Verified macOS bundle version matches release: {expected}")
+          PY
+
       - name: Upload macOS Artifacts
         uses: actions/upload-artifact@v4
         with:

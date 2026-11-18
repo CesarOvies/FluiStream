@@ -427,11 +427,16 @@ export class VideoPlayerController {
 
       if (localHostUrl && (
         action === 'TOGGLE_FULLSCREEN' || action === 'ENTER_FULLSCREEN' || action === 'EXIT_FULLSCREEN' ||
-        action === 'TOGGLE_PIP' || action === 'ENTER_PIP' || action === 'EXIT_PIP'
+        action === 'TOGGLE_PIP' || action === 'ENTER_PIP' || action === 'EXIT_PIP' ||
+        (action === 'OPEN_URL' && typeof data?.url === 'string' && data.url.length > 0)
       )) {
-        fetch(`${localHostUrl.replace(/\/+$/, '')}/api/window?action=${encodeURIComponent(action)}`, {
+        const urlParam = typeof data?.url === 'string' && data.url.length > 0
+          ? `&url=${encodeURIComponent(data.url)}`
+          : '';
+        fetch(`${localHostUrl.replace(/\/+$/, '')}/api/window?action=${encodeURIComponent(action)}${urlParam}`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' }
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action, ...data })
         }).catch(() => {});
       }
     }

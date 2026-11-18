@@ -35,12 +35,14 @@ export function isNewerVersion(latestTag, currentVer = APP_VERSION) {
 
 export function selectReleaseAssets(assets) {
   let winDownloadUrl = null;
+  let macDmgDownloadUrl = null;
+  let macDmgAssetName = null;
   let apkDownloadUrl = null;
   let apkAssetName = null;
   let sha256SumsUrl = null;
 
   if (!Array.isArray(assets)) {
-    return { winDownloadUrl, apkDownloadUrl, apkAssetName, sha256SumsUrl };
+    return { winDownloadUrl, macDmgDownloadUrl, macDmgAssetName, apkDownloadUrl, apkAssetName, sha256SumsUrl };
   }
 
   for (const a of assets) {
@@ -48,26 +50,34 @@ export function selectReleaseAssets(assets) {
     const url = a?.browser_download_url || null;
     if (!name || !url) continue;
 
+    const lower = name.toLowerCase();
     if (name.toUpperCase() === 'SHA256SUMS.TXT') {
       sha256SumsUrl = url;
-    } else if (!winDownloadUrl && name.endsWith('.zip') && name.includes('win-x64')) {
+    } else if (!winDownloadUrl && lower.endsWith('.zip') && lower.includes('win-x64')) {
       winDownloadUrl = url;
-    } else if (name.toLowerCase().endsWith('.apk')) {
-      if (!apkDownloadUrl || name.toLowerCase().includes('android')) {
+    } else if (lower.endsWith('.dmg')) {
+      if (!macDmgDownloadUrl || lower.includes('macos') || lower.includes('osx')) {
+        macDmgDownloadUrl = url;
+        macDmgAssetName = name;
+      }
+    } else if (lower.endsWith('.apk')) {
+      if (!apkDownloadUrl || lower.includes('android')) {
         apkDownloadUrl = url;
         apkAssetName = name;
       }
     }
   }
 
-  return { winDownloadUrl, apkDownloadUrl, apkAssetName, sha256SumsUrl };
+  return { winDownloadUrl, macDmgDownloadUrl, macDmgAssetName, apkDownloadUrl, apkAssetName, sha256SumsUrl };
 }
 
 export function getCurrentVersion() {
   try {
-    const nativeVer = typeof window !== 'undefined' && window.androidBridge?.getAppVersion?.();
-    if (typeof nativeVer === 'string' && nativeVer.trim()) {
-      return nativeVer.trim().replace(/^[vV]/, '');
+    if (typeof window !== 'undefined') {
+      const nativeVer = window.androidBridge?.getAppVersion?.() || window.__fluiAppVersion;
+      if (typeof nativeVer === 'string' && nativeVer.trim()) {
+        return nativeVer.trim().replace(/^[vV]/, '');
+      }
     }
   } catch {
     // Ignore bridge access errors
@@ -97,7 +107,7 @@ export async function checkForUpdate(currentVer) {
     const data = await response.json();
     const latestTag = data.tag_name || '';
     const available = isNewerVersion(latestTag, resolvedCurrentVer);
-    const { winDownloadUrl, apkDownloadUrl, apkAssetName, sha256SumsUrl } = selectReleaseAssets(data.assets);
+    const { winDownloadUrl, macDmgDownloadUrl, macDmgAssetName, apkDownloadUrl, apkAssetName, sha256SumsUrl } = selectReleaseAssets(data.assets);
 
     return {
       available,
@@ -107,6 +117,8 @@ export async function checkForUpdate(currentVer) {
       releaseNotes: data.body || '',
       releaseUrl: data.html_url || `https://github.com/${GITHUB_REPO}/releases/latest`,
       downloadUrl: winDownloadUrl,
+      macDmgDownloadUrl,
+      macDmgAssetName,
       apkDownloadUrl,
       apkAssetName,
       sha256SumsUrl
