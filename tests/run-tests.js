@@ -131,7 +131,7 @@ await test('Todos os 3 idiomas (pt-BR, en-US, es) devem possuir o mesmo conjunto
   const enKeys = Object.keys(translations['en-US']).sort();
   const esKeys = Object.keys(translations['es']).sort();
 
-  assert.equal(ptKeys.length, 283, `Esperado exatamente 283 chaves i18n em pt-BR, obtido ${ptKeys.length}`);
+  assert.equal(ptKeys.length, 284, `Esperado exatamente 284 chaves i18n em pt-BR, obtido ${ptKeys.length}`);
   assert.deepEqual(ptKeys, enKeys, 'Chaves pt-BR e en-US devem ser idênticas');
   assert.deepEqual(ptKeys, esKeys, 'Chaves pt-BR e es devem ser idênticas');
 
@@ -2293,12 +2293,12 @@ await test('Android ExoPlayer: decoder fallback, TsExtractor IPTV flags, fallbac
   }
 });
 
-await test('StorageService: shouldRefreshProfile, intervalo autoRefreshIntervalHours e onboardingCompleted', async () => {
+await test('StorageService: shouldRefreshProfile, intervalo autoRefreshIntervalHours por perfil e onboardingCompleted', async () => {
   await withMockLocalStorage(async () => {
     const svc = new StorageService();
     const initial = svc.getSettings();
     assert.equal(initial.onboardingCompleted, false);
-    assert.equal(initial.autoRefreshIntervalHours, 6);
+    assert.equal(initial.autoRefreshIntervalHours, 24);
 
     svc.saveSettings({ onboardingCompleted: true, autoRefreshIntervalHours: 0 });
     assert.equal(svc.getSettings().onboardingCompleted, true);
@@ -2313,6 +2313,29 @@ await test('StorageService: shouldRefreshProfile, intervalo autoRefreshIntervalH
     assert.equal(svc.shouldRefreshProfile({ id: 'p_missing', type: 'xtream' }, now), true);
     assert.equal(svc.shouldRefreshProfile({ id: 'p_fresh', type: 'm3u_url', updatedAt: new Date(now - 2 * 3600000).toISOString() }, now), false);
     assert.equal(svc.shouldRefreshProfile({ id: 'p_stale', type: 'xtream', updatedAt: new Date(now - 6 * 3600000).toISOString() }, now), true);
+
+    // Timestamps numéricos (Date.now()) devem funcionar sem retornar NaN
+    assert.equal(svc.shouldRefreshProfile({ id: 'p_num_fresh', type: 'xtream', autoRefreshIntervalHours: 24, updatedAt: now - 2 * 3600000 }, now), false);
+    assert.equal(svc.shouldRefreshProfile({ id: 'p_num_stale', type: 'xtream', autoRefreshIntervalHours: 24, updatedAt: now - 25 * 3600000 }, now), true);
+
+    // Configuração independente por perfil
+    svc.saveProfile({ id: 'prof_24h', name: 'Casa 24h', type: 'xtream', autoRefreshIntervalHours: 24, updatedAt: now - 10 * 3600000, playlistUpdatedAt: now - 10 * 3600000 });
+    svc.saveProfile({ id: 'prof_6h', name: 'Sala 6h', type: 'm3u_url', autoRefreshIntervalHours: 6, updatedAt: now - 10 * 3600000, playlistUpdatedAt: now - 10 * 3600000 });
+    const saved24 = svc.getProfiles().find(p => p.id === 'prof_24h');
+    const saved6 = svc.getProfiles().find(p => p.id === 'prof_6h');
+    assert.equal(svc.shouldRefreshProfile(saved24, now), false, 'Perfil 24h não deve recarregar com 10h');
+    assert.equal(svc.shouldRefreshProfile(saved6, now), true, 'Perfil 6h deve recarregar com 10h');
+
+    svc.setActiveProfileId('prof_24h');
+    assert.equal(svc.getSettings().autoRefreshIntervalHours, 24);
+    svc.setActiveProfileId('prof_6h');
+    assert.equal(svc.getSettings().autoRefreshIntervalHours, 6);
+
+    // Edição cosmética de perfil preserva playlistUpdatedAt original
+    svc.saveProfile({ id: 'prof_24h', name: 'Casa 24h Editado', updatedAt: now });
+    const edited24 = svc.getProfiles().find(p => p.id === 'prof_24h');
+    assert.equal(edited24.playlistUpdatedAt, now - 10 * 3600000);
+    assert.equal(svc.shouldRefreshProfile(edited24, now), false);
 
     svc.saveSettings({ autoRefresh: true, autoRefreshIntervalHours: 12 });
     assert.equal(svc.shouldRefreshProfile({ id: 'p_fresh_auto', type: 'm3u_url', updatedAt: new Date(now - 60000).toISOString() }, now), true);
@@ -2507,6 +2530,8 @@ await test('Tela de Loading pós-seleção de perfil e ausência de pré-carrega
 
   // 1. Elementos HTML da tela de loading
   assert.match(html, /id="profile-loading-screen"/, 'Deve conter elemento #profile-loading-screen');
+  assert.match(html, /<span class="profile-loading-brand-text">FluiStream<\/span>/, 'Tela de loading deve exibir marca FluiStream');
+  assert.equal(/profile-loading-brand-text">\s*FLOW PLAY/i.test(html), false, 'Tela de loading não deve exibir FLOW PLAY');
   assert.match(html, /id="profile-loading-avatar"/, 'Deve conter elemento #profile-loading-avatar');
   assert.match(html, /id="profile-loading-title"[^>]*data-i18n="profileLoadingTitle"/, 'Deve conter #profile-loading-title com i18n');
   assert.match(html, /id="profile-loading-name"/, 'Deve conter #profile-loading-name');
@@ -2578,6 +2603,180 @@ await test('Testes de Correção HY300 Android / TV: Telas em %, ExoPlayer User-
 
   // 6. M3UParser deve iterar linha a linha sem replace() global duplicando strings na memória
   assert.doesNotMatch(m3uParserJs, /content\.replace\(/, 'M3UParser não deve usar replace() global em todo o conteúdo');
+});
+
+await test('Fast-path ao selecionar mesmo perfil dentro de 24h e controles de intervalo por perfil', () => {
+  const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+  const html = readFileSync(resolve(rootDir, 'src/web/index.html'), 'utf-8');
+  const appJs = readFileSync(resolve(rootDir, 'src/web/js/app.js'), 'utf-8');
+
+  assert.match(html, /id="settings-refresh-interval-select"[^>]*name="autoRefreshIntervalHours"/);
+  assert.match(html, /id="select-edit-refresh-interval"[^>]*name="editAutoRefreshIntervalHours"/);
+  assert.match(html, /<option value="24" selected>24h<\/option>/);
+  assert.match(html, /<label for="settings-refresh-interval-select"/);
+  assert.match(html, /<label for="select-edit-refresh-interval"/);
+
+  assert.match(appJs, /_preloadLastActiveProfileCache\(/);
+  assert.match(appJs, /this\._loadedProfileId/);
+  assert.match(appJs, /if\s*\(isAlreadyLoaded\s*&&\s*!needsRefresh\)\s*\{[\s\S]*?return;[\s\S]*?\}\s*\n\s*this\.closeModal\(this\.dom\.modalProfiles\);\s*\n\s*this\.showProfileLoading\(prof\);/);
+
+  for (const lang of ['pt-BR', 'en-US', 'es']) {
+    assert.ok(translations[lang].autoRefreshIntervalLabel, `${lang} deve ter autoRefreshIntervalLabel`);
+    assert.ok(translations[lang].autoRefreshIntervalHelp, `${lang} deve ter autoRefreshIntervalHelp`);
+  }
+});
+
+await test('Home Hub D-Pad alcança .btn-bento-refresh via ArrowDown, navega horizontalmente entre refreshes e preserva foco após atualizar', async () => {
+  const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+  const appJs = readFileSync(resolve(rootDir, 'src/web/js/app.js'), 'utf-8');
+  const { runInNewContext } = await import('node:vm');
+
+  const extractMethod = (name) => {
+    const start = appJs.indexOf(`  ${name}(`);
+    assert.ok(start >= 0, `Método ${name} deve existir em app.js`);
+    let i = appJs.indexOf('{', start);
+    let depth = 0;
+    for (; i < appJs.length; i++) {
+      const ch = appJs[i];
+      if (ch === '{') depth++;
+      else if (ch === '}') {
+        depth--;
+        if (depth === 0) return appJs.slice(start, i + 1);
+      }
+    }
+    throw new Error(`Fechamento de chaves não encontrado para ${name}`);
+  };
+
+  let activeEl = null;
+  const makeNode = ({ id = '', tagName = 'DIV', classes = [], rect = { left: 0, right: 0, top: 0, bottom: 0, width: 0, height: 0 }, parent = null }) => {
+    const classSet = new Set(classes);
+    const el = {
+      id,
+      tagName,
+      disabled: false,
+      children: [],
+      dataset: {},
+      classList: {
+        contains: (c) => classSet.has(c),
+        add: (c) => classSet.add(c),
+        remove: (c) => classSet.delete(c)
+      },
+      focus: () => { activeEl = el; },
+      scrollIntoView: () => {},
+      getBoundingClientRect: () => rect,
+      contains: (other) => {
+        let cur = other;
+        while (cur) {
+          if (cur === el) return true;
+          cur = cur.parent;
+        }
+        return false;
+      },
+      closest: (sel) => {
+        const tokens = sel.split(',').map(s => s.trim());
+        let cur = el;
+        while (cur) {
+          if (tokens.some(t => t.startsWith('.') && cur.classList.contains(t.slice(1)))) return cur;
+          cur = cur.parent;
+        }
+        return null;
+      },
+      matches: (sel) => sel.split(',').some(t => {
+        const tok = t.trim();
+        if (tok.startsWith('.')) return el.classList.contains(tok.slice(1));
+        if (tok.startsWith('#')) return el.id === tok.slice(1);
+        return false;
+      }),
+      querySelectorAll: (sel) => {
+        const out = [];
+        const walk = (node) => {
+          for (const child of node.children) {
+            if (child.matches(sel)) out.push(child);
+            walk(child);
+          }
+        };
+        walk(el);
+        return out;
+      },
+      querySelector: (sel) => el.querySelectorAll(sel)[0] || null,
+      parent
+    };
+    if (parent) parent.children.push(el);
+    return el;
+  };
+
+  const mainLayout = makeNode({ id: 'main-layout', rect: { left: 0, right: 1280, top: 64, bottom: 720, width: 1280, height: 656 } });
+  const heroRow = makeNode({ classes: ['home-hero-row'], rect: { left: 24, right: 806, top: 80, bottom: 240, width: 782, height: 160 }, parent: mainLayout });
+
+  const bentoLive = makeNode({ id: 'bento-live', classes: ['bento-card'], rect: { left: 24, right: 274, top: 80, bottom: 240, width: 250, height: 160 }, parent: heroRow });
+  const footerLive = makeNode({ classes: ['bento-card-footer'], rect: { left: 42, right: 256, top: 190, bottom: 228, width: 214, height: 38 }, parent: bentoLive });
+  const btnRefreshLive = makeNode({ id: 'btn-refresh-live', tagName: 'BUTTON', classes: ['btn-bento-refresh'], rect: { left: 218, right: 256, top: 190, bottom: 228, width: 38, height: 38 }, parent: footerLive });
+
+  const bentoMovie = makeNode({ id: 'bento-movie', classes: ['bento-card'], rect: { left: 290, right: 540, top: 80, bottom: 240, width: 250, height: 160 }, parent: heroRow });
+  const footerMovie = makeNode({ classes: ['bento-card-footer'], rect: { left: 308, right: 522, top: 190, bottom: 228, width: 214, height: 38 }, parent: bentoMovie });
+  const btnRefreshMovies = makeNode({ id: 'btn-refresh-movies', tagName: 'BUTTON', classes: ['btn-bento-refresh'], rect: { left: 484, right: 522, top: 190, bottom: 228, width: 38, height: 38 }, parent: footerMovie });
+
+  const bentoSeries = makeNode({ id: 'bento-series', classes: ['bento-card'], rect: { left: 556, right: 806, top: 80, bottom: 240, width: 250, height: 160 }, parent: heroRow });
+  const footerSeries = makeNode({ classes: ['bento-card-footer'], rect: { left: 574, right: 788, top: 190, bottom: 228, width: 214, height: 38 }, parent: bentoSeries });
+  const btnRefreshSeries = makeNode({ id: 'btn-refresh-series', tagName: 'BUTTON', classes: ['btn-bento-refresh'], rect: { left: 750, right: 788, top: 190, bottom: 228, width: 38, height: 38 }, parent: footerSeries });
+
+  const tileLiveEpg = makeNode({ id: 'btn-home-live-epg', tagName: 'BUTTON', classes: ['gradient-tile'], rect: { left: 24, right: 407, top: 256, bottom: 330, width: 383, height: 74 }, parent: mainLayout });
+  const tileFavourite = makeNode({ id: 'btn-home-favourite', tagName: 'BUTTON', classes: ['gradient-tile'], rect: { left: 423, right: 806, top: 256, bottom: 330, width: 383, height: 74 }, parent: mainLayout });
+
+  const mockDoc = {
+    body: mainLayout,
+    get activeElement() { return activeEl; },
+    getElementById: (id) => (id === 'main-layout' ? mainLayout : null),
+    querySelector: () => null,
+    querySelectorAll: () => []
+  };
+
+  const HomeNav = runInNewContext(`(() => class HomeNav {
+    constructor() { this.dom = {}; }
+    _isTvNavigationMode() { return true; }
+    _isTextEntryElement() { return false; }
+    maybeAutoLoadMoreForElement() {}
+    ${extractMethod('moveSpatialFocus')}
+  })()`, { document: mockDoc });
+  const nav = new HomeNav();
+
+  // 1. ArrowDown em #bento-live foca #btn-refresh-live (não #btn-home-live-epg)
+  bentoLive.focus();
+  assert.equal(nav.moveSpatialFocus('ArrowDown', false), true);
+  assert.equal(activeEl, btnRefreshLive);
+
+  // 2. ArrowDown em #btn-refresh-live desce para #btn-home-live-epg
+  assert.equal(nav.moveSpatialFocus('ArrowDown', false), true);
+  assert.equal(activeEl, tileLiveEpg);
+
+  // 3. ArrowUp em #btn-home-live-epg volta para #btn-refresh-live
+  assert.equal(nav.moveSpatialFocus('ArrowUp', false), true);
+  assert.equal(activeEl, btnRefreshLive);
+
+  // 4. ArrowRight / ArrowLeft navegam entre #btn-refresh-live, #btn-refresh-movies e #btn-refresh-series
+  assert.equal(nav.moveSpatialFocus('ArrowRight', false), true);
+  assert.equal(activeEl, btnRefreshMovies);
+  assert.equal(nav.moveSpatialFocus('ArrowRight', false), true);
+  assert.equal(activeEl, btnRefreshSeries);
+  assert.equal(nav.moveSpatialFocus('ArrowLeft', false), true);
+  assert.equal(activeEl, btnRefreshMovies);
+  assert.equal(nav.moveSpatialFocus('ArrowLeft', false), true);
+  assert.equal(activeEl, btnRefreshLive);
+
+  // 5. ArrowUp em #btn-refresh-live volta para #bento-live; ArrowRight fica na linha de cards
+  assert.equal(nav.moveSpatialFocus('ArrowUp', false), true);
+  assert.equal(activeEl, bentoLive);
+  assert.equal(nav.moveSpatialFocus('ArrowRight', false), true);
+  assert.equal(activeEl, bentoMovie);
+
+  // 6. ArrowUp em #btn-home-favourite também alcança .btn-bento-refresh
+  tileFavourite.focus();
+  assert.equal(nav.moveSpatialFocus('ArrowUp', false), true);
+  assert.ok(activeEl === btnRefreshMovies || activeEl === btnRefreshSeries);
+
+  // 7. refreshHomePlaylist restaura foco em clickedBtn após reabilitar os botões
+  assert.match(appJs, /const hadFocus = typeof document !== 'undefined' && document\.activeElement === clickedBtn;/);
+  assert.match(appJs, /if \(hadFocus && !clickedBtn\.disabled\) \{\s*clickedBtn\.focus\(\{ preventScroll: true \}\);\s*\}/);
 });
 
 console.log(`\n========================================`);

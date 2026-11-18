@@ -71,6 +71,9 @@ class FluiStreamApp {
     this._playerIdleTimer = null;
     this._isPlayerPlaying = false;
     this._syncingProfileIds = new Set();
+    this._loadedProfileId = null;
+    this._loadedEpgProfileId = null;
+    this._preloadActiveProfilePromise = null;
 
     this.init();
   }
@@ -245,6 +248,7 @@ class FluiStreamApp {
       settingsTileGrid: document.getElementById('settings-tile-grid'),
       tileTimeFormatSub: document.getElementById('tile-time-format-sub'),
       tileStreamFormatSub: document.getElementById('tile-stream-format-sub'),
+      tileAutomationSub: document.getElementById('tile-automation-sub'),
       tileParentalSub: document.getElementById('tile-parental-sub'),
       tileDeviceModeSub: document.getElementById('tile-device-mode-sub'),
       tileSpeedtestSub: document.getElementById('tile-speedtest-sub'),
@@ -259,6 +263,7 @@ class FluiStreamApp {
       settingsPlayerEngineSelect: document.getElementById('settings-player-engine-select'),
       settingsPlayerEngineNotice: document.getElementById('settings-player-engine-notice'),
       settingsHistoryLimitSelect: document.getElementById('settings-history-limit-select'),
+      settingsRefreshIntervalSelect: document.getElementById('settings-refresh-interval-select'),
       btnSaveSettings: document.getElementById('btn-save-settings'),
       btnClearHistory: document.getElementById('btn-clear-history'),
       settingsHistoryStatus: document.getElementById('settings-history-status'),
@@ -374,6 +379,7 @@ class FluiStreamApp {
       inputEditExternalEpg: document.getElementById('input-edit-external-epg'),
       selectEditStreamMode: document.getElementById('select-edit-stream-mode'),
       selectEditPlayerEngine: document.getElementById('select-edit-player-engine'),
+      selectEditRefreshInterval: document.getElementById('select-edit-refresh-interval'),
       editPlayerEngineNotice: document.getElementById('edit-player-engine-notice'),
       editProfileAdvancedDetails: document.getElementById('edit-profile-advanced-details'),
       inputEditCorsProxy: document.getElementById('input-edit-cors-proxy'),
@@ -737,6 +743,10 @@ class FluiStreamApp {
         direct: i18n.get('playerStreamDirect')
       };
       this.dom.tileStreamFormatSub.textContent = modeMap[cfg.streamMode || 'auto'] || modeMap.auto;
+    }
+    if (this.dom.tileAutomationSub) {
+      const intervalHrs = cfg.autoRefreshIntervalHours || 24;
+      this.dom.tileAutomationSub.textContent = `${intervalHrs}h • ${i18n.get('autoPlayNextLabel')}`;
     }
     if (this.dom.tileDeviceModeSub) {
       const mode = cfg.deviceMode || 'auto';
@@ -1474,7 +1484,11 @@ class FluiStreamApp {
         if (this.dom.settingsHistoryLimitSelect) {
           cfg.historyLimit = parseInt(this.dom.settingsHistoryLimitSelect.value, 10) || 30;
         }
+        if (this.dom.settingsRefreshIntervalSelect) {
+          cfg.autoRefreshIntervalHours = parseInt(this.dom.settingsRefreshIntervalSelect.value, 10) || 24;
+        }
         storage.saveSettings(cfg);
+        this.updateSettingsTileSubtitles();
         this.closeModal(this.dom.modalSettings);
         if (this.activeScreen === 'home') this.renderHomeHub();
         if (this.activeScreen === 'browse') this.renderSidebarPanel();
@@ -2173,6 +2187,24 @@ class FluiStreamApp {
           if (lr && lr.width > 0 && lr.height > 0) return lr;
         }
       }
+      if (el?.classList?.contains('bento-card')) {
+        const r = el.getBoundingClientRect();
+        const footer = el.querySelector('.bento-card-footer');
+        if (footer) {
+          const fr = footer.getBoundingClientRect();
+          if (fr.top > r.top + 8) {
+            return {
+              left: r.left,
+              right: r.right,
+              top: r.top,
+              bottom: fr.top,
+              width: r.width,
+              height: fr.top - r.top
+            };
+          }
+        }
+        return r;
+      }
       return el.getBoundingClientRect();
     };
 
@@ -2218,6 +2250,8 @@ class FluiStreamApp {
         || (el.classList.contains('bento-card') && current.classList.contains('btn-bento-refresh') && el.contains(current));
 
       if (isVertical && (current.contains(el) || el.contains(current)) && !isParentChildBento) continue;
+      if (!isVertical && isParentChildBento) continue;
+      if (!isVertical && ((current.classList.contains('btn-bento-refresh') && el.classList.contains('bento-card')) || (current.classList.contains('bento-card') && el.classList.contains('btn-bento-refresh'))) && el.closest('.home-hero-row')) continue;
       const elZone = getModalZone(el);
       if (direction === 'ArrowDown' && elZone < curZone) continue;
       if (direction === 'ArrowUp' && elZone > curZone) continue;
@@ -2237,32 +2271,48 @@ class FluiStreamApp {
       let centerDrift = 0;
 
       const inMsGrid = Boolean(current.closest('.multiscreen-grid') && el.closest('.multiscreen-grid'));
-      if (direction === 'ArrowRight' && x > curX + 4 && (r.right > curRect.right - 2 || (isParentChildBento && current.contains(el)))) {
+      if (direction === 'ArrowDown' && current.classList.contains('bento-card') && el.classList.contains('btn-bento-refresh') && current.contains(el)) {
+        valid = true;
+        edgeGap = 0;
+        perpGap = 0;
+        centerDrift = 0;
+      } else if (direction === 'ArrowUp' && current.classList.contains('btn-bento-refresh') && el.classList.contains('bento-card') && el.contains(current)) {
+        valid = true;
+        edgeGap = 0;
+        perpGap = 0;
+        centerDrift = 0;
+      } else if (direction === 'ArrowRight' && x > curX + 4 && r.right > curRect.right - 2) {
         perpGap = overlapY > 0 ? 0 : (r.top >= curRect.bottom ? r.top - curRect.bottom : curRect.top - r.bottom);
         if ((!inMsGrid && perpGap > 72) || (isModalOpen && current.closest('.modal-body, .modal-footer') && el.closest('.modal-header'))) continue;
         valid = true;
-        edgeGap = isParentChildBento ? Math.abs(dx) : (r.left - curRect.right);
+        edgeGap = r.left - curRect.right;
         centerDrift = Math.abs(dy);
-      } else if (direction === 'ArrowLeft' && x < curX - 4 && (r.left < curRect.left + 2 || (isParentChildBento && el.contains(current)))) {
+      } else if (direction === 'ArrowLeft' && x < curX - 4 && r.left < curRect.left + 2) {
         perpGap = overlapY > 0 ? 0 : (r.top >= curRect.bottom ? r.top - curRect.bottom : curRect.top - r.bottom);
         if ((!inMsGrid && perpGap > 72) || (isModalOpen && current.closest('.modal-body, .modal-footer') && el.closest('.modal-header'))) continue;
         valid = true;
-        edgeGap = isParentChildBento ? Math.abs(dx) : (curRect.left - r.right);
+        edgeGap = curRect.left - r.right;
         centerDrift = Math.abs(dy);
-      } else if (direction === 'ArrowDown' && (elZone > curZone || (y > curY + 4 && (r.bottom > curRect.bottom - 2 || (isParentChildBento && current.contains(el)))))) {
+      } else if (direction === 'ArrowDown' && (elZone > curZone || (y > curY + 4 && r.bottom > curRect.bottom - 2))) {
         valid = true;
-        edgeGap = isParentChildBento ? Math.max(0, r.top - curY) : (r.top - curRect.bottom);
+        edgeGap = r.top - curRect.bottom;
         perpGap = overlapX > 0 ? 0 : (r.left >= curRect.right ? r.left - curRect.right : curRect.left - r.right);
         centerDrift = Math.abs(dx);
-      } else if (direction === 'ArrowUp' && (elZone < curZone || (y < curY - 4 && (r.top < curRect.top + 2 || (isParentChildBento && el.contains(current)))))) {
+      } else if (direction === 'ArrowUp' && (elZone < curZone || (y < curY - 4 && r.top < curRect.top + 2))) {
         valid = true;
-        edgeGap = isParentChildBento ? Math.max(0, curY - r.bottom) : (curRect.top - r.bottom);
+        edgeGap = curRect.top - r.bottom;
         perpGap = overlapX > 0 ? 0 : (r.left >= curRect.right ? r.left - curRect.right : curRect.left - r.right);
         centerDrift = Math.abs(dx);
       }
       if (!valid) continue;
 
       validCandidates.push({ el, edgeGap, perpGap, centerDrift, zone: elZone });
+    }
+
+    if (!isVertical && validCandidates.length > 0 && (current.classList.contains('btn-bento-refresh') || current.closest('.home-hero-row'))) {
+      if (validCandidates.some(c => c.perpGap === 0)) {
+        validCandidates = validCandidates.filter(c => c.perpGap === 0);
+      }
     }
 
     if (isModalOpen && isVertical && validCandidates.length > 0) {
@@ -2992,6 +3042,16 @@ class FluiStreamApp {
       }
       this.dom.settingsHistoryLimitSelect.value = limitStr;
     }
+    if (this.dom.settingsRefreshIntervalSelect) {
+      const intervalStr = String(cfg.autoRefreshIntervalHours || 24);
+      if (![...this.dom.settingsRefreshIntervalSelect.options].some(o => o.value === intervalStr)) {
+        const opt = document.createElement('option');
+        opt.value = intervalStr;
+        opt.textContent = `${intervalStr}h`;
+        this.dom.settingsRefreshIntervalSelect.appendChild(opt);
+      }
+      this.dom.settingsRefreshIntervalSelect.value = intervalStr;
+    }
     if (this.dom.settingsPlayerEngineSelect) {
       const effectiveEngine = this._syncPlayerEngineSelect(this.dom.settingsPlayerEngineSelect, cfg.playerEngine || 'hls');
       this.updatePlayerEngineNotice(effectiveEngine, this.dom.settingsPlayerEngineNotice);
@@ -3104,7 +3164,7 @@ class FluiStreamApp {
 
   openAutomationSubModal() {
     const cfg = storage.getSettings();
-    const interval = Number(cfg.autoRefreshIntervalHours) || 6;
+    const interval = Number(cfg.autoRefreshIntervalHours) || 24;
     this.dom.modalSettingsSubTitle.textContent = i18n.get('settingsAutomation');
     this.dom.modalSettingsSubFooter.classList.remove('hidden');
     this.dom.modalSettingsSubBody.innerHTML = `
@@ -3114,9 +3174,10 @@ class FluiStreamApp {
       </label>
       <div class="form-group">
         <label for="sub-auto-refresh-interval">${this.escapeHtml(i18n.get('autoRefreshIntervalLabel'))}</label>
-        <select id="sub-auto-refresh-interval" class="form-control">
-          ${[1, 3, 6, 12, 24].map(h => `<option value="${h}" ${interval === h ? 'selected' : ''}>${h}h</option>`).join('')}
+        <select id="sub-auto-refresh-interval" name="autoRefreshIntervalHours" class="form-control" aria-describedby="sub-auto-refresh-help">
+          ${[1, 3, 6, 12, 24, 48, 72, 168].map(h => `<option value="${h}" ${interval === h ? 'selected' : ''}>${h}h</option>`).join('')}
         </select>
+        <p class="help-text" id="sub-auto-refresh-help">${this.escapeHtml(i18n.get('autoRefreshIntervalHelp'))}</p>
       </div>
       <label class="checkbox-label">
         <input type="checkbox" id="sub-auto-play-next" ${cfg.autoPlayNext !== false ? 'checked' : ''} />
@@ -3124,12 +3185,13 @@ class FluiStreamApp {
       </label>
     `;
     this.dom.btnSaveSettingsSub.onclick = () => {
-      const nextInterval = parseInt(document.getElementById('sub-auto-refresh-interval')?.value || '6', 10);
+      const nextInterval = parseInt(document.getElementById('sub-auto-refresh-interval')?.value || '24', 10);
       storage.saveSettings({
         autoRefresh: Boolean(document.getElementById('sub-auto-refresh')?.checked),
-        autoRefreshIntervalHours: Number.isFinite(nextInterval) ? nextInterval : 6,
+        autoRefreshIntervalHours: Number.isFinite(nextInterval) ? nextInterval : 24,
         autoPlayNext: Boolean(document.getElementById('sub-auto-play-next')?.checked)
       });
+      this.updateSettingsTileSubtitles();
       this.closeModal(this.dom.modalSettingsSub);
     };
     this.openModal(this.dom.modalSettingsSub);
@@ -4262,6 +4324,43 @@ class FluiStreamApp {
     if (this.dom.headerProfileName) {
       this.dom.headerProfileName.textContent = activeProfile?.name || 'Perfil';
     }
+    if (activeProfile) {
+      this._preloadActiveProfilePromise = this._preloadLastActiveProfileCache(activeProfile);
+    }
+  }
+
+  async _preloadLastActiveProfileCache(activeProfile) {
+    if (!activeProfile?.id) return;
+    try {
+      const saved = await storage.loadPlaylist(activeProfile.id);
+      if (!saved || !Array.isArray(saved.items) || saved.items.length === 0) return;
+
+      if (!activeProfile.playlistUpdatedAt && !activeProfile.updatedAt && saved.updatedAt) {
+        activeProfile.playlistUpdatedAt = saved.updatedAt;
+        activeProfile.updatedAt = saved.updatedAt;
+        storage.saveProfile(activeProfile);
+      }
+
+      if (!saved.items[0]?.id) {
+        M3UParser.ensureUniqueItemIds(saved.items);
+      }
+
+      if (!this._loadedProfileId) {
+        this.playlist = saved;
+        this._loadedProfileId = activeProfile.id;
+      }
+
+      if (this._loadedEpgProfileId !== activeProfile.id) {
+        const rawEpg = await storage.loadEpg(activeProfile.id);
+        if (rawEpg) {
+          this.epg.parse(rawEpg);
+          this.updateCurrentEpgDisplay();
+          this._loadedEpgProfileId = activeProfile.id;
+        }
+      }
+    } catch (err) {
+      console.warn('[PreloadCache] Failed to preload last active profile cache:', err);
+    }
   }
 
   openOnboardingModal() {
@@ -4498,6 +4597,8 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
       streamMode: profileMeta?.streamMode || this.dom.streamModeSelect?.value || 'auto',
       playerEngine: profileMeta?.playerEngine || this.dom.playerEngineSelect?.value || (isDesktop ? 'vlc' : 'hls'),
       corsProxy: profileMeta?.corsProxy || cfg.corsProxy || '',
+      autoRefresh: profileMeta?.autoRefresh ?? false,
+      autoRefreshIntervalHours: profileMeta?.autoRefreshIntervalHours ?? cfg.autoRefreshIntervalHours ?? 24,
       epgUrl: externalEpgUrl || profileMeta?.epgUrl || parsed.epgUrl || null,
       externalEpgUrl: externalEpgUrl || parsed.epgUrl,
       accountInfo: profileMeta?.accountInfo || {
@@ -4511,6 +4612,8 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
       },
       summary: parsed.summary,
       sectionUpdatedAt: { [ItemType.LIVE]: Date.now(), [ItemType.MOVIE]: Date.now(), [ItemType.SERIES]: Date.now() },
+      updatedAt: Date.now(),
+      playlistUpdatedAt: Date.now(),
       createdAt: profileMeta?.createdAt || Date.now()
     };
 
@@ -4531,6 +4634,7 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
 
     if (!background || isStillActive) {
       this.playlist = nextPlaylist;
+      this._loadedProfileId = profile.id;
       if (this.dom.headerProfileName) {
         this.dom.headerProfileName.textContent = profile.name;
       }
@@ -4542,6 +4646,7 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
       if (!background || isStillActive) {
         this.epg.parse(embeddedXmltv);
         this.updateCurrentEpgDisplay();
+        this._loadedEpgProfileId = profile.id;
       }
     } else if (shouldFetchEpg) {
       setTimeout(() => {
@@ -4567,6 +4672,7 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
         if (!background || targetProfileId === storage.getActiveProfileId()) {
           this.epg.parse(xml);
           this.updateCurrentEpgDisplay();
+          this._loadedEpgProfileId = targetProfileId;
           const totalProgs = Array.from(this.epg.programmes.values()).reduce((acc, p) => acc + p.length, 0);
           if (this.dom.epgStatusBadge) this.dom.epgStatusBadge.textContent = `EPG: ${totalProgs} progs`;
           if (!background) {
@@ -4658,6 +4764,8 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
   async handleProfileLogout() {
     const activeProf = storage.getActiveProfile();
     if (activeProf && confirm(`Deseja sair do perfil "${activeProf.name}"?`)) {
+      if (this._loadedProfileId === activeProf.id) this._loadedProfileId = null;
+      if (this._loadedEpgProfileId === activeProf.id) this._loadedEpgProfileId = null;
       await storage.deleteProfile(activeProf.id);
       this.closeModal(this.dom.modalAccount);
       const remaining = storage.getProfiles();
@@ -4666,6 +4774,8 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
       } else {
         this.stopPlayback();
         this.playlist = { items: [], summary: { total: 0, live: 0, movies: 0, series: 0 }, name: '' };
+        this._loadedProfileId = null;
+        this._loadedEpgProfileId = null;
         this.navigateToScreen('empty');
       }
     }
@@ -4722,7 +4832,7 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
       this.dom.modalProfilesTitle.textContent = i18n.get(titleKey);
     }
     if (this.dom.btnCloseProfiles) {
-      this.dom.btnCloseProfiles.style.display = (isStartup && (!this.playlist?.items || this.playlist.items.length === 0)) ? 'none' : '';
+      this.dom.btnCloseProfiles.style.display = (isStartup && (this.activeScreen === 'empty' || !this.playlist?.items || this.playlist.items.length === 0)) ? 'none' : '';
     }
     if (!this.dom.profilesGrid) return;
 
@@ -4784,12 +4894,17 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
         btn.addEventListener('click', async (e) => {
           e.stopPropagation();
           if (confirm(i18n.get('confirmDeleteProfile'))) {
-            await storage.deleteProfile(btn.getAttribute('data-del-id'));
+            const deletedId = btn.getAttribute('data-del-id');
+            if (this._loadedProfileId === deletedId) this._loadedProfileId = null;
+            if (this._loadedEpgProfileId === deletedId) this._loadedEpgProfileId = null;
+            await storage.deleteProfile(deletedId);
             const remaining = storage.getProfiles();
             if (remaining.length > 0) await this.switchProfile(remaining[0].id);
             else {
               this.stopPlayback();
               this.playlist = { items: [], summary: { total: 0, live: 0, movies: 0, series: 0 }, name: '' };
+              this._loadedProfileId = null;
+              this._loadedEpgProfileId = null;
               this.navigateToScreen('empty');
             }
             this.openProfilesModal();
@@ -4846,9 +4961,42 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
 
   async switchProfile(profileId) {
     if (!profileId) return;
+    const prevActiveId = storage.getActiveProfileId();
+    const isSameAsLastActive = Boolean(prevActiveId && prevActiveId === profileId);
+    if (isSameAsLastActive && this._preloadActiveProfilePromise) {
+      await this._preloadActiveProfilePromise;
+    }
+
     const profiles = storage.getProfiles();
     const prof = profiles.find(p => p.id === profileId) || storage.getActiveProfile();
     if (!prof) return;
+
+    const isAlreadyLoaded = this._loadedProfileId === prof.id && Array.isArray(this.playlist?.items) && this.playlist.items.length > 0;
+    const needsRefresh = storage.shouldRefreshProfile(prof);
+
+    if (isAlreadyLoaded && !needsRefresh) {
+      this.closeModal(this.dom.modalProfiles);
+      storage.setActiveProfileId(prof.id);
+      if (this.dom.headerProfileName) {
+        this.dom.headerProfileName.textContent = prof.name || 'Perfil';
+      }
+      if (prof.streamMode && this.dom.streamModeSelect) {
+        this.dom.streamModeSelect.value = prof.streamMode;
+      }
+      if (prof.playerEngine && this.dom.playerEngineSelect) {
+        this.dom.playerEngineSelect.value = prof.playerEngine;
+      }
+      if (prof.playerEngine === 'hls') {
+        this.ensureLocalProxyStarted();
+      }
+      if (this._loadedEpgProfileId !== prof.id && prof.epgUrl) {
+        this._loadedEpgProfileId = prof.id;
+        this.fetchAndParseEpg(prof.epgUrl, prof.id, { background: true }).catch(() => {});
+      }
+      this.parentalUnlocked = false;
+      this.navigateToScreen('home');
+      return;
+    }
 
     this.closeModal(this.dom.modalProfiles);
     this.showProfileLoading(prof);
@@ -4870,17 +5018,24 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
       }
 
       this.updateProfileLoadingStatus(i18n.get('profileLoadingInit') || 'Iniciando perfil...', 20);
-      await this._loadingTick(60);
+      await this._loadingTick(40);
 
       this.updateProfileLoadingStatus(i18n.get('profileLoadingReading') || 'Carregando lista de canais...', 35);
-      await this._loadingTick(60);
+      await this._loadingTick(40);
 
-      let saved = await storage.loadPlaylist(prof.id);
+      let saved = (this._loadedProfileId === prof.id && Array.isArray(this.playlist?.items) && this.playlist.items.length > 0)
+        ? this.playlist
+        : await storage.loadPlaylist(prof.id);
+      if (saved?.items?.length > 0 && !prof.playlistUpdatedAt && !prof.updatedAt && saved.updatedAt) {
+        prof.playlistUpdatedAt = saved.updatedAt;
+        prof.updatedAt = saved.updatedAt;
+        storage.saveProfile(prof);
+      }
       const isRemote = prof.type === 'xtream' || prof.type === 'm3u_url';
       const hasNoItems = !saved || !saved.items || saved.items.length === 0;
-      const needsRefresh = storage.shouldRefreshProfile(prof);
+      const shouldReloadRemote = storage.shouldRefreshProfile(prof);
 
-      if (isRemote && (hasNoItems || needsRefresh)) {
+      if (isRemote && (hasNoItems || shouldReloadRemote)) {
         this.updateProfileLoadingStatus(
           hasNoItems ? (i18n.get('statusParsingM3u') || 'Baixando canais...') : (i18n.get('profileLoadingSyncing') || 'Sincronizando conteúdo...'),
           55
@@ -4895,39 +5050,46 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
       }
 
       this.updateProfileLoadingStatus(i18n.get('profileLoadingProcessing') || 'Processando categorias e canais...', 75);
-      await this._loadingTick(50);
+      await this._loadingTick(40);
 
       if (saved && saved.items && saved.items.length > 0) {
-        M3UParser.ensureUniqueItemIds(saved.items);
+        if (!saved.items[0]?.id) {
+          M3UParser.ensureUniqueItemIds(saved.items);
+        }
         this.playlist = saved;
+        this._loadedProfileId = prof.id;
       } else if (this.playlist && this.playlist.items && this.playlist.items.length > 0 && storage.getActiveProfileId() === prof.id) {
         // Already populated by reloadRemoteProfileData
+        this._loadedProfileId = prof.id;
       } else {
         this.playlist = { items: [], summary: { total: 0, live: 0, movies: 0, series: 0 }, name: prof.name || '' };
+        this._loadedProfileId = null;
       }
 
       this.updateProfileLoadingStatus(i18n.get('profileLoadingEpg') || 'Carregando guia de programação (EPG)...', 88);
-      await this._loadingTick(50);
+      await this._loadingTick(40);
 
-      const rawEpg = await storage.loadEpg(prof.id);
-      if (rawEpg) {
-        this.epg.parse(rawEpg);
-        this.updateCurrentEpgDisplay();
-      } else if (prof.epgUrl) {
-        try {
-          await this.fetchAndParseEpg(prof.epgUrl, prof.id, { background: true });
-        } catch (_) {}
-      } else {
-        this.epg.channels.clear();
-        this.epg.programmes.clear();
+      if (this._loadedEpgProfileId !== prof.id) {
+        const rawEpg = await storage.loadEpg(prof.id);
+        if (rawEpg) {
+          this.epg.parse(rawEpg);
+          this.updateCurrentEpgDisplay();
+          this._loadedEpgProfileId = prof.id;
+        } else if (prof.epgUrl) {
+          this._loadedEpgProfileId = prof.id;
+          this.fetchAndParseEpg(prof.epgUrl, prof.id, { background: true }).catch(() => {});
+        } else {
+          this.epg.channels.clear();
+          this.epg.programmes.clear();
+          this._loadedEpgProfileId = prof.id;
+        }
       }
 
       this.updateProfileLoadingStatus(i18n.get('profileLoadingReady') || 'Tudo pronto!', 100);
-      await this._loadingTick(200);
+      await this._loadingTick(150);
 
       this.parentalUnlocked = false;
       if (this.playlist.items.length > 0) {
-        this.renderHomeHub();
         this.navigateToScreen('home');
       } else {
         this.navigateToScreen('empty');
@@ -4974,6 +5136,16 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
       const effectiveEngine = this._syncPlayerEngineSelect(this.dom.selectEditPlayerEngine, prof.playerEngine || 'hls');
       this.updatePlayerEngineNotice(effectiveEngine, this.dom.editPlayerEngineNotice);
     }
+    if (this.dom.selectEditRefreshInterval) {
+      const intervalStr = String(prof.autoRefreshIntervalHours || storage.getSettings().autoRefreshIntervalHours || 24);
+      if (![...this.dom.selectEditRefreshInterval.options].some(o => o.value === intervalStr)) {
+        const opt = document.createElement('option');
+        opt.value = intervalStr;
+        opt.textContent = `${intervalStr}h`;
+        this.dom.selectEditRefreshInterval.appendChild(opt);
+      }
+      this.dom.selectEditRefreshInterval.value = intervalStr;
+    }
     if (this.dom.editProfileAdvancedDetails) this.dom.editProfileAdvancedDetails.open = false;
     this.dom.inputEditCorsProxy.value = prof.corsProxy || '';
     this.dom.editProfileStatus.textContent = '';
@@ -4995,6 +5167,13 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
     if (prof.playerEngine === 'hls') {
       this.ensureLocalProxyStarted();
     }
+    if (this.dom.selectEditRefreshInterval) {
+      prof.autoRefreshIntervalHours = parseInt(this.dom.selectEditRefreshInterval.value, 10) || 24;
+    }
+    if (!prof.playlistUpdatedAt && prof.updatedAt) {
+      prof.playlistUpdatedAt = prof.updatedAt;
+    }
+    prof.updatedAt = Date.now();
     prof.corsProxy = this.dom.inputEditCorsProxy?.value.trim() || '';
 
     let sourceChanged = false;
@@ -5029,6 +5208,7 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
       if (this.dom.headerProfileName) this.dom.headerProfileName.textContent = prof.name;
       if (this.dom.streamModeSelect) this.dom.streamModeSelect.value = prof.streamMode;
       if (this.dom.playerEngineSelect) this.dom.playerEngineSelect.value = prof.playerEngine;
+      this.updateSettingsTileSubtitles();
     }
 
     if ((reloadContent || sourceChanged) && (prof.type === 'xtream' || prof.type === 'm3u_url')) {
@@ -5060,6 +5240,7 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
     const { type } = section;
 
     this._isRefreshingPlaylist = true;
+    const hadFocus = typeof document !== 'undefined' && document.activeElement === clickedBtn;
     const buttons = [this.dom.btnRefreshLive, this.dom.btnRefreshMovies, this.dom.btnRefreshSeries].filter(Boolean);
     buttons.forEach(b => { b.disabled = true; });
     clickedBtn.classList.add('spinning');
@@ -5084,12 +5265,13 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
         const nextPlaylist = { name: this.playlist.name || prof.name, items, epgUrl: this.playlist.epgUrl || prof.epgUrl || null, summary: FluiStreamApp.summarizeItems(items) };
         await storage.savePlaylist(nextPlaylist, prof.id);
         this.playlist = nextPlaylist;
-        storage.saveProfile({ ...prof, summary: nextPlaylist.summary, sectionUpdatedAt: { ...(prof.sectionUpdatedAt || {}), [type]: Date.now() } });
+        this._loadedProfileId = prof.id;
+        storage.saveProfile({ ...prof, summary: nextPlaylist.summary, updatedAt: Date.now(), playlistUpdatedAt: Date.now(), sectionUpdatedAt: { ...(prof.sectionUpdatedAt || {}), [type]: Date.now() } });
       } else {
         if (type === ItemType.LIVE && storage.getEpgSources(prof.id).length > 0) {
           await this.refreshAllEpgSources();
         }
-        storage.saveProfile({ ...prof, sectionUpdatedAt: { ...(prof.sectionUpdatedAt || {}), [type]: Date.now() } });
+        storage.saveProfile({ ...prof, updatedAt: Date.now(), sectionUpdatedAt: { ...(prof.sectionUpdatedAt || {}), [type]: Date.now() } });
       }
     } catch (err) {
       this.addAppNotification('warning', prof.name || 'FluiStream', err?.message || 'Erro ao atualizar lista');
@@ -5098,6 +5280,9 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
       buttons.forEach(b => { b.disabled = false; });
       clickedBtn.classList.remove('spinning');
       this.renderHomeHub();
+      if (hadFocus && !clickedBtn.disabled) {
+        clickedBtn.focus({ preventScroll: true });
+      }
     }
   }
 

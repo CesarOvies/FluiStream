@@ -142,10 +142,25 @@ export class StorageService {
       normalized.epgUrl = normalized.externalEpgUrl;
     }
 
+    const rawInterval = normalized.autoRefreshIntervalHours ?? existing?.autoRefreshIntervalHours ?? 24;
+    const parsedInterval = parseInt(rawInterval, 10);
+    normalized.autoRefreshIntervalHours = Number.isFinite(parsedInterval)
+      ? Math.max(1, Math.min(168, parsedInterval))
+      : 24;
+    normalized.autoRefresh = normalized.autoRefresh !== undefined
+      ? Boolean(normalized.autoRefresh)
+      : Boolean(existing?.autoRefresh ?? false);
+
+    const nowTs = Date.now();
+    const nextUpdatedAt = profile.updatedAt !== undefined ? profile.updatedAt : nowTs;
+    const nextPlaylistUpdatedAt = profile.playlistUpdatedAt !== undefined
+      ? profile.playlistUpdatedAt
+      : (existing?.playlistUpdatedAt ?? existing?.updatedAt ?? nextUpdatedAt);
+
     if (idx >= 0) {
-      profiles[idx] = { ...existing, ...normalized, updatedAt: Date.now() };
+      profiles[idx] = { ...existing, ...normalized, updatedAt: nextUpdatedAt, playlistUpdatedAt: nextPlaylistUpdatedAt };
     } else {
-      profiles.push({ ...normalized, createdAt: normalized.createdAt || Date.now(), updatedAt: Date.now() });
+      profiles.push({ ...normalized, createdAt: normalized.createdAt || nowTs, updatedAt: nextUpdatedAt, playlistUpdatedAt: nextPlaylistUpdatedAt });
     }
     this.saveProfiles(profiles);
     if (!this.getActiveProfileId() || profiles.length === 1) {
@@ -170,17 +185,31 @@ export class StorageService {
     }
   }
 
+  _touchProfilePlaylistTimestamp(profileId, ts = Date.now()) {
+    if (!profileId || profileId === 'active') return;
+    const profiles = this.getProfiles();
+    const idx = profiles.findIndex(p => p.id === profileId);
+    if (idx >= 0) {
+      profiles[idx] = { ...profiles[idx], updatedAt: ts, playlistUpdatedAt: ts };
+      this.saveProfiles(profiles);
+    }
+  }
+
   // --- PLAYLIST CACHE (POR PERFIL) ---
   async savePlaylist(playlistData, profileId = null) {
     await this.initPromise;
     const targetKey = profileId || this.getActiveProfileId() || 'active';
+    const nowTs = Date.now();
 
     if (this.db) {
       return new Promise((resolve) => {
         const tx = this.db.transaction([STORE_PLAYLIST], 'readwrite');
         const store = tx.objectStore(STORE_PLAYLIST);
-        store.put({ id: targetKey, ...playlistData, updatedAt: Date.now() });
-        tx.oncomplete = () => resolve(true);
+        store.put({ id: targetKey, ...playlistData, updatedAt: nowTs });
+        tx.oncomplete = () => {
+          this._touchProfilePlaylistTimestamp(targetKey, nowTs);
+          resolve(true);
+        };
         tx.onerror = () => resolve(false);
       });
     }
@@ -193,6 +222,7 @@ export class StorageService {
         itemsCount: playlistData.items?.length || 0
       };
       localStorage.setItem(`fluistream_playlist_meta_${targetKey}`, JSON.stringify(light));
+      this._touchProfilePlaylistTimestamp(targetKey, nowTs);
     } catch {
       // Quota exceeded
     }
@@ -485,7 +515,7 @@ export class StorageService {
       timeFormat: '24h',
       deviceMode: 'auto',
       autoRefresh: false,
-      autoRefreshIntervalHours: 6,
+      autoRefreshIntervalHours: 24,
       onboardingCompleted: false,
       autoPlayNext: true,
       epgTimeshift: 0,
@@ -497,7 +527,8 @@ export class StorageService {
       const globalData = localStorage.getItem('fluistream_settings');
       const globalCfg = globalData ? JSON.parse(globalData) : {};
       const parsedLimit = parseInt(globalCfg.historyLimit, 10);
-      const parsedInterval = parseInt(globalCfg.autoRefreshIntervalHours, 10);
+      const rawInterval = activeProfile?.autoRefreshIntervalHours ?? globalCfg.autoRefreshIntervalHours;
+      const parsedInterval = parseInt(rawInterval, 10);
 
       return {
         corsProxy: activeProfile?.corsProxy ?? globalCfg.corsProxy ?? defaults.corsProxy,
@@ -508,7 +539,7 @@ export class StorageService {
         preferEmbeddedEpg: activeProfile?.preferEmbeddedEpg ?? globalCfg.preferEmbeddedEpg ?? defaults.preferEmbeddedEpg,
         timeFormat: globalCfg.timeFormat ?? defaults.timeFormat,
         deviceMode: globalCfg.deviceMode ?? defaults.deviceMode,
-        autoRefresh: globalCfg.autoRefresh ?? defaults.autoRefresh,
+        autoRefresh: activeProfile?.autoRefresh ?? globalCfg.autoRefresh ?? defaults.autoRefresh,
         autoRefreshIntervalHours: Number.isFinite(parsedInterval) ? Math.max(1, Math.min(168, parsedInterval)) : defaults.autoRefreshIntervalHours,
         onboardingCompleted: Boolean(globalCfg.onboardingCompleted ?? defaults.onboardingCompleted),
         autoPlayNext: globalCfg.autoPlayNext ?? defaults.autoPlayNext,
@@ -526,10 +557,19 @@ export class StorageService {
       return false;
     }
     const cfg = this.getSettings();
-    if (cfg.autoRefresh) return true;
-    const intervalHours = Math.max(1, Number(cfg.autoRefreshIntervalHours) || 6);
+    const forceRefresh = profile.autoRefresh !== undefined ? Boolean(profile.autoRefresh) : Boolean(cfg.autoRefresh);
+    if (forceRefresh) return true;
+    const rawHours = profile.autoRefreshIntervalHours ?? cfg.autoRefreshIntervalHours ?? 24;
+    const parsedHours = parseInt(rawHours, 10);
+    const intervalHours = Number.isFinite(parsedHours) ? Math.max(1, Math.min(168, parsedHours)) : 24;
     const intervalMs = intervalHours * 3600 * 1000;
-    const updatedAtMs = profile.updatedAt ? Date.parse(profile.updatedAt) : NaN;
+    const rawTs = profile.playlistUpdatedAt ?? profile.updatedAt;
+    let updatedAtMs = NaN;
+    if (typeof rawTs === 'number') {
+      updatedAtMs = rawTs;
+    } else if (typeof rawTs === 'string' && rawTs.trim() !== '') {
+      updatedAtMs = /^\d+$/.test(rawTs.trim()) ? Number(rawTs.trim()) : Date.parse(rawTs);
+    }
     if (!Number.isFinite(updatedAtMs)) return true;
     return (now - updatedAtMs) >= intervalMs;
   }
@@ -543,7 +583,7 @@ export class StorageService {
       }
       if (merged.autoRefreshIntervalHours !== undefined) {
         const hrs = parseInt(merged.autoRefreshIntervalHours, 10);
-        merged.autoRefreshIntervalHours = Number.isFinite(hrs) ? Math.max(1, Math.min(168, hrs)) : 6;
+        merged.autoRefreshIntervalHours = Number.isFinite(hrs) ? Math.max(1, Math.min(168, hrs)) : 24;
       }
       localStorage.setItem('fluistream_settings', JSON.stringify(merged));
       if (settings?.historyLimit !== undefined) {
@@ -564,6 +604,8 @@ export class StorageService {
         if (settings?.streamMode) activeProfile.streamMode = settings.streamMode;
         if (settings?.playerEngine) activeProfile.playerEngine = settings.playerEngine;
         if (settings?.corsProxy !== undefined) activeProfile.corsProxy = settings.corsProxy;
+        if (settings?.autoRefresh !== undefined) activeProfile.autoRefresh = Boolean(merged.autoRefresh);
+        if (settings?.autoRefreshIntervalHours !== undefined) activeProfile.autoRefreshIntervalHours = merged.autoRefreshIntervalHours;
         this.saveProfile(activeProfile);
       }
       return merged;

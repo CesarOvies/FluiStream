@@ -479,7 +479,7 @@
           <div class="settings-tile-icon">⚡</div>
           <div class="settings-tile-info">
             <h4 data-i18n="settingsAutomation">Automação</h4>
-            <span data-i18n="autoPlayNextLabel">Auto-Refresh &amp; Auto-Play</span>
+            <span id="tile-automation-sub" data-i18n="autoPlayNextLabel">Auto-Refresh &amp; Auto-Play</span>
           </div>
         </button>
 
@@ -788,6 +788,21 @@
           <p class="help-text" data-i18n="settingsHistoryLimitHelp"></p>
         </div>
 
+        <div class="form-group">
+          <label for="settings-refresh-interval-select" data-i18n="autoRefreshIntervalLabel">Intervalo de Atualização Automática dos Canais (por perfil)</label>
+          <select id="settings-refresh-interval-select" name="autoRefreshIntervalHours" class="form-control" aria-describedby="settings-refresh-interval-help">
+            <option value="1">1h</option>
+            <option value="3">3h</option>
+            <option value="6">6h</option>
+            <option value="12">12h</option>
+            <option value="24" selected>24h</option>
+            <option value="48">48h</option>
+            <option value="72">72h</option>
+            <option value="168">168h (7d)</option>
+          </select>
+          <p class="help-text" id="settings-refresh-interval-help" data-i18n="autoRefreshIntervalHelp"></p>
+        </div>
+
         <details class="advanced-debug-details" id="settings-advanced-details">
           <summary data-i18n="settingsAdvancedDebug">Avançado / Depuração (Web CORS)</summary>
           <div class="advanced-debug-body" style="display: flex; flex-direction: column; gap: 0.7rem;">
@@ -1003,6 +1018,21 @@
           </div>
         </div>
 
+        <div class="form-group">
+          <label for="select-edit-refresh-interval" data-i18n="autoRefreshIntervalLabel">Intervalo de Atualização Automática dos Canais (por perfil)</label>
+          <select id="select-edit-refresh-interval" name="editAutoRefreshIntervalHours" class="form-control" aria-describedby="edit-refresh-interval-help">
+            <option value="1">1h</option>
+            <option value="3">3h</option>
+            <option value="6">6h</option>
+            <option value="12">12h</option>
+            <option value="24" selected>24h</option>
+            <option value="48">48h</option>
+            <option value="72">72h</option>
+            <option value="168">168h (7d)</option>
+          </select>
+          <p class="help-text" id="edit-refresh-interval-help" data-i18n="autoRefreshIntervalHelp"></p>
+        </div>
+
         <details class="advanced-debug-details" id="edit-profile-advanced-details">
           <summary data-i18n="settingsAdvancedDebug">Avançado / Depuração (Web CORS)</summary>
           <div class="advanced-debug-body">
@@ -1202,7 +1232,7 @@
     <div class="profile-loading-card">
       <div class="profile-loading-brand">
         <img src="assets/logo.svg" alt="FluiStream" class="profile-loading-logo" />
-        <span class="profile-loading-brand-text">FLOW PLAY</span>
+        <span class="profile-loading-brand-text">FluiStream</span>
       </div>
       <div class="profile-loading-avatar-wrap">
         <div class="profile-loading-avatar" id="profile-loading-avatar">👤</div>

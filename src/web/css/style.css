@@ -250,6 +250,7 @@ input:focus-visible,
 select:focus-visible,
 summary:focus-visible,
 [tabindex]:focus-visible,
+.bento-card:focus,
 .bento-card:focus-visible,
 .settings-tile:focus-visible,
 .sidebar-cat-btn:focus-visible,
@@ -655,7 +656,7 @@ body.app-header-hidden .split-sidebar {
   min-height: 185px;
   transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
   backdrop-filter: blur(12px);
-  overflow: hidden;
+  overflow: visible;
   text-align: left;
 }
 
@@ -663,6 +664,7 @@ body.app-header-hidden .split-sidebar {
   content: '';
   position: absolute;
   inset: 0;
+  border-radius: inherit;
   background: radial-gradient(circle at top right, rgba(245, 158, 11, 0.12), transparent 55%);
   pointer-events: none;
 }
@@ -738,6 +740,8 @@ body.app-header-hidden .split-sidebar {
   justify-content: space-between;
   gap: 0.5rem;
   padding-top: 0.65rem;
+  padding-right: 4px;
+  padding-bottom: 2px;
   border-top: 1px solid var(--border-glass);
   z-index: 1;
 }
@@ -3949,10 +3953,12 @@ body[data-effective-device-mode="tv"] [tabindex]:focus,
 body[data-effective-device-mode="tv"] [tabindex]:focus-visible,
 body[data-device-mode="tv"] [tabindex]:focus,
 body[data-device-mode="tv"] [tabindex]:focus-visible,
+body.is-android-app button:focus,
 body.is-android-app button:focus-visible,
 body.is-android-app input:focus,
 body.is-android-app select:focus,
 body.is-android-app textarea:focus,
+body.is-android-app [tabindex]:focus,
 body.is-android-app [tabindex]:focus-visible {
   outline: 3px solid #FBBF24;
   outline-offset: 2px;
@@ -4575,9 +4581,8 @@ body[data-device-mode="tv"] .gradient-tile-label {
 .profile-loading-brand-text {
   font-size: 0.95rem;
   font-weight: 800;
-  letter-spacing: 0.15em;
+  letter-spacing: 0.04em;
   color: var(--text-primary);
-  text-transform: uppercase;
 }
 
 .profile-loading-avatar-wrap {
