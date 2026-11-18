@@ -134,7 +134,7 @@ await test('Todos os 3 idiomas (pt-BR, en-US, es) devem possuir o mesmo conjunto
   const enKeys = Object.keys(translations['en-US']).sort();
   const esKeys = Object.keys(translations['es']).sort();
 
-  assert.equal(ptKeys.length, 284, `Esperado exatamente 284 chaves i18n em pt-BR, obtido ${ptKeys.length}`);
+  assert.equal(ptKeys.length, 290, `Esperado exatamente 290 chaves i18n em pt-BR, obtido ${ptKeys.length}`);
   assert.deepEqual(ptKeys, enKeys, 'Chaves pt-BR e en-US devem ser idênticas');
   assert.deepEqual(ptKeys, esKeys, 'Chaves pt-BR e es devem ser idênticas');
 
@@ -3078,6 +3078,272 @@ await test('resolveKnownChannelLogo, EPGParser.getChannelIcon e fallback de irm�
   assert.match(mainActivityKt, /https:\/\/i0\.wp\.com\/\$host\$encodedPath\$encodedQuery/);
   assert.match(appJs, /referrerpolicy="no-referrer"/);
   assert.match(appJs, /referrerPolicy\s*=\s*'no-referrer'/);
+});
+
+console.log('\n--- 27. Testes de Controle Parental (Confirmação), Player Embutido Inicial + EPG e Saída de Fullscreen ---');
+
+await test('Controle Parental exige confirmação do PIN atual e confirmação do novo PIN para alterar ou desativar', async () => {
+  const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+  const appJs = readFileSync(resolve(rootDir, 'src/web/js/app.js'), 'utf8');
+  const { runInNewContext } = await import('node:vm');
+
+  for (const lang of ['pt-BR', 'en-US', 'es']) {
+    for (const key of ['parentalCurrentPin', 'parentalNewPin', 'parentalConfirmPin', 'parentalPinMismatch', 'parentalPinTooShort', 'parentalDisableConfirm']) {
+      assert.ok(translations[lang][key], `Falta chave ${key} em ${lang}`);
+    }
+  }
+
+  const extractMethod = (name) => {
+    const start = appJs.indexOf(`  ${name}(`);
+    assert.ok(start >= 0, `Método ${name} deve existir em app.js`);
+    let i = appJs.indexOf('{', start);
+    let depth = 0;
+    for (; i < appJs.length; i++) {
+      const ch = appJs[i];
+      if (ch === '{') depth++;
+      else if (ch === '}') {
+        depth--;
+        if (depth === 0) return appJs.slice(start, i + 1);
+      }
+    }
+    throw new Error(`Fechamento de chaves não encontrado para ${name}`);
+  };
+
+  let settings = { parentalPinHash: '' };
+  let promptCalls = 0;
+  let promptResult = false;
+  let modalClosed = 0;
+  const elements = new Map();
+  const makeInput = (id, init = {}) => {
+    const attrs = new Map();
+    const classes = new Set();
+    const listeners = {};
+    const el = {
+      id,
+      value: init.value || '',
+      checked: Boolean(init.checked),
+      disabled: Boolean(init.disabled),
+      textContent: '',
+      attributes: attrs,
+      classList: {
+        add: (c) => classes.add(c),
+        remove: (c) => classes.delete(c),
+        contains: (c) => classes.has(c),
+        toggle: (c, force) => (force === undefined ? (classes.has(c) ? classes.delete(c) : classes.add(c)) : (force ? classes.add(c) : classes.delete(c)))
+      },
+      setAttribute: (k, v) => attrs.set(k, v),
+      removeAttribute: (k) => attrs.delete(k),
+      addEventListener: (ev, fn) => { (listeners[ev] ||= []).push(fn); },
+      focus: () => {}
+    };
+    elements.set(id, el);
+    return el;
+  };
+
+  const mockDoc = {
+    getElementById: (id) => elements.get(id) || null
+  };
+  const ParentalApp = runInNewContext(`(() => class ParentalApp {
+    constructor() {
+      this.parentalUnlocked = false;
+      this.activeScreen = 'settings';
+      this.dom = {
+        modalSettingsSub: { id: 'modal-settings-sub' },
+        modalSettingsSubTitle: { textContent: '' },
+        modalSettingsSubFooter: { classList: { remove: () => {} } },
+        modalSettingsSubBody: {
+          _html: '',
+          set innerHTML(v) {
+            this._html = v;
+            resetFields(v);
+          },
+          get innerHTML() { return this._html; }
+        },
+        btnSaveSettingsSub: { onclick: null }
+      };
+    }
+    escapeHtml(s) { return String(s || ''); }
+    updateSettingsTileSubtitles() {}
+    renderSidebarPanel() {}
+    updateCurrentEpgDisplay() {}
+    openModal() {}
+    closeModal() { onModalClose(); }
+    async promptParentalPin() { onPromptCalled(); return getPromptResult(); }
+    async hashPin(pin) { return 'hash:' + pin; }
+    ${extractMethod('openParentalSubModal')}
+  })()`, {
+    document: mockDoc,
+    i18n,
+    storage: {
+      getSettings: () => ({ ...settings }),
+      saveSettings: (patch) => { settings = { ...settings, ...patch }; }
+    },
+    resetFields: (html) => {
+      elements.clear();
+      makeInput('sub-parental-form');
+      makeInput('sub-parental-enable', { checked: Boolean(settings.parentalPinHash) });
+      makeInput('sub-parental-new-fields');
+      if (html.includes('sub-parental-current-pin')) makeInput('sub-parental-current-pin');
+      makeInput('sub-parental-pin');
+      makeInput('sub-parental-pin-confirm');
+      const err = makeInput('sub-parental-error');
+      err.classList.add('hidden');
+    },
+    onModalClose: () => { modalClosed++; },
+    onPromptCalled: () => { promptCalls++; },
+    getPromptResult: () => promptResult
+  });
+
+  const app = new ParentalApp();
+
+  // 1. Ativação inicial exige confirmação igual
+  app.openParentalSubModal();
+  elements.get('sub-parental-enable').checked = true;
+  elements.get('sub-parental-pin').value = '1234';
+  elements.get('sub-parental-pin-confirm').value = '9999';
+  await app.dom.btnSaveSettingsSub.onclick();
+  assert.equal(settings.parentalPinHash, '', 'Não deve ativar PIN quando confirmação diverge');
+  assert.equal(elements.get('sub-parental-error').classList.contains('hidden'), false);
+
+  elements.get('sub-parental-pin-confirm').value = '1234';
+  await app.dom.btnSaveSettingsSub.onclick();
+  assert.equal(settings.parentalPinHash, 'hash:1234');
+  assert.equal(modalClosed, 1);
+
+  // 2. Troca de PIN sem PIN atual e com prompt cancelado deve falhar
+  app.openParentalSubModal();
+  assert.ok(elements.has('sub-parental-current-pin'), 'Deve renderizar campo de PIN atual quando ativo');
+  elements.get('sub-parental-pin').value = '5678';
+  elements.get('sub-parental-pin-confirm').value = '5678';
+  promptResult = false;
+  await app.dom.btnSaveSettingsSub.onclick();
+  assert.equal(promptCalls, 1, 'Sem PIN atual digitado, deve pedir confirmação via promptParentalPin');
+  assert.equal(settings.parentalPinHash, 'hash:1234', 'Não deve trocar PIN sem confirmação');
+
+  // 3. Troca de PIN com PIN atual incorreto deve falhar
+  elements.get('sub-parental-current-pin').value = '0000';
+  await app.dom.btnSaveSettingsSub.onclick();
+  assert.equal(settings.parentalPinHash, 'hash:1234', 'Não deve trocar PIN com PIN atual incorreto');
+  assert.equal(elements.get('sub-parental-error').classList.contains('hidden'), false);
+
+  // 4. Troca de PIN com PIN atual correto deve atualizar
+  elements.get('sub-parental-current-pin').value = '1234';
+  await app.dom.btnSaveSettingsSub.onclick();
+  assert.equal(settings.parentalPinHash, 'hash:5678');
+
+  // 5. Desativação exige confirmação do PIN atual (recusa errado, aceita correto)
+  app.openParentalSubModal();
+  elements.get('sub-parental-enable').checked = false;
+  elements.get('sub-parental-current-pin').value = '1234';
+  await app.dom.btnSaveSettingsSub.onclick();
+  assert.equal(settings.parentalPinHash, 'hash:5678', 'Não deve desativar com PIN atual incorreto');
+
+  elements.get('sub-parental-current-pin').value = '5678';
+  await app.dom.btnSaveSettingsSub.onclick();
+  assert.equal(settings.parentalPinHash, '', 'Deve desativar após confirmar PIN atual correto');
+});
+
+await test('Clique no canal inicia em modo embutido (lista + player + EPG) e mantém vídeo ao sair do fullscreen', async () => {
+  const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+  const appJs = readFileSync(resolve(rootDir, 'src/web/js/app.js'), 'utf8');
+  const playerJs = readFileSync(resolve(rootDir, 'src/web/js/player.js'), 'utf8');
+  const mainFormCs = readFileSync(resolve(rootDir, 'src/desktop/MainForm.cs'), 'utf8');
+  const playerKt = readFileSync(resolve(rootDir, 'src/android/app/src/main/java/com/cesarovies/fluistream/VideoPlayerManager.kt'), 'utf8');
+  const bridgeKt = readFileSync(resolve(rootDir, 'src/android/app/src/main/java/com/cesarovies/fluistream/NativeBridge.kt'), 'utf8');
+  const mainActivityKt = readFileSync(resolve(rootDir, 'src/android/app/src/main/java/com/cesarovies/fluistream/MainActivity.kt'), 'utf8');
+  const tvFocusKt = readFileSync(resolve(rootDir, 'src/android/app/src/main/java/com/cesarovies/fluistream/TvFocusHelper.kt'), 'utf8');
+
+  // 1. playChannel sincroniza layout dividido (lista + player + EPG) ANTES de playStream e evita fullscreen acidental
+  const playChIdx = appJs.indexOf('  playChannel(item, opts = {})');
+  assert.ok(playChIdx >= 0);
+  const playChSlice = appJs.slice(playChIdx, playChIdx + 2200);
+  assert.ok(playChSlice.indexOf('this.syncBrowseViewLayout()') < playChSlice.indexOf('this.player.playStream('));
+  assert.match(appJs, /_suppressAutoFullscreenUntil/);
+  assert.match(appJs, /android-fullscreen-changed/);
+
+  // 2. Android inicia embutido (isFullscreenMode = false), suporta updatePlayerLayout/setFullscreen/toggleFullscreen e volta ao mini-player no Back
+  assert.match(playerKt, /private var isFullscreenMode: Boolean = false/);
+  assert.match(playerKt, /fun updateLayout\(x: Int, y: Int, width: Int, height: Int, visible: Boolean\)/);
+  assert.match(playerKt, /fun setFullscreen\(fullscreen: Boolean\)/);
+  assert.match(playerKt, /fun toggleFullscreen\(\)/);
+  assert.match(playerKt, /isFullscreenMode = false[\s\S]*?applyOverlayLayout\(\)/);
+  assert.match(bridgeKt, /@JavascriptInterface[\s\S]*?fun updatePlayerLayout\(/);
+  assert.match(bridgeKt, /@JavascriptInterface[\s\S]*?fun setFullscreen\(/);
+  assert.match(bridgeKt, /@JavascriptInterface[\s\S]*?fun toggleFullscreen\(/);
+  assert.match(mainActivityKt, /if \(videoPlayerManager\.isFullscreen\(\)\) \{\s*videoPlayerManager\.setFullscreen\(false\)/);
+  assert.match(tvFocusKt, /if \(videoPlayerManager\.isFullscreen\(\)\)/);
+
+  // 3. Desktop MainForm.cs inicia _videoView sem Dock.Fill, restaura Bounds antes de WindowState e re-sincroniza layout pós-fullscreen
+  assert.match(mainFormCs, /Dock = DockStyle\.None,\s*\r?\n\s*Visible = false/);
+  assert.match(mainFormCs, /ApplyFormFullscreenBounds\(/);
+  assert.match(mainFormCs, /msgType == "DESKTOP_COMMAND"/);
+  assert.match(mainFormCs, /Task\.Delay\(80\)/);
+  assert.match(mainFormCs, /Task\.Delay\(220\)/);
+
+  // 4. VideoPlayerController no Android reporta layout e delega toggleFullscreen sem expandir desktop-fullscreen
+  const prevWin = globalThis.window;
+  const prevDoc = globalThis.document;
+  const bridgeCalls = [];
+  globalThis.window = {
+    devicePixelRatio: 2,
+    innerHeight: 540,
+    addEventListener: () => {},
+    getComputedStyle: () => ({ position: 'static' }),
+    androidBridge: {
+      updatePlayerLayout: (x, y, w, h, vis) => bridgeCalls.push({ fn: 'updatePlayerLayout', x, y, w, h, vis }),
+      playStream: (url) => bridgeCalls.push({ fn: 'playStream', url }),
+      toggleFullscreen: () => bridgeCalls.push({ fn: 'toggleFullscreen' })
+    }
+  };
+  globalThis.document = {
+    fullscreenElement: null,
+    webkitFullscreenElement: null,
+    pictureInPictureElement: null,
+    body: { classList: { contains: () => false, add: () => {}, remove: () => {} } },
+    querySelector: () => null,
+    getElementById: () => null,
+    addEventListener: () => {}
+  };
+  try {
+    const mockContainer = {
+      classList: { add: () => {}, remove: () => {}, contains: () => false },
+      closest: () => null,
+      getBoundingClientRect: () => ({ left: 200, top: 40, bottom: 240, width: 320, height: 180 })
+    };
+    const mockVideo = {
+      style: { display: 'block' },
+      addEventListener: () => {},
+      pause: () => {},
+      removeAttribute: () => {},
+      load: () => {}
+    };
+    const ctrl = new VideoPlayerController(mockVideo, mockContainer);
+    await ctrl.playStream({ name: 'Canal 1', type: 'live', url: 'http://ex.com/live/u/p/1.m3u8' }, '', 'auto', 'hls');
+    const layoutCall = bridgeCalls.find(c => c.fn === 'updatePlayerLayout');
+    assert.ok(layoutCall, 'Deve reportar coordenadas do mini-player ao androidBridge.updatePlayerLayout');
+    assert.deepEqual(layoutCall, { fn: 'updatePlayerLayout', x: 400, y: 80, w: 640, h: 360, vis: true });
+    assert.equal(bridgeCalls.some(c => c.fn === 'toggleFullscreen'), false, 'Clique inicial no canal não deve disparar fullscreen');
+
+    await ctrl.toggleFullscreen();
+    assert.equal(bridgeCalls.some(c => c.fn === 'toggleFullscreen'), true, 'toggleFullscreen deve delegar ao androidBridge');
+  } finally {
+    globalThis.window = prevWin;
+    globalThis.document = prevDoc;
+  }
+
+  // 5. Asset Android sincronizado com src/web
+  assert.equal(
+    readFileSync(resolve(rootDir, 'src/android/app/src/main/assets/web/js/player.js'), 'utf8'),
+    playerJs
+  );
+  assert.equal(
+    readFileSync(resolve(rootDir, 'src/android/app/src/main/assets/web/js/app.js'), 'utf8'),
+    appJs
+  );
+  assert.equal(
+    readFileSync(resolve(rootDir, 'src/android/app/src/main/assets/web/js/localization.js'), 'utf8'),
+    readFileSync(resolve(rootDir, 'src/web/js/localization.js'), 'utf8')
+  );
 });
 
 console.log(`\n========================================`);

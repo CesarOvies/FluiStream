@@ -66,6 +66,27 @@ class NativeBridge(private val activity: MainActivity) {
     }
 
     @JavascriptInterface
+    fun updatePlayerLayout(x: Int, y: Int, width: Int, height: Int, visible: Boolean) {
+        activity.runOnUiThread {
+            activity.videoPlayerManager.updateLayout(x, y, width, height, visible)
+        }
+    }
+
+    @JavascriptInterface
+    fun setFullscreen(fullscreen: Boolean) {
+        activity.runOnUiThread {
+            activity.videoPlayerManager.setFullscreen(fullscreen)
+        }
+    }
+
+    @JavascriptInterface
+    fun toggleFullscreen() {
+        activity.runOnUiThread {
+            activity.videoPlayerManager.toggleFullscreen()
+        }
+    }
+
+    @JavascriptInterface
     fun isAndroid(): Boolean = true
 
     @JavascriptInterface

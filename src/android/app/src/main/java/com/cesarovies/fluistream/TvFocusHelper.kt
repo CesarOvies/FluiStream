@@ -35,7 +35,7 @@ class TvFocusHelper(
             return KeyEventResult.CONSUMED
         }
 
-        if (videoPlayerManager.isOverlayVisible()) {
+        if (videoPlayerManager.isFullscreen()) {
             return handlePlayerKeyEvent(event)
         }
 

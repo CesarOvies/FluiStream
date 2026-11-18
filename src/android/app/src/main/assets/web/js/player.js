@@ -196,6 +196,7 @@ export class VideoPlayerController {
                 this._isDesktopFullscreen = false;
                 document.body?.classList?.remove('desktop-fullscreen');
                 this.container?.classList?.remove('is-fullscreen');
+                this._resumePlaybackAfterFullscreenExit();
               }
               this.reportLayout();
             }
@@ -217,6 +218,7 @@ export class VideoPlayerController {
               this._isDesktopFullscreen = false;
               document.body?.classList?.remove('desktop-fullscreen');
               this.container?.classList?.remove('is-fullscreen');
+              this._resumePlaybackAfterFullscreenExit();
             }
             this.reportLayout();
           }
@@ -243,9 +245,16 @@ export class VideoPlayerController {
           this._isDesktopFullscreen = false;
           document.body?.classList?.remove('desktop-fullscreen');
           this.container?.classList?.remove('is-fullscreen');
+          if (this.video && this.currentEngine !== 'vlc' && !(typeof window !== 'undefined' && window.androidBridge)) {
+            this.video.style.display = 'block';
+          }
           this.notifyDesktopHost('EXIT_FULLSCREEN');
           this._resumePlaybackAfterFullscreenExit();
           this.reportLayout();
+          if (typeof requestAnimationFrame === 'function') {
+            requestAnimationFrame(() => this.reportLayout());
+          }
+          setTimeout(() => { if (!this.isStopped) this.reportLayout(); }, 120);
         }
       };
       document.addEventListener('fullscreenchange', onFullscreenChange);
@@ -267,26 +276,50 @@ export class VideoPlayerController {
   }
 
   reportLayout() {
-    if (this.currentEngine !== 'vlc' || typeof window === 'undefined' || !window.chrome?.webview || !this.container) return;
+    if (typeof window === 'undefined' || !this.container) return;
+    const hasAndroidLayout = typeof window.androidBridge?.updatePlayerLayout === 'function';
+    const hasDesktopVlc = this.currentEngine === 'vlc' && Boolean(window.chrome?.webview);
+    if (!hasAndroidLayout && !hasDesktopVlc) return;
+
     const layout = computeOverlayLayout(this.container, 1);
     const isVisible = !this.isStopped && layout.visible;
 
-    this.notifyNativeVlc('VLC_LAYOUT_UPDATE', {
-      rect: {
-        x: layout.x,
-        y: layout.y,
-        width: layout.width,
-        height: layout.height,
-        visible: isVisible
-      }
-    });
-    this.notifyNativeVlc('SET_VISIBILITY', { visible: isVisible });
+    if (hasAndroidLayout) {
+      try {
+        window.androidBridge.updatePlayerLayout(layout.x, layout.y, layout.width, layout.height, isVisible);
+      } catch {}
+    }
+
+    if (hasDesktopVlc) {
+      this.notifyNativeVlc('VLC_LAYOUT_UPDATE', {
+        rect: {
+          x: layout.x,
+          y: layout.y,
+          width: layout.width,
+          height: layout.height,
+          visible: isVisible
+        }
+      });
+      this.notifyNativeVlc('SET_VISIBILITY', { visible: isVisible });
+    }
   }
 
   setOverlayVisible(visible) {
-    if (this.currentEngine !== 'vlc') return;
-    const allowVisible = Boolean(visible) && !this.isStopped && computeOverlayLayout(this.container, 1).visible;
-    this.notifyNativeVlc('SET_VISIBILITY', { visible: allowVisible });
+    const hasAndroidLayout = typeof window !== 'undefined' && typeof window.androidBridge?.updatePlayerLayout === 'function';
+    const hasDesktopVlc = this.currentEngine === 'vlc' && typeof window !== 'undefined' && Boolean(window.chrome?.webview);
+    if (!hasAndroidLayout && !hasDesktopVlc) return;
+
+    const layout = this.container ? computeOverlayLayout(this.container, 1) : { x: 0, y: 0, width: 0, height: 0, visible: false };
+    const allowVisible = Boolean(visible) && !this.isStopped && layout.visible;
+
+    if (hasAndroidLayout) {
+      try {
+        window.androidBridge.updatePlayerLayout(layout.x, layout.y, layout.width, layout.height, allowVisible);
+      } catch {}
+    }
+    if (hasDesktopVlc) {
+      this.notifyNativeVlc('SET_VISIBILITY', { visible: allowVisible });
+    }
   }
 
   handleVlcTime(curSec, durSec, pos, isSeekable) {
@@ -490,12 +523,17 @@ export class VideoPlayerController {
     if (isAndroidApp) {
       this._destroyHtml5Engines(true);
       this._clearVideoSource(true);
+      this.reportLayout();
       if (typeof window.androidBridge.setFallbackUrls === 'function') {
         window.androidBridge.setFallbackUrls(JSON.stringify(candidates.slice(1)));
       }
       window.androidBridge.playStream(streamUrl, item.name || '', item.type || 'live', streamMode || 'auto');
       this.updateMediaSession(item);
       this.notifyState('playing');
+      if (typeof requestAnimationFrame === 'function') {
+        requestAnimationFrame(() => this.reportLayout());
+      }
+      setTimeout(() => { if (!this.isStopped) this.reportLayout(); }, 150);
       return;
     }
 
@@ -1062,6 +1100,22 @@ export class VideoPlayerController {
       return;
     }
 
+    const isAndroidApp = typeof window !== 'undefined' && Boolean(window.androidBridge);
+    if (isAndroidApp) {
+      if (typeof window.androidBridge.toggleFullscreen === 'function') {
+        window.androidBridge.toggleFullscreen();
+        this.reportLayout();
+        return;
+      }
+      if (typeof window.androidBridge.setFullscreen === 'function') {
+        const nextFs = !this._isDesktopFullscreen;
+        this._isDesktopFullscreen = nextFs;
+        window.androidBridge.setFullscreen(nextFs);
+        this.reportLayout();
+        return;
+      }
+    }
+
     const target = this.container || this.video;
     if (!target) return;
 
@@ -1080,14 +1134,25 @@ export class VideoPlayerController {
         try { await document.exitFullscreen(); handled = true; } catch {}
       } else if (document.webkitFullscreenElement && document.webkitExitFullscreen) {
         try { await document.webkitExitFullscreen(); handled = true; } catch {}
+      } else if (this.video?.webkitDisplayingFullscreen && typeof this.video.webkitExitFullscreen === 'function') {
+        try { this.video.webkitExitFullscreen(); handled = true; } catch {}
       }
       document.body?.classList?.remove('desktop-fullscreen');
       target.classList?.remove('is-fullscreen');
+      if (this.video && this.currentEngine !== 'vlc' && !isAndroidApp) {
+        this.video.style.display = 'block';
+      }
       this.notifyDesktopHost('EXIT_FULLSCREEN');
+      this._resumePlaybackAfterFullscreenExit();
       this.reportLayout();
+      if (typeof requestAnimationFrame === 'function') {
+        requestAnimationFrame(() => this.reportLayout());
+      }
+      setTimeout(() => { if (!this.isStopped) this.reportLayout(); }, 120);
       return;
     }
 
+    this._resumeAfterFullscreen = Boolean(this.video && !this.video.paused && !this.isStopped);
     this._isDesktopFullscreen = true;
     const isDesktopApp = typeof window !== 'undefined' && Boolean(
       window.chrome?.webview ||
