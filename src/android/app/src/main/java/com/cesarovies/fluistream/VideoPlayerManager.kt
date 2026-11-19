@@ -71,6 +71,14 @@ class VideoPlayerManager(
             }
         }
 
+        playerView.setFullscreenButtonClickListener {
+            if (isFullscreenMode) {
+                setFullscreen(false)
+            } else {
+                setFullscreen(true)
+            }
+        }
+
         playerView.setControllerVisibilityListener(
             PlayerView.ControllerVisibilityListener { visibility ->
                 topHud.visibility = if (isFullscreenMode) visibility else View.GONE

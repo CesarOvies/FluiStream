@@ -619,6 +619,10 @@ class FluiStreamApp {
       this.closeModal(openModals[openModals.length - 1]);
       return 'handled';
     }
+    if (this.isPlayerFullscreen()) {
+      this.player?.toggleFullscreen();
+      return 'handled';
+    }
     if (['settings', 'epg', 'notifications', 'multiscreen'].includes(this.activeScreen)) {
       const target = this.previousScreen && this.previousScreen !== this.activeScreen ? this.previousScreen : 'home';
       this.navigateToScreen(this.playlist.items.length > 0 ? target : 'empty');
@@ -725,6 +729,17 @@ class FluiStreamApp {
       this.player.reportLayout();
     }
     this.multiScreen?.reportLayout();
+  }
+
+  isPlayerFullscreen() {
+    if (typeof document === 'undefined') return Boolean(this.player?._isDesktopFullscreen);
+    return Boolean(
+      this.player?._isDesktopFullscreen ||
+      document.fullscreenElement ||
+      document.webkitFullscreenElement ||
+      document.body?.classList?.contains('desktop-fullscreen') ||
+      this.dom?.playerContainer?.classList?.contains('is-fullscreen')
+    );
   }
 
   isSingleClickFullscreenMode() {
@@ -1134,7 +1149,15 @@ class FluiStreamApp {
         if (!playCard) return;
         const id = playCard.getAttribute('data-browse-epg-play-id');
         const item = this.playlist.items.find(x => String(x.id) === String(id));
-        if (item) this.playChannel(item, { preserveEpgMode: true });
+        if (item) {
+          if (this.currentPlayingItem && String(this.currentPlayingItem.id) === String(item.id) && !this.player?.isStopped) {
+            if (!this.isPlayerFullscreen()) {
+              this.player?.toggleFullscreen();
+            }
+            return;
+          }
+          this.playChannel(item, { preserveEpgMode: true });
+        }
       });
       this.dom.playerEpgExtendedList.addEventListener('keydown', (e) => {
         if (e.key !== 'Enter' && e.key !== ' ') return;
@@ -1215,7 +1238,9 @@ class FluiStreamApp {
         if (this.isSingleClickFullscreenMode()) {
           clearTimeout(centerClickTimer);
           if (Date.now() < (this._suppressAutoFullscreenUntil || 0)) return;
-          this.player.toggleFullscreen();
+          if (!this.isPlayerFullscreen()) {
+            this.player.toggleFullscreen();
+          }
           return;
         }
         clearTimeout(centerClickTimer);
@@ -1236,6 +1261,7 @@ class FluiStreamApp {
         this.wakePlayerControls();
         if (!this.isSingleClickFullscreenMode()) return;
         if (Date.now() < (this._suppressAutoFullscreenUntil || 0)) return;
+        if (this.isPlayerFullscreen()) return;
         if (e.target.closest('.player-error-overlay, #player-center-hit, #btn-player-tools, #player-tools-menu, button, select, input, a')) return;
         this.player.toggleFullscreen();
       });
@@ -2064,7 +2090,7 @@ class FluiStreamApp {
     }
 
     if ((e.key === 'Escape') && !isModalOpen) {
-      if (document.body?.classList?.contains('desktop-fullscreen') || document.fullscreenElement || document.webkitFullscreenElement || this.player?._isDesktopFullscreen) {
+      if (this.isPlayerFullscreen()) {
         e.preventDefault();
         this.player?.toggleFullscreen();
         return;
@@ -5716,18 +5742,22 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
     if (!row) return;
     const id = row.getAttribute('data-id');
     if (this._isSeriesGroupingActive()) {
-      const series = (this.currentFilteredSeries || []).find(s => s.id === id);
+      const series = (this.currentFilteredSeries || []).find(s => String(s.id) === String(id));
       if (series) {
         this.setMobileSidebarOpen(false);
         this.openSeriesDetailModal(series);
         return;
       }
     }
-    const item = (this.currentFilteredItems || []).find(x => x.id === id);
+    const item = (this.currentFilteredItems || []).find(x => String(x.id) === String(id));
     if (item) {
       this.setMobileSidebarOpen(false);
       if (item.type === ItemType.MOVIE) {
         this.openMovieDetailModal(item);
+      } else if (this.currentPlayingItem && String(this.currentPlayingItem.id) === String(item.id) && !this.player?.isStopped) {
+        if (!this.isPlayerFullscreen()) {
+          this.player?.toggleFullscreen();
+        }
       } else {
         this.playChannel(item);
       }

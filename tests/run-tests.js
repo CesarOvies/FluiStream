@@ -3346,6 +3346,125 @@ await test('Clique no canal inicia em modo embutido (lista + player + EPG) e man
   );
 });
 
+await test('2º clique no mesmo canal abre fullscreen e Voltar/botão fullscreen sai do fullscreen sem fechar categoria', async () => {
+  const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+  const appJs = readFileSync(resolve(rootDir, 'src/web/js/app.js'), 'utf8');
+  const mainFormCs = readFileSync(resolve(rootDir, 'src/desktop/MainForm.cs'), 'utf8');
+  const playerKt = readFileSync(resolve(rootDir, 'src/android/app/src/main/java/com/cesarovies/fluistream/VideoPlayerManager.kt'), 'utf8');
+  const { runInNewContext } = await import('node:vm');
+
+  const extractMethod = (name) => {
+    const start = appJs.indexOf(`  ${name}(`);
+    assert.ok(start >= 0, `Método ${name} deve existir em app.js`);
+    let i = appJs.indexOf('{', start);
+    let depth = 0;
+    for (; i < appJs.length; i++) {
+      const ch = appJs[i];
+      if (ch === '{') depth++;
+      else if (ch === '}') {
+        depth--;
+        if (depth === 0) return appJs.slice(start, i + 1);
+      }
+    }
+    throw new Error(`Fechamento de chaves não encontrado para ${name}`);
+  };
+
+  const calls = [];
+  const pushCall = (entry) => calls.push({ ...entry });
+  const mockDoc = {
+    activeElement: null,
+    fullscreenElement: null,
+    webkitFullscreenElement: null,
+    body: { classList: { contains: () => false } },
+    querySelectorAll: () => []
+  };
+
+  const ChannelClickApp = runInNewContext(`(() => class ChannelClickApp {
+    constructor() {
+      this.activeScreen = 'browse';
+      this.sidebarDrillMode = 'items';
+      this.currentPlayingItem = null;
+      this.currentFilteredItems = [
+        { id: 'ch_1', name: 'Canal 1', type: 'live' },
+        { id: 'ch_2', name: 'Canal 2', type: 'live' }
+      ];
+      this.dom = {
+        seasonsPopup: null,
+        playerToolsMenu: null,
+        splitSidebar: null,
+        playerContainer: { classList: { contains: () => false } }
+      };
+      this.player = {
+        isStopped: true,
+        _isDesktopFullscreen: false,
+        toggleFullscreen: () => {
+          this.player._isDesktopFullscreen = !this.player._isDesktopFullscreen;
+          pushCall({ fn: 'toggleFullscreen', fs: this.player._isDesktopFullscreen });
+        }
+      };
+    }
+    _isSeriesGroupingActive() { return false; }
+    setMobileSidebarOpen() {}
+    openMovieDetailModal() {}
+    openSeriesDetailModal() {}
+    closeEnteredCategory() { pushCall({ fn: 'closeEnteredCategory' }); }
+    navigateToScreen(s) { pushCall({ fn: 'navigateToScreen', screen: s }); }
+    playChannel(item) {
+      this.currentPlayingItem = item;
+      this.player.isStopped = false;
+      pushCall({ fn: 'playChannel', id: item.id });
+    }
+    ${extractMethod('isPlayerFullscreen')}
+    ${extractMethod('activateChannelRow')}
+    ${extractMethod('handleNativeBack')}
+  })()`, {
+    document: mockDoc,
+    ItemType: { MOVIE: 'movie', LIVE: 'live', SERIES: 'series' },
+    pushCall
+  });
+
+  const app = new ChannelClickApp();
+  const makeRow = (id) => ({ getAttribute: (attr) => (attr === 'data-id' ? id : null) });
+
+  // 1. 1º clique no canal toca no modo embutido sem abrir fullscreen
+  app.activateChannelRow(makeRow('ch_1'));
+  assert.deepEqual(calls, [{ fn: 'playChannel', id: 'ch_1' }]);
+  assert.equal(app.isPlayerFullscreen(), false);
+
+  // 2. 2º clique no mesmo canal abre fullscreen sem reiniciar o stream
+  calls.length = 0;
+  app.activateChannelRow(makeRow('ch_1'));
+  assert.deepEqual(calls, [{ fn: 'toggleFullscreen', fs: true }]);
+  assert.equal(app.isPlayerFullscreen(), true);
+
+  // 3. Clique no botão Voltar (handleNativeBack) sai do fullscreen sem fechar categoria nem ir para Home
+  calls.length = 0;
+  assert.equal(app.handleNativeBack(), 'handled');
+  assert.deepEqual(calls, [{ fn: 'toggleFullscreen', fs: false }]);
+  assert.equal(app.isPlayerFullscreen(), false);
+
+  // 4. Novo 2º clique no mesmo canal volta para fullscreen e clique no botão fullscreen sai do fullscreen
+  calls.length = 0;
+  app.activateChannelRow(makeRow('ch_1'));
+  assert.equal(app.isPlayerFullscreen(), true);
+  app.player.toggleFullscreen();
+  assert.equal(app.isPlayerFullscreen(), false);
+  assert.deepEqual(calls, [
+    { fn: 'toggleFullscreen', fs: true },
+    { fn: 'toggleFullscreen', fs: false }
+  ]);
+
+  // 5. Clique em canal diferente troca de canal no modo embutido
+  calls.length = 0;
+  app.activateChannelRow(makeRow('ch_2'));
+  assert.deepEqual(calls, [{ fn: 'playChannel', id: 'ch_2' }]);
+  assert.equal(app.isPlayerFullscreen(), false);
+
+  // 6. Android registra botão fullscreen nativo e Desktop trata Keys.Back / Keys.BrowserBack em fullscreen
+  assert.match(playerKt, /playerView\.setFullscreenButtonClickListener\s*\{/);
+  assert.match(mainFormCs, /e\.KeyCode\s*==\s*Keys\.Escape\s*\|\|\s*e\.KeyCode\s*==\s*Keys\.Back\s*\|\|\s*e\.KeyCode\s*==\s*Keys\.BrowserBack/);
+});
+
 console.log(`\n========================================`);
 console.log(`Resultados dos Testes: ${passedTests}/${totalTests} passaram.`);
 console.log(`========================================\n`);
