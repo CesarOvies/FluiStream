@@ -1096,6 +1096,7 @@ export class VideoPlayerController {
     this._lastFsToggleTime = now;
 
     if (this.currentEngine === 'vlc' && typeof window !== 'undefined' && window.chrome?.webview) {
+      this._isDesktopFullscreen = !this._isDesktopFullscreen;
       this.notifyNativeVlc('TOGGLE_FULLSCREEN');
       return;
     }
@@ -1103,6 +1104,7 @@ export class VideoPlayerController {
     const isAndroidApp = typeof window !== 'undefined' && Boolean(window.androidBridge);
     if (isAndroidApp) {
       if (typeof window.androidBridge.toggleFullscreen === 'function') {
+        this._isDesktopFullscreen = !this._isDesktopFullscreen;
         window.androidBridge.toggleFullscreen();
         this.reportLayout();
         return;
@@ -1260,6 +1262,7 @@ export class VideoPlayerController {
     this._html5Attempts = [];
     this._html5AttemptIdx = 0;
     this.isStopped = true;
+    this._isDesktopFullscreen = false;
     this.currentItem = null;
     this.audioTracks = [];
     this.subtitleTracks = [];

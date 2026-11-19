@@ -1328,6 +1328,9 @@ public partial class MainForm : Form
             RepositionVlcOverlays();
             EnsureVlcOverlayZOrder();
             _videoView.Focus();
+            _webView.CoreWebView2?.ExecuteScriptAsync(
+                "if (window.fluiStreamApp?.player) window.fluiStreamApp.player._isDesktopFullscreen = true;"
+            );
         }
         else
         {
@@ -1351,7 +1354,7 @@ public partial class MainForm : Form
             }
 
             _webView.CoreWebView2?.ExecuteScriptAsync(
-                "document.body?.classList?.remove('desktop-fullscreen'); document.getElementById('player-wrapper')?.classList?.remove('is-fullscreen'); window.fluiStreamApp?.player?.reportLayout();"
+                "if (window.fluiStreamApp?.player) window.fluiStreamApp.player._isDesktopFullscreen = false; document.body?.classList?.remove('desktop-fullscreen'); document.getElementById('player-wrapper')?.classList?.remove('is-fullscreen'); window.fluiStreamApp?.player?.reportLayout();"
             );
             UpdateVideoViewLayout();
             RepositionVlcOverlays();
@@ -2097,7 +2100,7 @@ public partial class MainForm : Form
                 ToggleVlcFullscreen();
                 e.Handled = true;
             }
-            else if (e.KeyCode == Keys.Escape && _isFullScreen)
+            else if ((e.KeyCode == Keys.Escape || e.KeyCode == Keys.Back || e.KeyCode == Keys.BrowserBack) && _isFullScreen)
             {
                 SetVlcFullscreen(false);
                 e.Handled = true;
