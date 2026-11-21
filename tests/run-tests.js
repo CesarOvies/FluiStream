@@ -3465,6 +3465,101 @@ await test('2º clique no mesmo canal abre fullscreen e Voltar/botão fullscreen
   assert.match(mainFormCs, /e\.KeyCode\s*==\s*Keys\.Escape\s*\|\|\s*e\.KeyCode\s*==\s*Keys\.Back\s*\|\|\s*e\.KeyCode\s*==\s*Keys\.BrowserBack/);
 });
 
+console.log('\n--- 31. Testes de Classificação M3U (4K UHD | QHD, FILMES E SERIES, NxM Filmes) ---');
+
+await test('M3UParser.classifyItem deve manter categorias Ao Vivo (4K UHD | QHD, FILMES E SERIES, Atualização) em LIVE e filmes NxM em MOVIE', () => {
+  const m3u = `#EXTM3U
+#EXTINF:-1 group-title="⏺️  4K UHD | QHD",AXN 4K
+http://example.com:80/user/pass/181.m3u8
+#EXTINF:-1 group-title="⏺️  4K UHD | QHD",BAND SP 4K
+http://example.com:80/user/pass/180.m3u8
+#EXTINF:-1 group-title="⏺️  FILMES E SERIES",A&E UHD
+http://example.com:80/user/pass/379.m3u8
+#EXTINF:-1 group-title="⏺️  FILMES E SERIES",WARNER CHANNEL FHD
+http://example.com:80/user/pass/85.m3u8
+#EXTINF:-1 group-title="⭐️  ATUALIZACÃO : FILMES ✔️",⭐️ATUALIZACAO DIARIA (FILMES)
+http://example.com:80/user/pass/1124.m3u8
+#EXTINF:-1 group-title="⭐️  ATUALIZACÃO : SERIE ✔️",⭐️ATUALIZACAO DIARIA (SERIES)
+http://example.com:80/user/pass/1123.m3u8
+#EXTINF:-1 group-title="Filmes | Suspense",4x4 (2019)
+http://example.com:80/movie/user/pass/2218145.mp4
+#EXTINF:-1 group-title="Filmes | Drama",10x10 (2019)
+http://example.com:80/movie/user/pass/2220550.mp4
+#EXTINF:-1 group-title="Filmes | Drama",10x10: O Cativeiro (2018)
+http://example.com:80/movie/user/pass/2221645.mp4
+#EXTINF:-1 group-title="Filmes | Drama",4x100: Correndo por um Sonho (2021)
+http://example.com:80/movie/user/pass/2222572.mp4
+#EXTINF:-1 group-title="Series | Discovery+",4x4 Sob Medida S01E01
+http://example.com:80/series/user/pass/2363744.mp4
+`;
+
+  const parsed = M3UParser.parse(m3u);
+  assert.deepEqual(parsed.summary, { total: 11, live: 6, movies: 4, series: 1 });
+
+  const byName = new Map(parsed.items.map(it => [it.name, it]));
+  assert.equal(byName.get('AXN 4K').type, ItemType.LIVE);
+  assert.equal(byName.get('BAND SP 4K').type, ItemType.LIVE);
+  assert.equal(byName.get('A&E UHD').type, ItemType.LIVE);
+  assert.equal(byName.get('WARNER CHANNEL FHD').type, ItemType.LIVE);
+  assert.equal(byName.get('⭐️ATUALIZACAO DIARIA (FILMES)').type, ItemType.LIVE);
+  assert.equal(byName.get('⭐️ATUALIZACAO DIARIA (SERIES)').type, ItemType.LIVE);
+
+  for (const movieTitle of ['4x4 (2019)', '10x10 (2019)', '10x10: O Cativeiro (2018)', '4x100: Correndo por um Sonho (2021)']) {
+    const mv = byName.get(movieTitle);
+    assert.equal(mv.type, ItemType.MOVIE, `${movieTitle} deve ser MOVIE`);
+    assert.equal(mv.seriesTitle, undefined);
+  }
+
+  const ser = byName.get('4x4 Sob Medida S01E01');
+  assert.equal(ser.type, ItemType.SERIES);
+  assert.equal(ser.seriesTitle, '4x4 Sob Medida');
+  assert.equal(ser.season, 1);
+  assert.equal(ser.episode, 1);
+});
+
+await test('_ensurePlaylistIndexes deve reclassificar itens em cache e recalcular playlist.summary', () => {
+  const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+  const appJs = readFileSync(resolve(rootDir, 'src/web/js/app.js'), 'utf8');
+  const m3uParserJs = readFileSync(resolve(rootDir, 'src/web/js/m3u-parser.js'), 'utf8');
+  const androidM3uParserJs = readFileSync(resolve(rootDir, 'src/android/app/src/main/assets/web/js/m3u-parser.js'), 'utf8');
+  assert.equal(androidM3uParserJs, m3uParserJs, 'Asset Android js/m3u-parser.js deve estar sincronizado com src/web/js/m3u-parser.js');
+
+  const extractMethod = (name) => {
+    const start = appJs.indexOf(`  ${name}(`);
+    assert.ok(start !== -1, `Método ${name} não encontrado`);
+    const nextMatch = appJs.slice(start + 10).search(/\n  (?:async\s+)?[a-zA-Z0-9_]+\(/);
+    const end = nextMatch === -1 ? appJs.length : start + 10 + nextMatch;
+    return appJs.slice(start, end);
+  };
+
+  const ReclassifyApp = new Function('M3UParser', 'ItemType', 'normalizeLiveChannelKey', `
+    return class {
+      constructor() {
+        this.playlist = {
+          items: [
+            { id: '1', name: 'AXN 4K', group: '⏺️  4K UHD | QHD', type: ItemType.MOVIE, url: 'http://example.com:80/u/p/181.m3u8' },
+            { id: '2', name: 'WARNER CHANNEL FHD', group: '⏺️  FILMES E SERIES', type: ItemType.SERIES, seriesTitle: 'WARNER CHANNEL FHD', season: 1, episode: 1, url: 'http://example.com:80/u/p/85.m3u8' },
+            { id: '3', name: '4x4 (2019)', group: 'Filmes | Suspense', type: ItemType.SERIES, seriesTitle: '4', season: 4, episode: 4, url: 'http://example.com:80/movie/u/p/2218145.mp4' },
+            { id: '4', name: 'Dark S01E01', group: 'Series | Netflix', type: ItemType.SERIES, url: 'http://example.com:80/series/u/p/999.mp4' }
+          ],
+          summary: { total: 4, live: 0, movies: 1, series: 3 }
+        };
+      }
+      ${extractMethod('_ensurePlaylistIndexes')}
+    };
+  `)(M3UParser, ItemType, normalizeLiveChannelKey);
+
+  const inst = new ReclassifyApp();
+  inst._ensurePlaylistIndexes();
+  assert.equal(inst.playlist.items[0].type, ItemType.LIVE);
+  assert.equal(inst.playlist.items[1].type, ItemType.LIVE);
+  assert.equal(inst.playlist.items[1].seriesTitle, undefined);
+  assert.equal(inst.playlist.items[2].type, ItemType.MOVIE);
+  assert.equal(inst.playlist.items[2].seriesTitle, undefined);
+  assert.equal(inst.playlist.items[3].type, ItemType.SERIES);
+  assert.deepEqual(inst.playlist.summary, { total: 4, live: 2, movies: 1, series: 1 });
+});
+
 console.log(`\n========================================`);
 console.log(`Resultados dos Testes: ${passedTests}/${totalTests} passaram.`);
 console.log(`========================================\n`);
