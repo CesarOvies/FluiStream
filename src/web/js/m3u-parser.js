@@ -277,70 +277,122 @@ export class M3UParser {
    */
   static classifyItem(item) {
     const groupUpper = (item.group || '').toUpperCase();
-    const nameUpper = (item.name || '').toUpperCase();
-    const urlUpper = (item.url || '').toUpperCase();
+    const name = item.name || '';
+    const url = item.url || '';
+    const urlUpper = url.toUpperCase();
 
-    // 1. Detecção de Séries (Padrões de Temporada/Episódio no nome ou grupo)
-    // S01E02, S1E1, T01E02, 1x02, Temporada 1 Ep 2
-    const seriesRegex = /(?:S(\d+)\s*E(\d+)|T(\d+)\s*E(\d+)|(\d+)x(\d+)|TEMPORADA\s*(\d+).*?EP(?:ISODIO)?\s*(\d+))/i;
-    const seriesMatch = item.name.match(seriesRegex);
-
-    const isExplicitSeriesGroup = 
-      groupUpper.includes('SERIE') || 
-      groupUpper.includes('SÉRIE') || 
-      groupUpper.includes('SERIES') || 
-      groupUpper.includes('SEASON') || 
-      groupUpper.includes('NOVELA') || 
-      groupUpper.includes('ANIMES') ||
-      groupUpper.includes('ANIME');
-
+    const isXtreamMovieUrl = urlUpper.includes('/MOVIE/');
     const isXtreamSeriesUrl = urlUpper.includes('/SERIES/');
+    const isXtreamLiveUrl =
+      urlUpper.includes('/LIVE/') ||
+      /^https?:\/\/[^/]+\/(?!MOVIE\/|SERIES\/)[^/]+\/[^/]+\/\d+(?:\.(?:M3U8|TS))?(?:[?#]|$)/i.test(url);
 
-    if (seriesMatch || (isExplicitSeriesGroup && !groupUpper.includes('AO VIVO')) || isXtreamSeriesUrl) {
+    const isVodExtension = /\.(?:MP4|MKV|AVI)(?:[?#]|$)/i.test(urlUpper);
+    const isLiveExtension = /\.(?:M3U8|TS)(?:[?#]|$)/i.test(urlUpper);
+
+    // 1. URL explícita de Filme Xtream (/movie/) -> sempre MOVIE
+    if (isXtreamMovieUrl && !isXtreamSeriesUrl) {
+      item.type = ItemType.MOVIE;
+      delete item.seriesTitle;
+      delete item.season;
+      delete item.episode;
+      return item;
+    }
+
+    // 2. URL explícita de Ao Vivo Xtream (/live/ ou /user/pass/id.m3u8|.ts) -> sempre LIVE
+    if (isXtreamLiveUrl && !isXtreamMovieUrl && !isXtreamSeriesUrl) {
+      item.type = ItemType.LIVE;
+      delete item.seriesTitle;
+      delete item.season;
+      delete item.episode;
+      return item;
+    }
+
+    const hasMovieWord =
+      groupUpper.includes('FILME') ||
+      groupUpper.includes('MOVIE') ||
+      groupUpper.includes('CINEMA');
+    const hasSeriesWord =
+      groupUpper.includes('SERIE') ||
+      groupUpper.includes('SÉRIE') ||
+      groupUpper.includes('SERIES') ||
+      groupUpper.includes('SEASON') ||
+      groupUpper.includes('NOVELA') ||
+      groupUpper.includes('ANIME') ||
+      groupUpper.includes('DORAMA');
+
+    // Categoria de canais ao vivo "FILMES E SERIES" (ambas as palavras no grupo)
+    const isCombinedLiveGroup =
+      (groupUpper.includes('FILME') || groupUpper.includes('MOVIE')) &&
+      (groupUpper.includes('SERIE') || groupUpper.includes('SÉRIE') || groupUpper.includes('SERIES'));
+
+    // 3. Detecção de Séries (Prioriza S01E02 / T01E02 / Temporada 1 Ep 2; fallback NxM apenas após título)
+    const strongSeriesRegex = /\b(?:S(\d+)\s*E(\d+)|T(\d+)\s*E(\d+)|TEMPORADA\s*(\d+).*?EP(?:ISODIO)?\s*(\d+))\b/i;
+    const nxmSeriesRegex = /(?:^|\s|[-–|])(\d{1,2})x(\d{1,3})\b/i;
+
+    const strongMatch = name.match(strongSeriesRegex);
+    const nxmMatch = !strongMatch ? name.match(nxmSeriesRegex) : null;
+    const validNxmMatch = (nxmMatch && nxmMatch.index > 0 && !(hasMovieWord && !hasSeriesWord)) ? nxmMatch : null;
+    const seriesMatch = strongMatch || validNxmMatch;
+
+    const isExplicitSeriesGroup =
+      hasSeriesWord &&
+      !isCombinedLiveGroup &&
+      !groupUpper.includes('AO VIVO') &&
+      !(isLiveExtension && !seriesMatch && !isXtreamSeriesUrl);
+
+    if (isXtreamSeriesUrl || seriesMatch || isExplicitSeriesGroup) {
       item.type = ItemType.SERIES;
-      
-      // Extrair informações de temporada e episódio se presentes
+
       let season = 1;
       let episode = 1;
-      let cleanSeriesTitle = item.name;
+      let cleanSeriesTitle = name;
 
-      if (seriesMatch) {
-        season = parseInt(seriesMatch[1] || seriesMatch[3] || seriesMatch[5] || seriesMatch[7] || '1', 10);
-        episode = parseInt(seriesMatch[2] || seriesMatch[4] || seriesMatch[6] || seriesMatch[8] || '1', 10);
-        cleanSeriesTitle = item.name.substring(0, seriesMatch.index).trim().replace(/[-–|]+$/, '').trim();
+      if (strongMatch) {
+        season = parseInt(strongMatch[1] || strongMatch[3] || strongMatch[5] || '1', 10);
+        episode = parseInt(strongMatch[2] || strongMatch[4] || strongMatch[6] || '1', 10);
+        cleanSeriesTitle = name.substring(0, strongMatch.index).trim().replace(/[-–|]+$/, '').trim();
+      } else if (validNxmMatch) {
+        season = parseInt(validNxmMatch[1] || '1', 10);
+        episode = parseInt(validNxmMatch[2] || '1', 10);
+        cleanSeriesTitle = name.substring(0, validNxmMatch.index).trim().replace(/[-–|]+$/, '').trim();
       } else {
-        // Tentar extrair do formato comum "Nome da Série - T01 E01"
-        cleanSeriesTitle = item.name.replace(/\s*[-–]\s*(?:T|S)?\d+.*$/i, '').trim();
+        cleanSeriesTitle = name.replace(/\s*[-–]\s*(?:T|S)?\d+.*$/i, '').trim();
       }
 
-      item.seriesTitle = cleanSeriesTitle || item.name;
+      item.seriesTitle = cleanSeriesTitle || name;
       item.season = season;
       item.episode = episode;
       return item;
     }
 
-    // 2. Detecção de Filmes (VOD)
-    const isExplicitMovieGroup = 
-      groupUpper.includes('FILME') || 
-      groupUpper.includes('MOVIE') || 
-      groupUpper.includes('VOD') || 
-      groupUpper.includes('CINEMA') || 
-      groupUpper.includes('LANÇAMENTO') || 
-      groupUpper.includes('LANCAMENTO') ||
-      groupUpper.includes('4K') ||
-      groupUpper.includes('DUBLADO') ||
-      groupUpper.includes('LEGENDADO');
+    // 4. Detecção de Filmes (VOD) — '4K' isolado é resolução (ex: "4K UHD | QHD" no Ao Vivo), não tipo de mídia
+    const isExplicitMovieGroup =
+      !isCombinedLiveGroup &&
+      !groupUpper.includes('AO VIVO') &&
+      !(isLiveExtension && !isVodExtension) &&
+      (
+        hasMovieWord ||
+        groupUpper.includes('VOD') ||
+        groupUpper.includes('LANÇAMENTO') ||
+        groupUpper.includes('LANCAMENTO') ||
+        groupUpper.includes('DUBLADO') ||
+        groupUpper.includes('LEGENDADO')
+      );
 
-    const isXtreamMovieUrl = urlUpper.includes('/MOVIE/');
-    const isVodExtension = urlUpper.endsWith('.MP4') || urlUpper.endsWith('.MKV') || urlUpper.endsWith('.AVI');
-
-    if (isExplicitMovieGroup || isXtreamMovieUrl || (isVodExtension && item.duration > 0 && !groupUpper.includes('LIVE'))) {
+    if (isExplicitMovieGroup || (isVodExtension && item.duration > 0 && !groupUpper.includes('LIVE') && !groupUpper.includes('AO VIVO'))) {
       item.type = ItemType.MOVIE;
+      delete item.seriesTitle;
+      delete item.season;
+      delete item.episode;
       return item;
     }
 
-    // 3. Padrão padrão: Canal Ao Vivo (Live TV)
+    // 5. Padrão: Canal Ao Vivo (Live TV)
     item.type = ItemType.LIVE;
+    delete item.seriesTitle;
+    delete item.season;
+    delete item.episode;
     return item;
   }
 }

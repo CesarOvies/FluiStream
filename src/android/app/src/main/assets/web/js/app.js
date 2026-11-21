@@ -2459,6 +2459,9 @@ class FluiStreamApp {
   }
 
   renderHomeHub() {
+    if (this.playlist?.items?.length > 0) {
+      this._ensurePlaylistIndexes();
+    }
     const summary = this.playlist.summary || { total: 0, live: 0, movies: 0, series: 0 };
     const favCount = storage.getFavorites().length;
     const prof = storage.getActiveProfile();
@@ -2533,6 +2536,9 @@ class FluiStreamApp {
     this._liveLogoByChannelKey = new Map();
     const items = this.playlist.items || [];
     M3UParser.ensureUniqueItemIds(items);
+    let liveCount = 0;
+    let movieCount = 0;
+    let seriesCount = 0;
     for (let i = 0; i < items.length; i++) {
       const it = items[i];
       if (!it.logo && typeof it.name === 'string' && /tvg-logo=["']([^"']+)["']/i.test(it.name)) {
@@ -2545,6 +2551,12 @@ class FluiStreamApp {
           it.name = it.name.slice(tailComma + 1).trim();
         }
       }
+      if (it.url || it.group) {
+        M3UParser.classifyItem(it);
+      }
+      if (it.type === ItemType.MOVIE) movieCount++;
+      else if (it.type === ItemType.SERIES) seriesCount++;
+      else liveCount++;
       if (it.logo || it.tvgLogo) {
         it.logo = M3UParser.normalizeLogoUrl(it.logo || it.tvgLogo || '');
       }
@@ -2562,6 +2574,14 @@ class FluiStreamApp {
           this._liveLogoByChannelKey.set(normLive, it.logo);
         }
       }
+    }
+    if (this.playlist && typeof this.playlist === 'object') {
+      this.playlist.summary = {
+        total: items.length,
+        live: liveCount,
+        movies: movieCount,
+        series: seriesCount
+      };
     }
   }
 
@@ -2692,6 +2712,7 @@ class FluiStreamApp {
   }
 
   getBaseItemsForCurrentView() {
+    this._ensurePlaylistIndexes();
     if (this.selectedGroup === '__fav_live__') return this.getFavoritesForView(ItemType.LIVE);
     if (this.selectedGroup === '__fav_movie__') return this.getFavoritesForView(ItemType.MOVIE);
     if (this.selectedGroup === '__fav_series__') return this.getFavoritesForView(ItemType.SERIES);
@@ -2706,6 +2727,7 @@ class FluiStreamApp {
 
   renderSidebarCategories() {
     if (!this.dom.sidebarCategoryList) return;
+    this._ensurePlaylistIndexes();
     const baseItems = this.playlist.items.filter(x => {
       if (this.currentView === 'favorites') return storage.getFavorites().includes(x.id);
       if (this.currentView === 'history') return true;
