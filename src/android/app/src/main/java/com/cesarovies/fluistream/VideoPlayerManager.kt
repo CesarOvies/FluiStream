@@ -3,6 +3,8 @@ package com.cesarovies.fluistream
 import android.content.Context
 import android.graphics.Rect
 import android.net.Uri
+import android.opengl.GLES20
+import android.os.Handler
 import android.view.View
 import android.widget.Button
 import android.widget.FrameLayout
@@ -14,15 +16,26 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.VideoFrameProcessingException
 import androidx.media3.common.VideoSize
+import androidx.media3.common.util.GlProgram
+import androidx.media3.common.util.GlUtil
+import androidx.media3.common.util.Size
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultHttpDataSource
-import androidx.media3.effect.Contrast
-import androidx.media3.effect.HslAdjustment
+import androidx.media3.effect.BaseGlShaderProgram
+import androidx.media3.effect.DefaultVideoFrameProcessor
+import androidx.media3.effect.GlEffect
+import androidx.media3.effect.GlShaderProgram
 import androidx.media3.effect.Presentation
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.Renderer
+import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.exoplayer.video.CompositingVideoSinkProvider
+import androidx.media3.exoplayer.video.MediaCodecVideoRenderer
+import androidx.media3.exoplayer.video.VideoRendererEventListener
 import androidx.media3.extractor.DefaultExtractorsFactory
 import androidx.media3.extractor.ts.DefaultTsPayloadReaderFactory
 import androidx.media3.ui.AspectRatioFrameLayout
@@ -51,6 +64,7 @@ class VideoPlayerManager(
     private var exoPlayer: ExoPlayer? = null
     private var currentAspectRatio: String = "auto"
     private var currentImageBoost: String = "off"
+    private var forceColorTransfersForHdr: Boolean = false
     private var naturalVideoAspectRatio: Float = 0f
     private val pendingFallbackUrls = ArrayDeque<String>()
     private var hasExplicitFallbackUrls: Boolean = false
@@ -172,6 +186,9 @@ class VideoPlayerManager(
         }
         val modeChanged = normalized != currentImageBoost
         currentImageBoost = normalized
+        if (modeChanged) {
+            forceColorTransfersForHdr = false
+        }
         updateBoostButtonText(normalized)
 
         val player = exoPlayer ?: return
@@ -389,8 +406,39 @@ class VideoPlayerManager(
         val mediaSourceFactory = DefaultMediaSourceFactory(context, extractorsFactory)
             .setDataSourceFactory(httpDataSourceFactory)
 
-        val renderersFactory = DefaultRenderersFactory(context)
-            .setEnableDecoderFallback(true)
+        val renderersFactory = object : DefaultRenderersFactory(context) {
+            override fun buildVideoRenderers(
+                context: Context,
+                extensionRendererMode: Int,
+                mediaCodecSelector: MediaCodecSelector,
+                enableDecoderFallback: Boolean,
+                eventHandler: Handler,
+                eventListener: VideoRendererEventListener,
+                allowedVideoJoiningTimeMs: Long,
+                out: ArrayList<Renderer>
+            ) {
+                val frameProcessorFactory = DefaultVideoFrameProcessor.Factory.Builder()
+                    .setEnableColorTransfers(forceColorTransfersForHdr)
+                    .build()
+                val videoSinkProvider = CompositingVideoSinkProvider.Builder(context)
+                    .setVideoFrameProcessorFactory(frameProcessorFactory)
+                    .build()
+                out.add(
+                    MediaCodecVideoRenderer(
+                        context,
+                        getCodecAdapterFactory(),
+                        mediaCodecSelector,
+                        allowedVideoJoiningTimeMs,
+                        enableDecoderFallback,
+                        eventHandler,
+                        eventListener,
+                        MAX_DROPPED_VIDEO_FRAME_COUNT_TO_NOTIFY,
+                        30f,
+                        videoSinkProvider
+                    )
+                )
+            }
+        }.setEnableDecoderFallback(true)
 
         val player = ExoPlayer.Builder(context)
             .setRenderersFactory(renderersFactory)
@@ -405,6 +453,27 @@ class VideoPlayerManager(
                     error
                 )
                 if (currentImageBoost != "off" &&
+                    !forceColorTransfersForHdr &&
+                    error.errorCode == PlaybackException.ERROR_CODE_VIDEO_FRAME_PROCESSOR_INIT_FAILED
+                ) {
+                    android.util.Log.w(
+                        "VideoPlayerManager",
+                        "Video frame processor init failed with gamma path; retrying with enableColorTransfers=true",
+                        error
+                    )
+                    forceColorTransfersForHdr = true
+                    errorText.visibility = View.GONE
+                    val retryUrl = currentPlayUrl
+                    if (isPlayingStream && retryUrl.isNotEmpty()) {
+                        playerView.post {
+                            if (isPlayingStream && currentPlayUrl == retryUrl && exoPlayer === player) {
+                                restartPlaybackWithCurrentBoost(player, retryUrl)
+                            }
+                        }
+                        return
+                    }
+                }
+                if (currentImageBoost != "off" &&
                     (error.errorCode == PlaybackException.ERROR_CODE_VIDEO_FRAME_PROCESSOR_INIT_FAILED ||
                         error.errorCode == PlaybackException.ERROR_CODE_VIDEO_FRAME_PROCESSING_FAILED)
                 ) {
@@ -413,6 +482,7 @@ class VideoPlayerManager(
                         "Video frame processor error (${error.errorCode}); falling back to boost=off",
                         error
                     )
+                    forceColorTransfersForHdr = false
                     currentImageBoost = "off"
                     applyImageBoostEffects(player, "off")
                     updateBoostButtonText("off")
@@ -481,19 +551,12 @@ class VideoPlayerManager(
     private fun applyImageBoostEffects(player: ExoPlayer, mode: String) {
         val effects: List<Effect> = when (mode) {
             "hd_plus" -> listOf(
-                Presentation.createForHeight(1080),
-                Contrast(0.08f),
-                HslAdjustment.Builder()
-                    .adjustSaturation(8f)
-                    .build()
+                CasSharpenGlEffect(sharpness = 0.55f, detailGain = 0.32f, deblock = 0.20f),
+                Presentation.createForHeight(1080)
             )
             "ultra_2k" -> listOf(
-                Presentation.createForHeight(1440),
-                Contrast(0.15f),
-                HslAdjustment.Builder()
-                    .adjustSaturation(14f)
-                    .adjustLightness(1.5f)
-                    .build()
+                CasSharpenGlEffect(sharpness = 0.88f, detailGain = 0.54f, deblock = 0.30f),
+                Presentation.createForHeight(1440)
             )
             else -> emptyList()
         }
@@ -604,5 +667,174 @@ class VideoPlayerManager(
             itemType == "live" && streamMode == "auto" -> MimeTypes.APPLICATION_M3U8
             else -> null
         }
+    }
+}
+
+@OptIn(UnstableApi::class)
+private data class CasSharpenGlEffect(
+    private val sharpness: Float,
+    private val detailGain: Float,
+    private val deblock: Float
+) : GlEffect {
+    override fun toGlShaderProgram(context: Context, useHdr: Boolean): GlShaderProgram {
+        return CasSharpenShaderProgram(useHdr, sharpness, detailGain, deblock)
+    }
+
+    override fun isNoOp(inputWidth: Int, inputHeight: Int): Boolean {
+        return sharpness <= 0f && detailGain <= 0f && deblock <= 0f
+    }
+}
+
+@OptIn(UnstableApi::class)
+private class CasSharpenShaderProgram(
+    useHdr: Boolean,
+    sharpness: Float,
+    detailGain: Float,
+    deblock: Float
+) : BaseGlShaderProgram(useHdr, 1) {
+
+    private val glProgram: GlProgram = try {
+        GlProgram(VERTEX_SHADER, FRAGMENT_SHADER).apply {
+            setBufferAttribute(
+                "aFramePosition",
+                GlUtil.getNormalizedCoordinateBounds(),
+                GlUtil.HOMOGENEOUS_COORDINATE_VECTOR_SIZE
+            )
+            setFloatsUniform("uTexelSize", floatArrayOf(1f / 1920f, 1f / 1080f))
+            setFloatUniform("uSharpness", sharpness)
+            setFloatUniform("uDetailGain", detailGain)
+            setFloatUniform("uDeblock", deblock)
+        }
+    } catch (e: GlUtil.GlException) {
+        throw VideoFrameProcessingException(e)
+    }
+
+    override fun configure(inputWidth: Int, inputHeight: Int): Size {
+        val safeW = inputWidth.coerceAtLeast(1)
+        val safeH = inputHeight.coerceAtLeast(1)
+        glProgram.setFloatsUniform("uTexelSize", floatArrayOf(1f / safeW.toFloat(), 1f / safeH.toFloat()))
+        return Size(inputWidth, inputHeight)
+    }
+
+    override fun drawFrame(inputTexId: Int, presentationTimeUs: Long) {
+        try {
+            glProgram.use()
+            glProgram.setSamplerTexIdUniform("uTexSampler", inputTexId, 0)
+            glProgram.bindAttributesAndUniforms()
+            GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
+        } catch (e: GlUtil.GlException) {
+            throw VideoFrameProcessingException(e, presentationTimeUs)
+        }
+    }
+
+    override fun release() {
+        super.release()
+        try {
+            glProgram.delete()
+        } catch (e: GlUtil.GlException) {
+            throw VideoFrameProcessingException(e)
+        }
+    }
+
+    companion object {
+        private const val VERTEX_SHADER = """
+#version 100
+attribute vec4 aFramePosition;
+varying vec2 vTexSamplingCoord;
+void main() {
+  gl_Position = aFramePosition;
+  vTexSamplingCoord = aFramePosition.xy * 0.5 + 0.5;
+}
+"""
+
+        private const val FRAGMENT_SHADER = """
+#version 100
+#ifdef GL_FRAGMENT_PRECISION_HIGH
+precision highp float;
+#else
+precision mediump float;
+#endif
+
+uniform sampler2D uTexSampler;
+uniform vec2 uTexelSize;
+uniform float uSharpness;
+uniform float uDetailGain;
+uniform float uDeblock;
+varying vec2 vTexSamplingCoord;
+
+float luma(vec3 c) {
+  return dot(c, vec3(0.2126, 0.7152, 0.0722));
+}
+
+void main() {
+  vec2 uv = vTexSamplingCoord;
+  vec2 dx = vec2(uTexelSize.x, 0.0);
+  vec2 dy = vec2(0.0, uTexelSize.y);
+
+  vec3 a = texture2D(uTexSampler, uv - dx - dy).rgb;
+  vec3 b = texture2D(uTexSampler, uv - dy).rgb;
+  vec3 c = texture2D(uTexSampler, uv + dx - dy).rgb;
+  vec3 d = texture2D(uTexSampler, uv - dx).rgb;
+  vec4 centerTex = texture2D(uTexSampler, uv);
+  vec3 e = centerTex.rgb;
+  vec3 f = texture2D(uTexSampler, uv + dx).rgb;
+  vec3 g = texture2D(uTexSampler, uv - dx + dy).rgb;
+  vec3 h = texture2D(uTexSampler, uv + dy).rgb;
+  vec3 i = texture2D(uTexSampler, uv + dx + dy).rgb;
+
+  float le = luma(e);
+  float la = luma(a);
+  float lb = luma(b);
+  float lc = luma(c);
+  float ld = luma(d);
+  float lf = luma(f);
+  float lg = luma(g);
+  float lh = luma(h);
+  float li = luma(i);
+
+  // Edge-preserving bilateral deblock for compressed IPTV feeds
+  float wb = exp(-abs(lb - le) * 20.0);
+  float wd = exp(-abs(ld - le) * 20.0);
+  float wf = exp(-abs(lf - le) * 20.0);
+  float wh = exp(-abs(lh - le) * 20.0);
+  float wSum = 1.0 + wb + wd + wf + wh;
+  vec3 smoothBase = (e + b * wb + d * wd + f * wf + h * wh) / wSum;
+  vec3 base = mix(e, smoothBase, clamp(uDeblock * 0.55, 0.0, 0.5));
+  float lBase = luma(base);
+
+  // Luminance-preserving AMD FidelityFX CAS 9-tap (zero black crush or chroma shift)
+  float minL = min(min(ld, lf), min(lb, lh));
+  minL = min(minL, lBase);
+  float minL2 = min(minL, min(min(la, lc), min(lg, li)));
+  minL = (minL + minL2) * 0.5;
+
+  float maxL = max(max(ld, lf), max(lb, lh));
+  maxL = max(maxL, lBase);
+  float maxL2 = max(maxL, max(max(la, lc), max(lg, li)));
+  maxL = (maxL + maxL2) * 0.5;
+
+  float ampL = clamp(min(minL, max(2.0 - maxL, 0.0)) / max(maxL, 0.0001), 0.0, 1.0);
+  ampL = sqrt(ampL);
+
+  float peak = -1.0 / mix(8.5, 5.2, clamp(uSharpness, 0.0, 1.0));
+  float wL = max(ampL * peak, -0.19);
+  float casLuma = (lb * wL + ld * wL + lf * wL + lh * wL + lBase) / (1.0 + 4.0 * wL);
+
+  // Anti-ringing unsharp detail gated in dark shadows
+  float blurL = (lb + ld + lf + lh) * 0.25;
+  float detailL = (lBase - blurL) * (uDetailGain * 0.65);
+  float shadowGuard = smoothstep(0.015, 0.075, le);
+  float targetLuma = clamp(lBase + ((casLuma - lBase) + detailL) * shadowGuard, minL, maxL);
+  float deltaL = targetLuma - lBase;
+
+  vec3 minRGB = min(min(d, f), min(b, h));
+  minRGB = min(minRGB, base);
+  vec3 maxRGB = max(max(d, f), max(b, h));
+  maxRGB = max(maxRGB, base);
+  vec3 color = clamp(base + vec3(deltaL), minRGB, maxRGB);
+
+  gl_FragColor = vec4(color, centerTex.a);
+}
+"""
     }
 }
