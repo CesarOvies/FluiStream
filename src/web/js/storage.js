@@ -7,6 +7,7 @@ const DB_NAME = 'FluiStreamDB';
 const DB_VERSION = 1;
 const STORE_PLAYLIST = 'playlist';
 const STORE_EPG = 'epg';
+const PLAYLIST_CHUNK_SIZE = 15000;
 
 export class StorageService {
   constructor() {
@@ -179,9 +180,25 @@ export class StorageService {
 
     await this.initPromise;
     if (this.db) {
-      const tx = this.db.transaction([STORE_PLAYLIST, STORE_EPG], 'readwrite');
-      tx.objectStore(STORE_PLAYLIST).delete(profileId);
-      tx.objectStore(STORE_EPG).delete(`epg_${profileId}`);
+      await new Promise((resolve) => {
+        const tx = this.db.transaction([STORE_PLAYLIST, STORE_EPG], 'readwrite');
+        const plStore = tx.objectStore(STORE_PLAYLIST);
+        const getReq = plStore.get(profileId);
+        getReq.onsuccess = () => {
+          const prevChunkCount = Number(getReq.result?.chunkCount) || 0;
+          for (let i = 0; i < prevChunkCount; i++) {
+            plStore.delete(`${profileId}__chunk_${i}`);
+          }
+          plStore.delete(profileId);
+          tx.objectStore(STORE_EPG).delete(`epg_${profileId}`);
+        };
+        getReq.onerror = () => {
+          plStore.delete(profileId);
+          tx.objectStore(STORE_EPG).delete(`epg_${profileId}`);
+        };
+        tx.oncomplete = () => resolve(true);
+        tx.onerror = () => resolve(false);
+      });
     }
   }
 
@@ -202,10 +219,45 @@ export class StorageService {
     const nowTs = Date.now();
 
     if (this.db) {
+      const allItems = Array.isArray(playlistData?.items) ? playlistData.items : [];
+      const useChunking = allItems.length > PLAYLIST_CHUNK_SIZE;
       return new Promise((resolve) => {
         const tx = this.db.transaction([STORE_PLAYLIST], 'readwrite');
         const store = tx.objectStore(STORE_PLAYLIST);
-        store.put({ id: targetKey, ...playlistData, updatedAt: nowTs });
+        const writeRecords = (prevChunkCount = 0) => {
+          if (useChunking) {
+            const chunkCount = Math.ceil(allItems.length / PLAYLIST_CHUNK_SIZE);
+            store.put({
+              id: targetKey,
+              ...playlistData,
+              items: [],
+              chunkCount,
+              totalItems: allItems.length,
+              updatedAt: nowTs
+            });
+            for (let i = 0; i < chunkCount; i++) {
+              const start = i * PLAYLIST_CHUNK_SIZE;
+              store.put({
+                id: `${targetKey}__chunk_${i}`,
+                parentId: targetKey,
+                index: i,
+                items: allItems.slice(start, start + PLAYLIST_CHUNK_SIZE)
+              });
+            }
+            for (let i = chunkCount; i < prevChunkCount; i++) {
+              store.delete(`${targetKey}__chunk_${i}`);
+            }
+          } else {
+            store.put({ id: targetKey, ...playlistData, chunkCount: 0, updatedAt: nowTs });
+            for (let i = 0; i < prevChunkCount; i++) {
+              store.delete(`${targetKey}__chunk_${i}`);
+            }
+          }
+        };
+
+        const prevReq = store.get(targetKey);
+        prevReq.onsuccess = () => writeRecords(Number(prevReq.result?.chunkCount) || 0);
+        prevReq.onerror = () => writeRecords(0);
         tx.oncomplete = () => {
           this._touchProfilePlaylistTimestamp(targetKey, nowTs);
           resolve(true);
@@ -236,14 +288,52 @@ export class StorageService {
       return new Promise((resolve) => {
         const tx = this.db.transaction([STORE_PLAYLIST], 'readonly');
         const store = tx.objectStore(STORE_PLAYLIST);
+        const resolveRecord = (record, keyUsed) => {
+          if (!record) {
+            resolve(null);
+            return;
+          }
+          const chunkCount = Number(record.chunkCount) || 0;
+          if (chunkCount <= 0) {
+            resolve(record);
+            return;
+          }
+          const loadedChunks = new Array(chunkCount);
+          let remaining = chunkCount;
+          let failed = false;
+          for (let i = 0; i < chunkCount; i++) {
+            const cReq = store.get(`${keyUsed}__chunk_${i}`);
+            cReq.onsuccess = () => {
+              if (failed) return;
+              loadedChunks[i] = Array.isArray(cReq.result?.items) ? cReq.result.items : [];
+              remaining--;
+              if (remaining === 0) {
+                const mergedItems = [];
+                for (let j = 0; j < chunkCount; j++) {
+                  const part = loadedChunks[j];
+                  for (let k = 0; k < part.length; k++) {
+                    mergedItems.push(part[k]);
+                  }
+                }
+                resolve({ ...record, items: mergedItems });
+              }
+            };
+            cReq.onerror = () => {
+              if (failed) return;
+              failed = true;
+              resolve({ ...record, items: [] });
+            };
+          }
+        };
+
         const req = store.get(targetKey);
         req.onsuccess = () => {
           if (req.result) {
-            resolve(req.result);
+            resolveRecord(req.result, targetKey);
           } else if (targetKey !== 'active') {
             // Fallback para chave 'active'
             const fallbackReq = store.get('active');
-            fallbackReq.onsuccess = () => resolve(fallbackReq.result || null);
+            fallbackReq.onsuccess = () => resolveRecord(fallbackReq.result || null, 'active');
             fallbackReq.onerror = () => resolve(null);
           } else {
             resolve(null);
@@ -259,6 +349,14 @@ export class StorageService {
   async saveEpg(rawXml, profileId = null) {
     await this.initPromise;
     if (!rawXml) return;
+    if (
+      typeof rawXml === 'string' &&
+      rawXml.length > 8_000_000 &&
+      typeof window !== 'undefined' &&
+      window.androidBridge?.isLowMemoryDevice?.()
+    ) {
+      return false;
+    }
     const targetKey = profileId ? `epg_${profileId}` : (this.getActiveProfileId() ? `epg_${this.getActiveProfileId()}` : 'active_xml');
 
     if (this.db) {
@@ -266,9 +364,6 @@ export class StorageService {
         const tx = this.db.transaction([STORE_EPG], 'readwrite');
         const store = tx.objectStore(STORE_EPG);
         store.put({ id: targetKey, xml: rawXml, updatedAt: Date.now() });
-        if (targetKey !== 'active_xml') {
-          store.put({ id: 'active_xml', xml: rawXml, updatedAt: Date.now() });
-        }
         tx.oncomplete = () => resolve(true);
         tx.onerror = () => resolve(false);
       });

@@ -1,14 +1,23 @@
 package com.cesarovies.fluistream
 
 import android.annotation.SuppressLint
+import android.app.ActivityManager
+import android.app.UiModeManager
+import android.content.ComponentCallbacks2
+import android.content.Context
 import android.content.Intent
 import android.content.pm.ActivityInfo
+import android.content.pm.PackageManager
+import android.content.res.Configuration
 import android.graphics.Color
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.os.SystemClock
 import android.view.KeyEvent
+import android.view.ViewGroup
 import android.view.WindowManager
+import android.webkit.RenderProcessGoneDetail
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
@@ -32,6 +41,8 @@ import androidx.media3.ui.PlayerView
 import androidx.webkit.WebViewAssetLoader
 import android.util.Log
 import java.io.ByteArrayInputStream
+import java.io.FilterInputStream
+import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import java.security.SecureRandom
@@ -109,7 +120,10 @@ class MainActivity : AppCompatActivity() {
 
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         @Suppress("DEPRECATION")
-        window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
+        window.setSoftInputMode(
+            if (isTvDevice()) WindowManager.LayoutParams.SOFT_INPUT_ADJUST_PAN
+            else WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
+        )
         configureSystemBars()
 
         webView = findViewById(R.id.web_view)
@@ -191,17 +205,22 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    @SuppressLint("SetJavaScriptEnabled")
     private fun setupWebView() {
+        configureWebViewInstance(webView)
+    }
+
+    @SuppressLint("SetJavaScriptEnabled")
+    private fun configureWebViewInstance(targetWebView: WebView) {
         val assetLoader = WebViewAssetLoader.Builder()
             .addPathHandler("/assets/", WebViewAssetLoader.AssetsPathHandler(this))
             .build()
 
-        webView.setBackgroundColor(Color.parseColor("#06101E"))
-        webView.isFocusable = true
-        webView.isFocusableInTouchMode = true
+        targetWebView.setBackgroundColor(Color.parseColor("#06101E"))
+        targetWebView.isFocusable = true
+        targetWebView.isFocusableInTouchMode = true
+        targetWebView.setInitialScale(0)
 
-        webView.settings.apply {
+        targetWebView.settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true
             databaseEnabled = true
@@ -209,12 +228,16 @@ class MainActivity : AppCompatActivity() {
             mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
             allowFileAccess = false
             allowContentAccess = true
-            useWideViewPort = true
-            loadWithOverviewMode = true
+            useWideViewPort = false
+            loadWithOverviewMode = false
+            layoutAlgorithm = WebSettings.LayoutAlgorithm.NORMAL
+            textZoom = 100
             setSupportZoom(false)
+            builtInZoomControls = false
+            displayZoomControls = false
         }
 
-        webView.webViewClient = object : WebViewClient() {
+        targetWebView.webViewClient = object : WebViewClient() {
             override fun shouldInterceptRequest(
                 view: WebView,
                 request: WebResourceRequest
@@ -240,9 +263,51 @@ class MainActivity : AppCompatActivity() {
                 }
                 return true
             }
+
+            override fun onRenderProcessGone(
+                view: WebView,
+                detail: RenderProcessGoneDetail
+            ): Boolean {
+                val didCrash = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) detail.didCrash() else true
+                Log.e("FluiStream", "WebView render process gone (didCrash=$didCrash)")
+                runOnUiThread {
+                    if (isFinishing || isDestroyed) return@runOnUiThread
+                    val parent = view.parent as? ViewGroup
+                    val idx = parent?.indexOfChild(view) ?: -1
+                    val layoutParams = view.layoutParams
+                    runCatching {
+                        view.stopLoading()
+                        view.removeJavascriptInterface("androidBridge")
+                        parent?.removeView(view)
+                        view.destroy()
+                    }
+                    val replacement = WebView(this@MainActivity).apply {
+                        id = R.id.web_view
+                        if (layoutParams != null) this.layoutParams = layoutParams
+                    }
+                    if (parent != null && idx >= 0) {
+                        parent.addView(replacement, idx)
+                    } else {
+                        parent?.addView(replacement)
+                    }
+                    webView = replacement
+                    tvFocusHelper = TvFocusHelper(
+                        webView = webView,
+                        videoPlayerManager = videoPlayerManager,
+                        onBackRequested = { handleBackNavigation() }
+                    )
+                    configureWebViewInstance(webView)
+                    Toast.makeText(
+                        this@MainActivity,
+                        "Memória baixa detectada. Recarregando interface...",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+                return true
+            }
         }
 
-        webView.webChromeClient = object : WebChromeClient() {
+        targetWebView.webChromeClient = object : WebChromeClient() {
             override fun onShowFileChooser(
                 webView: WebView?,
                 filePathCallback: ValueCallback<Array<Uri>>?,
@@ -264,8 +329,8 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        webView.addJavascriptInterface(NativeBridge(this), "androidBridge")
-        webView.loadUrl(ASSET_ENTRY_URL)
+        targetWebView.addJavascriptInterface(NativeBridge(this), "androidBridge")
+        targetWebView.loadUrl(ASSET_ENTRY_URL)
     }
 
     fun fetchRemoteTextDirectly(url: String, timeoutMs: Int = 60_000): String {
@@ -339,17 +404,38 @@ class MainActivity : AppCompatActivity() {
             pushback
         }
 
+        val maxChars = if (isLowMemoryDevice()) 16_000_000 else 48_000_000
         val reader = java.io.InputStreamReader(stream, charset)
         val sb = StringBuilder()
         val buffer = CharArray(32768)
+        var truncated = false
         try {
             var n: Int
             while (reader.read(buffer).also { n = it } != -1) {
+                if (sb.length + n >= maxChars) {
+                    val remaining = maxChars - sb.length
+                    if (remaining > 0) {
+                        sb.append(buffer, 0, remaining)
+                    }
+                    truncated = true
+                    break
+                }
                 sb.append(buffer, 0, n)
             }
         } finally {
             reader.close()
             conn.disconnect()
+        }
+
+        if (truncated) {
+            Log.w("FluiStream", "fetchRemoteTextDirectly capped response at $maxChars chars for $url")
+            val isM3u = sb.indexOf("#EXTM3U") in 0..256 || sb.indexOf("#EXTINF") != -1
+            if (isM3u) {
+                val lastNl = sb.lastIndexOf("\n")
+                if (lastNl > 0) {
+                    sb.setLength(lastNl)
+                }
+            }
         }
 
         return sb.toString()
@@ -399,7 +485,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         for (candidate in candidates) {
-            val res = executeInterceptRequest(candidate, method, request)
+            val res = executeInterceptRequest(candidate, method, request, isImageRequest)
             if (res != null) {
                 val status = res.statusCode
                 if (status in 200..399 || candidate == candidates.last()) {
@@ -416,8 +502,10 @@ class MainActivity : AppCompatActivity() {
     private fun executeInterceptRequest(
         initialUrl: String,
         method: String,
-        request: WebResourceRequest
+        request: WebResourceRequest,
+        isImageRequest: Boolean = false
     ): WebResourceResponse? {
+        var activeConn: HttpURLConnection? = null
         return runCatching {
             var currentUrl = initialUrl
             var redirects = 0
@@ -428,6 +516,11 @@ class MainActivity : AppCompatActivity() {
                     requestMethod = method
                     connectTimeout = 30_000
                     readTimeout = 120_000
+                    if (isImageRequest) {
+                        connectTimeout = 6_000
+                        readTimeout = 10_000
+                    }
+                    activeConn = this
                     instanceFollowRedirects = false
                     setRequestProperty("User-Agent", "IPTVSmartersPro/3.1.5 (Linux;Android 11) VLC/3.0.20")
                     setRequestProperty("Accept", "*/*")
@@ -511,14 +604,26 @@ class MainActivity : AppCompatActivity() {
             responseHeaders["Access-Control-Allow-Headers"] = "*"
             responseHeaders["Access-Control-Allow-Credentials"] = "true"
 
+            val managedStream: InputStream = object : FilterInputStream(stream) {
+                override fun close() {
+                    try {
+                        super.close()
+                    } finally {
+                        runCatching { conn.disconnect() }
+                    }
+                }
+            }
+
             WebResourceResponse(
                 mimeType,
                 encoding ?: "UTF-8",
                 safeCode,
                 statusMsg,
                 responseHeaders,
-                stream
+                managedStream
             )
+        }.onFailure {
+            runCatching { activeConn?.disconnect() }
         }.getOrNull()
     }
 
@@ -615,6 +720,64 @@ class MainActivity : AppCompatActivity() {
         webView.removeJavascriptInterface("androidBridge")
         webView.destroy()
         super.onDestroy()
+    }
+
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        if (level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW) {
+            runCatching {
+                webView.clearCache(false)
+                System.gc()
+                webView.evaluateJavascript(
+                    "window.dispatchEvent(new CustomEvent('android-low-memory', { detail: { level: $level } }));",
+                    null
+                )
+            }
+        }
+    }
+
+    override fun onLowMemory() {
+        super.onLowMemory()
+        runCatching {
+            webView.clearCache(false)
+            System.gc()
+            webView.evaluateJavascript(
+                "window.dispatchEvent(new CustomEvent('android-low-memory', { detail: { level: 80 } }));",
+                null
+            )
+        }
+    }
+
+    internal fun isTvDevice(): Boolean {
+        val uiModeManager = getSystemService(Context.UI_MODE_SERVICE) as? UiModeManager
+        if (uiModeManager?.currentModeType == Configuration.UI_MODE_TYPE_TELEVISION) return true
+        val pm = packageManager
+        @Suppress("DEPRECATION")
+        return pm.hasSystemFeature(PackageManager.FEATURE_LEANBACK) ||
+            pm.hasSystemFeature(PackageManager.FEATURE_TELEVISION) ||
+            !pm.hasSystemFeature(PackageManager.FEATURE_TOUCHSCREEN)
+    }
+
+    fun isLowMemoryDevice(): Boolean {
+        val am = getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
+        if (am?.isLowRamDevice == true) return true
+        val memInfo = ActivityManager.MemoryInfo()
+        am?.getMemoryInfo(memInfo)
+        if (memInfo.lowMemory) return true
+        val totalRamMb = if (memInfo.totalMem > 0L) memInfo.totalMem / (1024L * 1024L) else 0L
+        val heapMaxMb = Runtime.getRuntime().maxMemory() / (1024L * 1024L)
+        return (totalRamMb in 1L..1600L) || (heapMaxMb in 1L..256L)
+    }
+
+    fun getDeviceProfileJson(): String {
+        val am = getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
+        val memInfo = ActivityManager.MemoryInfo()
+        am?.getMemoryInfo(memInfo)
+        val dm = resources.displayMetrics
+        val totalRamMb = if (memInfo.totalMem > 0L) memInfo.totalMem / (1024L * 1024L) else 0L
+        val availRamMb = if (memInfo.availMem > 0L) memInfo.availMem / (1024L * 1024L) else 0L
+        val isLowRam = isLowMemoryDevice()
+        return """{"isLowRam":$isLowRam,"isTv":${isTvDevice()},"totalRamMb":$totalRamMb,"availRamMb":$availRamMb,"widthPx":${dm.widthPixels},"heightPx":${dm.heightPixels},"density":${dm.density},"sdkInt":${Build.VERSION.SDK_INT}}"""
     }
 
     private fun applyTopHudWindowInsets(topHud: LinearLayout) {

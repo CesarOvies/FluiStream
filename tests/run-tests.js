@@ -3989,6 +3989,281 @@ await test('WebGlVideoUpscaler, CORS crossOrigin e fallback CSS devem renderizar
   }
 });
 
+console.log('\n--- 33. Testes HY300 Projetor (Chromium 83 WebView, Loop 3min, Xtream JSON Lazy, 1GB RAM) ---');
+
+await test('CSS & HTML garantem compatibilidade Chromium 83 WebView (top/right/bottom/left antes de inset, vh/--app-vh, modal-import 720p)', () => {
+  const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+  const css = readFileSync(resolve(rootDir, 'src/web/css/style.css'), 'utf8');
+  const html = readFileSync(resolve(rootDir, 'src/web/index.html'), 'utf8');
+
+  assert.match(css, /\.modal-backdrop\s*\{[\s\S]*?top:\s*0;\s*\n\s*right:\s*0;\s*\n\s*bottom:\s*0;\s*\n\s*left:\s*0;\s*\n\s*inset:\s*0;/);
+  assert.match(css, /\.modal-backdrop\s*\{[\s\S]*?width:\s*var\(--app-vw,\s*100vw\);[\s\S]*?height:\s*var\(--app-vh,\s*100vh\);/);
+  assert.match(css, /\.modal-footer\s*\{[\s\S]*?position:\s*sticky;\s*\n\s*bottom:\s*0;/);
+  assert.match(css, /\.checkbox-label input\[type="checkbox"\]\s*\{[\s\S]*?margin:\s*0 0\.5rem 0 0;/);
+  assert.match(css, /#modal-import \.modal-dialog/);
+  assert.match(css, /@media \(max-height: 760px\), \(pointer: coarse\)[\s\S]*?#modal-import \.modal-footer/);
+  assert.match(html, /class="import-epg-options"/);
+  assert.match(html, /class="modal-footer-actions"/);
+});
+
+await test('Android MainActivity.kt e NativeBridge.kt corrigem escala HY300, onRenderProcessGone e protecao OOM', () => {
+  const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+  const mainActivityKt = readFileSync(resolve(rootDir, 'src/android/app/src/main/java/com/cesarovies/fluistream/MainActivity.kt'), 'utf8');
+  const nativeBridgeKt = readFileSync(resolve(rootDir, 'src/android/app/src/main/java/com/cesarovies/fluistream/NativeBridge.kt'), 'utf8');
+
+  assert.match(mainActivityKt, /useWideViewPort\s*=\s*false/);
+  assert.match(mainActivityKt, /loadWithOverviewMode\s*=\s*false/);
+  assert.match(mainActivityKt, /textZoom\s*=\s*100/);
+  assert.match(mainActivityKt, /override fun onRenderProcessGone\(/);
+  assert.match(mainActivityKt, /override fun onTrimMemory\(/);
+  assert.match(mainActivityKt, /fun isLowMemoryDevice\(\): Boolean/);
+  assert.match(mainActivityKt, /fun getDeviceProfileJson\(\): String/);
+  assert.match(mainActivityKt, /maxChars\s*=\s*if\s*\(isLowMemoryDevice\(\)\)\s*16_000_000/);
+  assert.match(mainActivityKt, /if\s*\(isImageRequest\)\s*\{\s*\n\s*connectTimeout\s*=\s*6_000\s*\n\s*readTimeout\s*=\s*10_000/);
+  assert.match(nativeBridgeKt, /@JavascriptInterface\s+fun isLowMemoryDevice\(\): Boolean/);
+  assert.match(nativeBridgeKt, /@JavascriptInterface\s+fun getDeviceProfileJson\(\): String/);
+});
+
+await test('fetchRemoteText nao entra em loop de fallback (fetch/allorigins) quando window.androidBridge.fetchText falha', async () => {
+  const { fetchRemoteText } = await import('../src/web/js/network.js');
+  const prevWindow = globalThis.window;
+  const prevFetch = globalThis.fetch;
+  let fetchCalled = 0;
+
+  globalThis.fetch = async () => {
+    fetchCalled++;
+    return { ok: true, text: async () => '#EXTM3U' };
+  };
+  globalThis.window = {
+    androidBridge: {
+      fetchText() {
+        throw new Error('HTTP 502 Bad Gateway');
+      }
+    }
+  };
+
+  try {
+    await assert.rejects(
+      () => fetchRemoteText('http://2025easy.net/get.php?username=a&password=b', 15000),
+      /HTTP 502 Bad Gateway/
+    );
+    assert.equal(fetchCalled, 0, 'Nao deve tentar fetch() ou proxy CORS apos falha direta do NativeBridge no Android');
+  } finally {
+    if (prevWindow === undefined) delete globalThis.window;
+    else globalThis.window = prevWindow;
+    if (prevFetch === undefined) delete globalThis.fetch;
+    else globalThis.fetch = prevFetch;
+  }
+});
+
+await test('XtreamApi.fetchStructuredCatalog usa player_api.php JSON leve e adia episodios para getSeriesInfo sob demanda', async () => {
+  const { XtreamApi } = await import('../src/web/js/xtream-api.js');
+  const { ItemType } = await import('../src/web/js/m3u-parser.js');
+  const prevWindow = globalThis.window;
+  const requestedUrls = [];
+
+  globalThis.window = {
+    androidBridge: {
+      fetchText(url) {
+        requestedUrls.push(url);
+        if (url.includes('action=get_live_categories')) {
+          return JSON.stringify([{ category_id: '1', category_name: 'Esportes' }]);
+        }
+        if (url.includes('action=get_live_streams')) {
+          return JSON.stringify([
+            { stream_id: 101, name: 'ESPN Brasil', category_id: '1', stream_icon: 'http://cdn.tv/espn.png', epg_channel_id: 'espn.br', tv_archive: 1, tv_archive_duration: 3 }
+          ]);
+        }
+        if (url.includes('action=get_vod_categories')) {
+          return JSON.stringify([{ category_id: '2', category_name: 'Ação' }]);
+        }
+        if (url.includes('action=get_vod_streams')) {
+          return JSON.stringify([
+            { stream_id: 202, name: 'Matrix (1999)', category_id: '2', container_extension: 'mp4', stream_icon: 'https://cdn.tv/matrix.jpg' }
+          ]);
+        }
+        if (url.includes('action=get_series_categories')) {
+          return JSON.stringify([{ category_id: '3', category_name: 'Sci-Fi' }]);
+        }
+        if (url.includes('action=get_series_info') && url.includes('series_id=303')) {
+          return JSON.stringify({
+            info: { name: 'Dark', cover: 'https://cdn.tv/dark.jpg', plot: 'Sinopse completa', genre: 'Sci-Fi' },
+            episodes: {
+              '1': [
+                { id: 9001, episode_num: 1, title: 'Segredos', container_extension: 'mp4', info: { duration_secs: 3100 } }
+              ]
+            }
+          });
+        }
+        if (/[?&]action=get_series(?:&|$)/.test(url)) {
+          return JSON.stringify([
+            { series_id: 303, name: 'Dark', category_id: '3', cover: 'https://cdn.tv/dark.jpg', plot: 'Viagem no tempo', genre: 'Sci-Fi' }
+          ]);
+        }
+        return '[]';
+      }
+    }
+  };
+
+  try {
+    const xtream = new XtreamApi('http://2025easy.net', 'user1', 'pass1');
+    const catalog = await xtream.fetchStructuredCatalog();
+    assert.ok(catalog);
+    assert.equal(catalog.structured, true);
+    assert.equal(catalog.summary.total, 3);
+    assert.equal(catalog.summary.live, 1);
+    assert.equal(catalog.summary.movies, 1);
+    assert.equal(catalog.summary.series, 1);
+    assert.equal(catalog.items[0].url, 'http://2025easy.net/live/user1/pass1/101.m3u8');
+    assert.equal(catalog.items[0].hasCatchup, true);
+    assert.equal(catalog.items[1].url, 'http://2025easy.net/movie/user1/pass1/202.mp4');
+    assert.equal(catalog.items[2].type, ItemType.SERIES);
+    assert.equal(catalog.items[2].xtreamSeriesId, '303');
+    assert.equal(catalog.items[2].url, '', 'Serie estruturada nao deve baixar todos os episodios na importacao');
+    assert.equal(catalog.items[2].isLazySeriesPlaceholder, true);
+    assert.equal(requestedUrls.some(u => u.includes('get.php')), false);
+
+    // Refresh de secao unica deve buscar somente LIVE
+    requestedUrls.length = 0;
+    const liveOnly = await xtream.fetchStructuredCatalog({ sectionType: ItemType.LIVE });
+    assert.equal(liveOnly.summary.total, 1);
+    assert.equal(requestedUrls.some(u => u.includes('get_vod_streams')), false);
+    assert.equal(requestedUrls.some(u => u.includes('get_series')), false);
+
+    // Sob demanda: getSeriesInfo + buildSeriesEpisodeUrl
+    const seriesInfo = await xtream.getSeriesInfo('303');
+    assert.equal(seriesInfo.episodes['1'][0].id, 9001);
+    assert.equal(xtream.buildSeriesEpisodeUrl(9001, 'mp4'), 'http://2025easy.net/series/user1/pass1/9001.mp4');
+  } finally {
+    if (prevWindow === undefined) delete globalThis.window;
+    else globalThis.window = prevWindow;
+  }
+});
+
+await test('M3UParser maxItems, EPGParser janela em XML >4MB e StorageService chunking >15000 itens protegem 1GB RAM', async () => {
+  const { M3UParser } = await import('../src/web/js/m3u-parser.js');
+  const { EPGParser } = await import('../src/web/js/epg-parser.js');
+  const { StorageService } = await import('../src/web/js/storage.js');
+
+  // 1. M3UParser.parse maxItems
+  const sampleM3u = `#EXTM3U
+#EXTINF:-1,Canal 1
+http://ex.com/1.m3u8
+#EXTINF:-1,Canal 2
+http://ex.com/2.m3u8
+#EXTINF:-1,Canal 3
+http://ex.com/3.m3u8`;
+  const capped = M3UParser.parse(sampleM3u, { maxItems: 2 });
+  assert.equal(capped.items.length, 2);
+  assert.equal(capped.truncated, true);
+
+  // 2. EPGParser prunes ancient programs when XML > 4MB
+  const nowSec = Math.floor(Date.now() / 1000);
+  const fmtXmltv = (sec) => {
+    const d = new Date(sec * 1000);
+    const pad = (n) => String(n).padStart(2, '0');
+    return `${d.getUTCFullYear()}${pad(d.getUTCMonth() + 1)}${pad(d.getUTCDate())}${pad(d.getUTCHours())}${pad(d.getUTCMinutes())}${pad(d.getUTCSeconds())} +0000`;
+  };
+  const fillerDesc = 'x'.repeat(400);
+  const bigEpg = `<tv><channel id="c1"><display-name>C1</display-name></channel>`
+    + `<programme start="${fmtXmltv(nowSec - 72 * 3600)}" stop="${fmtXmltv(nowSec - 70 * 3600)}" channel="c1"><title>Antigo</title><desc>Old</desc></programme>`
+    + `<programme start="${fmtXmltv(nowSec - 600)}" stop="${fmtXmltv(nowSec + 1800)}" channel="c1"><title>Agora</title><desc>${fillerDesc}</desc></programme>`
+    + `<!-- ${' '.repeat(4_100_000)} --></tv>`;
+  const epg = new EPGParser();
+  epg.parse(bigEpg);
+  const progs = epg.programmes.get('c1') || [];
+  assert.equal(progs.length, 1);
+  assert.equal(progs[0].title, 'Agora');
+  assert.ok(progs[0].desc.length <= 241);
+
+  // 3. StorageService chunking (>15000 itens) + cleanup on overwrite/delete + no duplicate active_xml
+  const plMap = new Map();
+  const epgMap = new Map();
+  const prevStorage = globalThis.localStorage;
+  const memLs = new Map();
+  globalThis.localStorage = {
+    getItem: (k) => (memLs.has(k) ? memLs.get(k) : null),
+    setItem: (k, v) => { memLs.set(k, String(v)); },
+    removeItem: (k) => { memLs.delete(k); }
+  };
+
+  const makeStoreApi = (backingMap, onDone) => ({
+    get(k) {
+      const req = { result: backingMap.get(k), onsuccess: null, onerror: null };
+      queueMicrotask(() => {
+        req.onsuccess?.({ target: req });
+        onDone();
+      });
+      return req;
+    },
+    put(obj) {
+      backingMap.set(obj.id, obj);
+      return {};
+    },
+    delete(k) {
+      backingMap.delete(k);
+      return {};
+    }
+  });
+
+  const svc = new StorageService();
+  svc.initPromise = Promise.resolve();
+  svc.db = {
+    transaction(stores) {
+      let pendingOps = 0;
+      const tx = {
+        oncomplete: null,
+        onerror: null,
+        objectStore(name) {
+          const backing = name === 'playlist' ? plMap : epgMap;
+          pendingOps++;
+          const settle = () => {
+            pendingOps--;
+            if (pendingOps === 0) queueMicrotask(() => tx.oncomplete?.());
+          };
+          queueMicrotask(() => {
+            if (pendingOps > 0) {
+              pendingOps--;
+              if (pendingOps === 0) tx.oncomplete?.();
+            }
+          });
+          return makeStoreApi(backing, () => {
+            pendingOps = Math.max(0, pendingOps);
+            if (pendingOps === 0) queueMicrotask(() => tx.oncomplete?.());
+          });
+        }
+      };
+      return tx;
+    }
+  };
+
+  try {
+    const bigItems = Array.from({ length: 16500 }, (_, i) => ({ id: `it_${i}`, name: `Ch ${i}`, type: 'live' }));
+    svc.saveProfiles([{ id: 'p_chunk', name: 'Chunk Test', type: 'xtream' }]);
+    await svc.savePlaylist({ name: 'Big', items: bigItems, summary: { total: 16500 } }, 'p_chunk');
+    assert.equal(plMap.get('p_chunk').chunkCount, 2);
+    assert.equal(plMap.get('p_chunk').items.length, 0);
+    assert.equal(plMap.get('p_chunk__chunk_0').items.length, 15000);
+    assert.equal(plMap.get('p_chunk__chunk_1').items.length, 1500);
+
+    const loaded = await svc.loadPlaylist('p_chunk');
+    assert.equal(loaded.items.length, 16500);
+    assert.equal(loaded.items[16499].id, 'it_16499');
+
+    await svc.saveEpg('<tv/>', 'p_chunk');
+    assert.equal(epgMap.has('epg_p_chunk'), true);
+    assert.equal(epgMap.has('active_xml'), false, 'Nao deve duplicar XML inteiro em active_xml quando perfil e especificado');
+
+    await svc.deleteProfile('p_chunk');
+    assert.equal(plMap.has('p_chunk'), false);
+    assert.equal(plMap.has('p_chunk__chunk_0'), false);
+    assert.equal(plMap.has('p_chunk__chunk_1'), false);
+  } finally {
+    if (prevStorage === undefined) delete globalThis.localStorage;
+    else globalThis.localStorage = prevStorage;
+  }
+});
+
 console.log(`\n========================================`);
 console.log(`Resultados dos Testes: ${passedTests}/${totalTests} passaram.`);
 console.log(`========================================\n`);

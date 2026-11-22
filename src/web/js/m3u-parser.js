@@ -16,17 +16,20 @@ export class M3UParser {
   /**
    * Faz o parse de texto M3U completo
    * @param {string} content Conteúdo do arquivo M3U
-   * @returns {{ epgUrl: string|null, items: Array, summary: Object }}
+   * @param {{ maxItems?: number }} [options] Opções de limite de itens em dispositivos com pouca RAM
+   * @returns {{ epgUrl: string|null, items: Array, summary: Object, truncated?: boolean }}
    */
-  static parse(content) {
+  static parse(content, options = {}) {
     if (!content || typeof content !== 'string') {
       return { epgUrl: null, items: [], summary: { total: 0, live: 0, movies: 0, series: 0 } };
     }
 
+    const maxItems = Number.isFinite(options?.maxItems) && options.maxItems > 0 ? options.maxItems : 0;
     let epgUrl = null;
     const items = [];
     let currentItem = null;
     let currentGroup = 'Geral';
+    let truncated = false;
 
     let liveCount = 0;
     let movieCount = 0;
@@ -85,6 +88,10 @@ export class M3UParser {
         else if (classified.type === ItemType.MOVIE) movieCount++;
         else if (classified.type === ItemType.SERIES) seriesCount++;
         currentItem = null;
+        if (maxItems > 0 && items.length >= maxItems) {
+          truncated = true;
+          break;
+        }
       }
     }
 
@@ -97,7 +104,7 @@ export class M3UParser {
       series: seriesCount
     };
 
-    return { epgUrl, items, summary };
+    return { epgUrl, items, summary, truncated };
   }
 
   /**
@@ -156,46 +163,68 @@ export class M3UParser {
       return `https://image.tmdb.org/t/p/w600_and_h900_bestv2/${tmdbMatch[1]}.${tmdbMatch[2]}`;
     }
 
-    try {
-      const parsed = new URL(u);
-      const host = parsed.hostname.toLowerCase();
-      if (host === 'localhost' || host === '127.0.0.1' || host === 'app.fluistream.local') {
-        return u;
-      }
+    const urlMatch = u.match(/^(https?:)\/\/([^/?#]+)(\/[^?#]*)?(\?[^#]*)?(#.*)?$/i);
+    if (!urlMatch) return '';
 
-      // Hosts de logos mortos/expirados -> limpa para ativar o fallback imediato
-      if (/(?:^|\.)(?:s\d+\.aconvert\.com|easypr1\.com|97j91\.xyz|the-img\.xyz)$/i.test(host)) {
-        return '';
-      }
-      if (/(?:canalsaborearte\.uol\.com\.br\/wp-content\/uploads\/2024\/10\/SABOREARTE\.png|boasnovasfm\.com\.br\/admin\/assets\/img\/logo\.png|img\.elo7\.com\.br\/product\/.*maranata|tvmanabrasil\.com\/wp-content\/uploads\/2023\/05\/LOGO_TV_MANA|infonet\.com\.br\/wp-content\/uploads\/2019\/09\/legiao_boa_vontade)/i.test(u)) {
-        return '';
-      }
+    const protocol = urlMatch[1].toLowerCase();
+    const authority = urlMatch[2];
+    const atIdx = authority.lastIndexOf('@');
+    const hostPort = atIdx >= 0 ? authority.slice(atIdx + 1) : authority;
+    let host = '';
+    let port = '';
 
-      if (host === 'static.wikia.nocookie.net') {
-        u = u.replace(/\/revision\/latest.*$/i, '');
+    if (hostPort.startsWith('[')) {
+      const bracketEnd = hostPort.indexOf(']');
+      if (bracketEnd < 0) return '';
+      host = hostPort.slice(0, bracketEnd + 1).toLowerCase();
+      if (hostPort[bracketEnd + 1] === ':') {
+        port = hostPort.slice(bracketEnd + 2);
       }
-
-      const isCustomPort = Boolean(parsed.port && parsed.port !== '80' && parsed.port !== '443');
-      const isRawIp = /^(?:\d+\.\d+\.\d+\.\d+|\[[0-9a-f:]+\])$/i.test(host);
-
-      if (isCustomPort || isRawIp) {
-        if (parsed.protocol === 'http:' && typeof window !== 'undefined' && typeof window.__fluiLocalProxyUrl === 'string' && window.__fluiLocalProxyUrl.trim()) {
-          const base = window.__fluiLocalProxyUrl.trim();
-          const prefix = base.endsWith('/') ? base : `${base}/`;
-          return `${prefix}proxy?url=${encodeURIComponent(u)}`;
-        }
-        return u;
+    } else {
+      const colonIdx = hostPort.lastIndexOf(':');
+      if (colonIdx >= 0) {
+        host = hostPort.slice(0, colonIdx).toLowerCase();
+        port = hostPort.slice(colonIdx + 1);
+      } else {
+        host = hostPort.toLowerCase();
       }
+    }
 
-      // Domínios bloqueados em DNS de operadoras, com hotlink 403 ou HTTP sem TLS -> roteia via HTTPS Photon CDN
-      if (
-        /(?:^|\.)(?:fontedecanais\.(?:io|gs|live|bz)|32q0d\.xyz|sportspro\.com|static\.wikia\.nocookie\.net)$/i.test(host) ||
-        parsed.protocol === 'http:'
-      ) {
-        return `https://i0.wp.com/${u.replace(/^https?:\/\//i, '')}`;
-      }
-    } catch {
+    if (!host) return '';
+    if (host === 'localhost' || host === '127.0.0.1' || host === 'app.fluistream.local') {
+      return u;
+    }
+
+    // Hosts de logos mortos/expirados -> limpa para ativar o fallback imediato
+    if (/(?:^|\.)(?:s\d+\.aconvert\.com|easypr1\.com|97j91\.xyz|the-img\.xyz)$/i.test(host)) {
       return '';
+    }
+    if (/(?:canalsaborearte\.uol\.com\.br\/wp-content\/uploads\/2024\/10\/SABOREARTE\.png|boasnovasfm\.com\.br\/admin\/assets\/img\/logo\.png|img\.elo7\.com\.br\/product\/.*maranata|tvmanabrasil\.com\/wp-content\/uploads\/2023\/05\/LOGO_TV_MANA|infonet\.com\.br\/wp-content\/uploads\/2019\/09\/legiao_boa_vontade)/i.test(u)) {
+      return '';
+    }
+
+    if (host === 'static.wikia.nocookie.net') {
+      u = u.replace(/\/revision\/latest.*$/i, '');
+    }
+
+    const isCustomPort = Boolean(port && port !== '80' && port !== '443');
+    const isRawIp = /^(?:\d+\.\d+\.\d+\.\d+|\[[0-9a-f:]+\])$/i.test(host);
+
+    if (isCustomPort || isRawIp) {
+      if (protocol === 'http:' && typeof window !== 'undefined' && typeof window.__fluiLocalProxyUrl === 'string' && window.__fluiLocalProxyUrl.trim()) {
+        const base = window.__fluiLocalProxyUrl.trim();
+        const prefix = base.endsWith('/') ? base : `${base}/`;
+        return `${prefix}proxy?url=${encodeURIComponent(u)}`;
+      }
+      return u;
+    }
+
+    // Domínios bloqueados em DNS de operadoras, com hotlink 403 ou HTTP sem TLS -> roteia via HTTPS Photon CDN
+    if (
+      /(?:^|\.)(?:fontedecanais\.(?:io|gs|live|bz)|32q0d\.xyz|sportspro\.com|static\.wikia\.nocookie\.net)$/i.test(host) ||
+      protocol === 'http:'
+    ) {
+      return `https://i0.wp.com/${u.replace(/^https?:\/\//i, '')}`;
     }
 
     return u;
