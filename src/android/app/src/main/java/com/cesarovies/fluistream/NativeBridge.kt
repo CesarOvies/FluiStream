@@ -125,6 +125,12 @@ class NativeBridge(private val activity: MainActivity) {
     }
 
     @JavascriptInterface
+    fun isLowMemoryDevice(): Boolean = activity.isLowMemoryDevice()
+
+    @JavascriptInterface
+    fun getDeviceProfileJson(): String = activity.getDeviceProfileJson()
+
+    @JavascriptInterface
     fun showKeyboard() {
         activity.runOnUiThread {
             if (!activity.webView.hasFocus()) {

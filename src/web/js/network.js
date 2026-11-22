@@ -101,8 +101,10 @@ export async function fetchRemoteText(url, timeoutMs = 60000) {
         return result;
       }
     } catch (e) {
-      console.warn('androidBridge.fetchText falhou, tentando fallback:', e);
+      const errMsg = e && typeof e === 'object' && 'message' in e ? e.message : String(e || '');
+      throw new Error(errMsg || 'Falha ao baixar dados remotos');
     }
+    throw new Error('Resposta inválida da ponte nativa Android');
   }
 
   // 3. Obter proxy local ativo (CrossPlatformHost no macOS/Linux ou bridge local)

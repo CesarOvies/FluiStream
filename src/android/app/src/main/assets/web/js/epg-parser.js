@@ -167,6 +167,10 @@ export class EPGParser {
     }
 
     // 2. Parsing de Programas (<programme start="..." stop="..." channel="...">)
+    const isLargeXml = xmlString.length > 4_000_000;
+    const nowMs = isLargeXml ? Date.now() : 0;
+    const minWindowMs = nowMs - (6 * 3600 * 1000);
+    const maxWindowMs = nowMs + (36 * 3600 * 1000);
     const prRegex = /<programme\s+([^>]*?)>([\s\S]*?)<\/programme>/gi;
     let prMatch;
     while ((prMatch = prRegex.exec(xmlString)) !== null) {
@@ -183,12 +187,19 @@ export class EPGParser {
       const stop = EPGParser.parseXmltvDate(stopM[1]);
       if (!start || !stop) continue;
 
+      if (isLargeXml) {
+        if (stop.getTime() < minWindowMs || start.getTime() > maxWindowMs) continue;
+      }
+
       const titleMatch = body.match(/<title[^>]*>([^<]+)<\/title>/i);
       const descMatch = body.match(/<desc[^>]*>([^<]+)<\/desc>/i);
       const catMatch = body.match(/<category[^>]*>([^<]+)<\/category>/i);
 
       const title = titleMatch ? titleMatch[1].trim() : 'Sem Título';
-      const desc = descMatch ? descMatch[1].trim() : '';
+      let desc = descMatch ? descMatch[1].trim() : '';
+      if (isLargeXml && desc.length > 240) {
+        desc = `${desc.slice(0, 240).trimEnd()}…`;
+      }
       const category = catMatch ? catMatch[1].trim() : '';
 
       if (!this.programmes.has(channelId)) {

@@ -85,6 +85,8 @@ body {
   font-family: var(--font-sans);
   line-height: 1.5;
   min-height: 100vh;
+  min-height: var(--app-vh, 100vh);
+  width: 100%;
 }
 
 /* Midnight Amber & Steel lightweight geometric backdrop (TV Box friendly) */
@@ -663,6 +665,10 @@ body.app-header-hidden .split-sidebar {
 .bento-card::before {
   content: '';
   position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   inset: 0;
   border-radius: inherit;
   background: radial-gradient(circle at top right, rgba(245, 158, 11, 0.12), transparent 55%);
@@ -948,6 +954,10 @@ body[data-device-mode="tv"] .btn-bento-refresh:focus-visible {
 
 .sidebar-backdrop {
   position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   inset: 0;
   background: rgba(2, 6, 14, 0.72);
   backdrop-filter: blur(4px);
@@ -963,7 +973,9 @@ body[data-device-mode="tv"] .btn-bento-refresh:focus-visible {
   grid-template-columns: 300px minmax(0, 1fr);
   gap: 1.15rem;
   align-items: stretch;
+  min-height: calc(100vh - 140px + var(--hidden-header-h, 0px));
   min-height: calc(100dvh - 140px + var(--hidden-header-h, 0px));
+  min-height: calc(var(--app-vh, 100vh) - 140px + var(--hidden-header-h, 0px));
 }
 
 .split-sidebar {
@@ -1292,12 +1304,17 @@ body[data-device-mode="tv"] .btn-bento-refresh:focus-visible {
   align-items: center;
   justify-content: center;
   aspect-ratio: 16 / 9;
+  max-height: clamp(220px, 46vh, 460px);
   max-height: clamp(220px, 46dvh, 460px);
   min-height: 200px;
 }
 
 .player-idle-overlay {
   position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   inset: 0;
   display: flex;
   flex-direction: column;
@@ -1437,6 +1454,10 @@ body.desktop-mini-pip .player-wrapper {
 
 .player-center-hit {
   position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   inset: 0;
   display: flex;
   align-items: center;
@@ -1482,6 +1503,10 @@ body.desktop-mini-pip .player-wrapper {
 .player-loading-overlay,
 .player-error-overlay {
   position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   inset: 0;
   background: rgba(6, 16, 30, 0.88);
   backdrop-filter: blur(4px);
@@ -1546,6 +1571,10 @@ body.desktop-mini-pip .player-wrapper {
 
 .video-upscale-canvas {
   position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   inset: 0;
   margin: auto;
   z-index: 2;
@@ -1876,6 +1905,7 @@ body.desktop-mini-pip .player-wrapper {
   gap: 0.45rem;
   flex: 1;
   min-height: 200px;
+  max-height: clamp(200px, 42vh, 460px);
   max-height: clamp(200px, 42dvh, 460px);
   overflow-y: auto;
   overscroll-behavior: contain;
@@ -2665,6 +2695,8 @@ body.desktop-mini-pip .player-wrapper {
 
 .multiscreen-slot-status {
   position: absolute;
+  left: 0.75rem;
+  right: 0.75rem;
   inset: auto 0.75rem;
   z-index: 2;
   margin: auto;
@@ -2899,16 +2931,25 @@ body.desktop-mini-pip .player-wrapper {
 
 .modal-backdrop {
   position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   inset: 0;
+  width: 100%;
+  height: 100%;
+  width: var(--app-vw, 100vw);
+  height: var(--app-vh, 100vh);
   background: rgba(2, 6, 14, 0.78);
   backdrop-filter: blur(8px);
   z-index: 100;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: max(0.5rem, env(safe-area-inset-top)) max(0.75rem, env(safe-area-inset-right)) max(0.5rem, env(safe-area-inset-bottom)) max(0.75rem, env(safe-area-inset-left));
+  padding: max(0.5rem, env(safe-area-inset-top, 0px)) max(0.75rem, env(safe-area-inset-right, 0px)) max(0.5rem, env(safe-area-inset-bottom, 0px)) max(0.75rem, env(safe-area-inset-left, 0px));
   box-sizing: border-box;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 .modal-backdrop.hidden {
@@ -2919,16 +2960,19 @@ body.desktop-mini-pip .player-wrapper {
   background: var(--bg-surface-solid);
   border: 1px solid var(--border-glass);
   border-radius: 14px;
+  margin: auto;
+  width: 92%;
   width: min(92%, 560px);
-  max-width: 560px;
+  max-width: min(94vw, 560px);
   box-shadow: 0 20px 44px rgba(0, 0, 0, 0.65);
   display: flex;
   flex-direction: column;
   height: auto;
   min-height: 0;
   max-height: 86%;
-  max-height: min(86%, calc(100vh - 2rem));
-  max-height: min(86%, calc(100dvh - 1.5rem - env(safe-area-inset-top) - env(safe-area-inset-bottom)));
+  max-height: calc(100vh - 1.25rem);
+  max-height: calc(100dvh - 1.25rem - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+  max-height: calc(var(--app-vh, 100vh) - 1.25rem);
   overflow: hidden;
 }
 
@@ -2978,6 +3022,11 @@ body.desktop-mini-pip .player-wrapper {
   flex: 1 1 auto;
 }
 
+#import-status-text:empty,
+#edit-profile-status:empty {
+  display: none;
+}
+
 .modal-footer {
   padding: 0.85rem 1.15rem;
   border-top: 1px solid var(--border-subtle);
@@ -2986,6 +3035,10 @@ body.desktop-mini-pip .player-wrapper {
   gap: 0.75rem;
   flex-wrap: wrap;
   flex-shrink: 0;
+  position: sticky;
+  bottom: 0;
+  background: var(--bg-surface-solid);
+  z-index: 2;
 }
 
 .modal-brand-hero {
@@ -3068,9 +3121,13 @@ body.desktop-mini-pip .player-wrapper {
 .checkbox-label {
   display: flex;
   align-items: center;
-  gap: 0.55rem;
   font-size: 0.87rem;
   cursor: pointer;
+}
+
+.checkbox-label input[type="checkbox"] {
+  margin: 0 0.5rem 0 0;
+  flex-shrink: 0;
 }
 
 .help-text {
@@ -3301,6 +3358,10 @@ body.desktop-mini-pip .player-wrapper {
 
 .seasons-popup-backdrop {
   position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   inset: 0;
   background: rgba(6, 16, 30, 0.86);
   backdrop-filter: blur(4px);
@@ -3651,8 +3712,12 @@ body.is-android-app .player-wrapper {
   .split-sidebar {
     position: sticky;
     top: 8px;
+    height: calc(100vh - 108px + var(--hidden-header-h, 0px));
     height: calc(100dvh - 108px + var(--hidden-header-h, 0px));
+    height: calc(var(--app-vh, 100vh) - 108px + var(--hidden-header-h, 0px));
+    max-height: calc(100vh - 108px + var(--hidden-header-h, 0px));
     max-height: calc(100dvh - 108px + var(--hidden-header-h, 0px));
+    max-height: calc(var(--app-vh, 100vh) - 108px + var(--hidden-header-h, 0px));
     min-height: 240px;
     border-radius: 12px;
   }
@@ -3687,6 +3752,7 @@ body.is-android-app .player-wrapper {
   }
   .player-wrapper {
     min-height: 140px;
+    max-height: clamp(180px, 42vh, 360px);
     max-height: clamp(180px, 42dvh, 360px);
   }
   body.is-android-app .player-wrapper {
@@ -3839,8 +3905,12 @@ body.is-android-app .player-wrapper {
     gap: 0.45rem;
   }
   .split-sidebar {
+    height: calc(100vh - 135px + var(--hidden-header-h, 0px));
     height: calc(100dvh - 135px + var(--hidden-header-h, 0px));
+    height: calc(var(--app-vh, 100vh) - 135px + var(--hidden-header-h, 0px));
+    max-height: calc(100vh - 135px + var(--hidden-header-h, 0px));
     max-height: calc(100dvh - 135px + var(--hidden-header-h, 0px));
+    max-height: calc(var(--app-vh, 100vh) - 135px + var(--hidden-header-h, 0px));
     min-height: 220px;
   }
   .split-sidebar-brand {
@@ -3863,6 +3933,7 @@ body.is-android-app .player-wrapper {
   }
   .player-wrapper {
     min-height: 110px;
+    max-height: clamp(140px, 34vh, 230px);
     max-height: clamp(140px, 34dvh, 230px);
   }
   .player-meta-bar {
@@ -3952,8 +4023,12 @@ body.is-android-app .player-wrapper {
     gap: 0.5rem;
   }
   .split-sidebar {
+    height: calc(100vh - 78px + var(--hidden-header-h, 0px));
     height: calc(100dvh - 78px + var(--hidden-header-h, 0px));
+    height: calc(var(--app-vh, 100vh) - 78px + var(--hidden-header-h, 0px));
+    max-height: calc(100vh - 78px + var(--hidden-header-h, 0px));
     max-height: calc(100dvh - 78px + var(--hidden-header-h, 0px));
+    max-height: calc(var(--app-vh, 100vh) - 78px + var(--hidden-header-h, 0px));
     min-height: 180px;
   }
   .split-sidebar-header {
@@ -3997,6 +4072,7 @@ body.is-android-app .player-wrapper {
   }
   .player-wrapper {
     min-height: 110px;
+    max-height: min(44vh, 195px);
     max-height: min(44dvh, 195px);
   }
   body.is-android-app .player-wrapper {
@@ -4120,8 +4196,11 @@ body[data-effective-device-mode="tv"] .modal-dialog,
 body[data-device-mode="tv"] .modal-dialog,
 body.is-android-app .modal-dialog {
   max-height: 84%;
-  max-height: min(84%, calc(100vh - 2.5rem));
-  max-width: min(88%, 560px);
+  width: min(94vw, 680px);
+  max-width: min(94vw, 680px);
+  max-height: calc(100vh - 1rem);
+  max-height: calc(100dvh - 1rem);
+  max-height: calc(var(--app-vh, 100vh) - 1rem);
 }
 
 body[data-effective-device-mode="tv"] .modal-dialog.modal-lg,
@@ -4149,7 +4228,9 @@ body.is-android-app .main-layout {
    ===================================================== */
 .split-pane-shell.catalog-maximized {
   grid-template-columns: minmax(0, 1fr) !important;
+  min-height: calc(100vh - 130px + var(--hidden-header-h, 0px));
   min-height: calc(100dvh - 130px + var(--hidden-header-h, 0px));
+  min-height: calc(var(--app-vh, 100vh) - 130px + var(--hidden-header-h, 0px));
 }
 
 .split-pane-shell.catalog-maximized .split-main-pane {
@@ -4162,8 +4243,12 @@ body.is-android-app .main-layout {
   top: 0 !important;
   width: 100% !important;
   max-width: none !important;
+  height: calc(100vh - 125px + var(--hidden-header-h, 0px)) !important;
   height: calc(100dvh - 125px + var(--hidden-header-h, 0px)) !important;
+  height: calc(var(--app-vh, 100vh) - 125px + var(--hidden-header-h, 0px)) !important;
+  max-height: calc(100vh - 125px + var(--hidden-header-h, 0px)) !important;
   max-height: calc(100dvh - 125px + var(--hidden-header-h, 0px)) !important;
+  max-height: calc(var(--app-vh, 100vh) - 125px + var(--hidden-header-h, 0px)) !important;
   transform: none !important;
   z-index: 1;
 }
@@ -4500,8 +4585,93 @@ body.is-android-app .main-layout {
   line-height: 1.4;
 }
 
+#modal-import .modal-dialog {
+  width: min(94%, 680px);
+  max-width: min(94vw, 680px);
+}
+
+#modal-import .modal-body {
+  gap: 0;
+}
+
+#modal-import .modal-body > * + * {
+  margin-top: 0.65rem;
+}
+
 #modal-import .modal-footer {
   justify-content: space-between;
+  gap: 0;
+}
+
+#modal-import .modal-footer-actions > * + * {
+  margin-left: 0.45rem;
+}
+
+@media (max-height: 760px), (pointer: coarse) {
+  #modal-import .modal-header {
+    padding: 0.55rem 1rem;
+  }
+
+  #modal-import .modal-body {
+    padding: 0.6rem 1rem;
+  }
+
+  #modal-import .modal-body > * + * {
+    margin-top: 0.45rem;
+  }
+
+  #modal-import .form-group {
+    gap: 0;
+  }
+
+  #modal-import .form-group label {
+    margin-bottom: 0.2rem;
+    font-size: 0.78rem;
+  }
+
+  #modal-import .form-control {
+    padding: 0.42rem 0.65rem;
+    font-size: 0.84rem;
+  }
+
+  #modal-import .import-tabs {
+    padding-bottom: 0.35rem;
+  }
+
+  #modal-import .import-tab-btn {
+    min-height: 38px;
+    padding: 0.35rem 0.5rem;
+    font-size: 0.8rem;
+  }
+
+  #modal-import .import-epg-options {
+    padding-top: 0.5rem !important;
+    gap: 0 !important;
+  }
+
+  #modal-import .import-epg-options > * + * {
+    margin-top: 0.38rem;
+  }
+
+  #modal-import .legal-notice-box {
+    padding: 0.45rem 0.6rem !important;
+    font-size: 0.69rem !important;
+    line-height: 1.3 !important;
+    max-height: 4.4rem;
+    overflow-y: auto;
+  }
+
+  #modal-import .modal-footer {
+    padding: 0.55rem 1rem;
+  }
+}
+
+body[data-effective-device-mode="tv"] #modal-import .modal-footer button,
+body[data-device-mode="tv"] #modal-import .modal-footer button,
+body.is-android-app #modal-import .modal-footer button {
+  min-height: 42px;
+  padding: 0.45rem 0.95rem;
+  font-size: 0.88rem;
 }
 
 .profile-sync-badge {
@@ -4600,6 +4770,10 @@ body[data-device-mode="tv"] .gradient-tile-label {
    ===================================================== */
 .profile-loading-screen {
   position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   inset: 0;
   z-index: 9999;
   background: radial-gradient(circle at 50% 35%, rgba(13, 31, 56, 0.94) 0%, rgba(5, 11, 20, 0.98) 70%, #03070E 100%);
@@ -4703,6 +4877,10 @@ body[data-device-mode="tv"] .gradient-tile-label {
 
 .profile-loading-glow {
   position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   inset: 0;
   border-radius: 50%;
   background: var(--accent-amber);

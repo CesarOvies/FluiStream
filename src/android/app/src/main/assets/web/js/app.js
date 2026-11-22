@@ -82,7 +82,32 @@ class FluiStreamApp {
     return typeof window !== 'undefined' && Boolean(window.chrome?.webview || window.androidBridge);
   }
 
+  syncViewportCssVars() {
+    if (typeof document === 'undefined' || typeof window === 'undefined') return;
+    const vv = window.visualViewport;
+    const width = Math.max(320, Math.round((vv && vv.width) || window.innerWidth || document.documentElement?.clientWidth || 1280));
+    const height = Math.max(240, Math.round((vv && vv.height) || window.innerHeight || document.documentElement?.clientHeight || 720));
+    const rootStyle = document.documentElement?.style;
+    if (rootStyle) {
+      rootStyle.setProperty('--app-vw', `${width}px`);
+      rootStyle.setProperty('--app-vh', `${height}px`);
+    }
+  }
+
+  isLowMemoryDevice() {
+    try {
+      if (typeof window !== 'undefined' && window.androidBridge?.isLowMemoryDevice?.()) {
+        return true;
+      }
+      if (typeof navigator !== 'undefined' && Number(navigator.deviceMemory) > 0 && Number(navigator.deviceMemory) <= 2) {
+        return true;
+      }
+    } catch (_) { /* ignore */ }
+    return false;
+  }
+
   async init() {
+    this.syncViewportCssVars();
     this.bindDomElements();
     if (typeof document !== 'undefined' && window.androidBridge) {
       document.body.classList.add('is-android-app');
@@ -847,6 +872,7 @@ class FluiStreamApp {
     document.body.setAttribute('data-effective-device-mode', effective);
     document.body.setAttribute('data-orientation-lock', 'landscape');
     document.body.classList.add('force-horizontal-layout');
+    this.syncViewportCssVars?.();
     try {
       if (window.screen?.orientation?.lock) {
         window.screen.orientation.lock('landscape').catch(() => {});
@@ -1899,9 +1925,10 @@ class FluiStreamApp {
         }
         if (!this.activeSeries) return;
         const eps = this.activeSeries.seasons[this.selectedSeason || 1] || this.activeSeries.episodes;
-        if (eps && eps.length > 0) {
+        const firstPlayable = Array.isArray(eps) ? eps.find(ep => Boolean(ep?.url)) : null;
+        if (firstPlayable) {
           this.closeModal(this.dom.modalSeries);
-          this.playChannel(eps[0]);
+          this.playChannel(firstPlayable);
         }
       });
     }
@@ -2023,8 +2050,15 @@ class FluiStreamApp {
 
     // Global Keyboard & Spatial D-Pad Navigation
     window.addEventListener('keydown', (e) => this.handleGlobalKeyDown(e));
+    if (window.visualViewport && typeof window.visualViewport.addEventListener === 'function') {
+      window.visualViewport.addEventListener('resize', () => this.syncViewportCssVars());
+    }
+    window.addEventListener('android-low-memory', () => {
+      this._seriesCache?.clear();
+    });
     let deviceResizeTimer;
     window.addEventListener('resize', () => {
+      this.syncViewportCssVars();
       if (this.activeScreen === 'browse') this.syncAppHeaderVisibility();
       const active = typeof document !== 'undefined' ? document.activeElement : null;
       if (active && active.dataset?.tvEditing === 'true' && typeof active.scrollIntoView === 'function') {
@@ -2980,6 +3014,7 @@ class FluiStreamApp {
           group: it.group || 'Séries',
           logo: it.logo,
           type: ItemType.SERIES,
+          xtreamSeriesId: it.xtreamSeriesId || '',
           seasons: {},
           episodes: [],
           sampleItem: it
@@ -2987,6 +3022,7 @@ class FluiStreamApp {
         seriesMap.set(normKey, ser);
       }
       if (!ser.logo && it.logo) ser.logo = it.logo;
+      if (!ser.xtreamSeriesId && it.xtreamSeriesId) ser.xtreamSeriesId = it.xtreamSeriesId;
       const sNum = it.season || 1;
       if (!ser.seasons[sNum]) ser.seasons[sNum] = [];
       ser.seasons[sNum].push(it);
@@ -4741,6 +4777,10 @@ class FluiStreamApp {
     if (!document.querySelector('.modal-backdrop:not(.hidden)')) {
       this.lastFocusedElement = document.activeElement;
     }
+    this.syncViewportCssVars?.();
+    if (typeof window !== 'undefined' && typeof window.scrollTo === 'function') {
+      try { window.scrollTo(0, 0); } catch (_) { /* ignore */ }
+    }
     modal.classList.remove('hidden');
     modal.setAttribute('data-modal-open', 'true');
     this.setBackgroundInert(true);
@@ -4960,13 +5000,34 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
     return `${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, '0')}${String(d.getUTCDate()).padStart(2, '0')}${String(d.getUTCHours()).padStart(2, '0')}${String(d.getUTCMinutes()).padStart(2, '0')}${String(d.getUTCSeconds()).padStart(2, '0')} +0000`;
   }
 
+  async _fetchXtreamCatalogOrM3u(xtream, { sectionType = null, onProgress = null, timeoutMs = 120000 } = {}) {
+    const lowMem = this.isLowMemoryDevice();
+    const maxStructuredItems = lowMem ? 40000 : 0;
+    const maxM3uItems = lowMem ? 25000 : 0;
+
+    if (typeof xtream.fetchStructuredCatalog === 'function') {
+      const structured = await xtream.fetchStructuredCatalog({
+        sectionType,
+        onProgress,
+        maxItems: maxStructuredItems
+      });
+      if (structured && Array.isArray(structured.items) && structured.items.length > 0) {
+        return structured;
+      }
+    }
+
+    onProgress?.({ stage: 'm3u_fallback', count: 0 });
+    const m3uText = await xtream.fetchM3uContent(timeoutMs);
+    return M3UParser.parse(m3uText, { maxItems: maxM3uItems });
+  }
+
   async handleImportSubmit() {
     const activeTab = document.querySelector('.import-tab-btn.active')?.getAttribute('data-panel');
     this.dom.importStatusMsg.textContent = i18n.get('statusParsingM3u');
     this.dom.btnSubmitImport.disabled = true;
 
     try {
-      let m3uContent = '';
+      let parsedOrM3u = '';
       let listName = this.dom.profileNameInput?.value.trim() || 'Minha Lista';
       let externalEpgUrl = this.dom.externalEpgInput.value.trim();
       let profileMeta = null;
@@ -4975,7 +5036,7 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
         const file = this.dom.fileInput.files[0];
         if (!file) throw new Error(i18n.get('labelFileSelect'));
         listName = this.dom.profileNameInput?.value.trim() || file.name.replace(/\.[^/.]+$/, '');
-        m3uContent = await file.text();
+        parsedOrM3u = await file.text();
         profileMeta = {
           name: listName,
           type: 'm3u_file',
@@ -4994,7 +5055,7 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
         const url = this.dom.urlInput.value.trim();
         if (!url) throw new Error(i18n.get('labelUrlInput'));
         listName = this.dom.profileNameInput?.value.trim() || 'Lista URL';
-        m3uContent = await fetchRemoteText(url);
+        parsedOrM3u = await fetchRemoteText(url);
         profileMeta = {
           name: listName,
           type: 'm3u_url',
@@ -5031,7 +5092,15 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
         }
 
         this.dom.importStatusMsg.textContent = i18n.get('statusParsingM3u');
-        m3uContent = await xtream.fetchM3uContent();
+        parsedOrM3u = await this._fetchXtreamCatalogOrM3u(xtream, {
+          onProgress: ({ stage, count }) => {
+            if (!this.dom.importStatusMsg) return;
+            const stageSuffix = stage === 'live' ? 'TV' : stage === 'movie' ? 'VOD' : stage === 'series' ? 'Series' : '';
+            this.dom.importStatusMsg.textContent = stageSuffix
+              ? `${i18n.get('statusParsingM3u')} (${stageSuffix}${count ? `: ${count}` : ''})`
+              : i18n.get('statusParsingM3u');
+          }
+        });
         if (!externalEpgUrl) externalEpgUrl = xtream.getEpgUrl();
 
         const accInfo = auth.accountInfo || auth.user;
@@ -5063,7 +5132,7 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
         };
       }
 
-      await this.processLoadedM3u(m3uContent, listName, null, externalEpgUrl, profileMeta);
+      await this.processLoadedM3u(parsedOrM3u, listName, null, externalEpgUrl, profileMeta);
       this.closeModal(this.dom.modalImport);
     } catch (err) {
       this.dom.importStatusMsg.textContent = err.message;
@@ -5075,7 +5144,10 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
 
   async processLoadedM3u(m3uContent, name, embeddedXmltv = null, externalEpgUrl = null, profileMeta = null, options = {}) {
     const background = Boolean(options?.background);
-    const parsed = M3UParser.parse(m3uContent);
+    const maxM3uItems = this.isLowMemoryDevice() ? 25000 : 0;
+    const parsed = (m3uContent && typeof m3uContent === 'object' && Array.isArray(m3uContent.items))
+      ? m3uContent
+      : M3UParser.parse(m3uContent, { maxItems: maxM3uItems });
     if (!parsed.items || parsed.items.length === 0) {
       throw new Error(i18n.get('errorM3uEmpty'));
     }
@@ -5745,7 +5817,7 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
 
     try {
       if (prof.type === 'xtream' || prof.type === 'm3u_url') {
-        let m3uUrl = prof.url || prof.m3uUrl;
+        let parsed = null;
         if (prof.type === 'xtream') {
           const cfg = storage.getSettings();
           const xtream = new XtreamApi(
@@ -5754,9 +5826,11 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
             prof.password || prof.xtreamPass || '',
             prof.corsProxy || cfg.corsProxy
           );
-          m3uUrl = xtream.getM3uUrl();
+          parsed = await this._fetchXtreamCatalogOrM3u(xtream, { sectionType: type });
+        } else {
+          const m3uUrl = prof.url || prof.m3uUrl;
+          parsed = M3UParser.parse(await fetchRemoteText(m3uUrl), { maxItems: this.isLowMemoryDevice() ? 25000 : 0 });
         }
-        const parsed = M3UParser.parse(await fetchRemoteText(m3uUrl));
         if (!parsed.items || parsed.items.length === 0) throw new Error(i18n.get('errorM3uEmpty'));
         const items = FluiStreamApp.mergeSectionItems(this.playlist.items || [], parsed.items, type);
         const nextPlaylist = { name: this.playlist.name || prof.name, items, epgUrl: this.playlist.epgUrl || prof.epgUrl || null, summary: FluiStreamApp.summarizeItems(items) };
@@ -5841,9 +5915,9 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
           }
         }
       } catch (_) { /* Keep cached accountInfo if only M3U endpoint responds */ }
-      const m3uContent = await fetchRemoteText(xtream.getM3uUrl());
+      const catalogData = await this._fetchXtreamCatalogOrM3u(xtream);
       const epgUrl = nextProfile.epgUrl || xtream.getEpgUrl();
-      await this.processLoadedM3u(m3uContent, nextProfile.name, null, epgUrl, nextProfile, { background });
+      await this.processLoadedM3u(catalogData, nextProfile.name, null, epgUrl, nextProfile, { background });
     } else if (prof.type === 'm3u_url') {
       const m3uContent = await fetchRemoteText(prof.url || prof.m3uUrl);
       await this.processLoadedM3u(m3uContent, prof.name, null, prof.epgUrl, prof, { background });
@@ -5973,7 +6047,7 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
     this.activeMovie = null;
     this.activeMovieMeta = null;
     this.closeInlineTrailer();
-    const seasonKeys = Object.keys(series.seasons).map(k => parseInt(k, 10)).sort((a, b) => a - b);
+    const seasonKeys = Object.keys(series.seasons || {}).map(k => parseInt(k, 10)).filter(Number.isFinite).sort((a, b) => a - b);
     this.selectedSeason = seasonKeys[0] || 1;
 
     if (this.dom.seriesModalHeading) this.dom.seriesModalHeading.textContent = i18n.get('seriesInformation');
@@ -5988,15 +6062,114 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
     }
     if (this.dom.seriesTitle) this.dom.seriesTitle.textContent = series.seriesTitle;
     if (this.dom.seriesGenre) this.dom.seriesGenre.textContent = series.group || 'Série';
+
+    const needsEpisodeLoad = Boolean(series.xtreamSeriesId) &&
+      !series._xtreamEpisodesLoaded &&
+      (!series.episodes?.length || series.episodes.every(ep => !ep?.url));
+
     if (this.dom.seriesStats) {
-      this.dom.seriesStats.textContent = `${i18n.get('seasonsCount', { count: series.totalSeasons })} • ${i18n.get('episodesCount', { count: series.totalEpisodes })}`;
+      this.dom.seriesStats.textContent = needsEpisodeLoad
+        ? (i18n.get('loading') || 'Carregando...')
+        : `${i18n.get('seasonsCount', { count: series.totalSeasons })} • ${i18n.get('episodesCount', { count: series.totalEpisodes })}`;
     }
     if (this.dom.seriesDesc) {
       this.dom.seriesDesc.textContent = series.sampleItem?.desc || series.sampleItem?.rawTitle || '';
     }
-    this.updateSeasonButton();
-    this.renderSeasonEpisodes(this.selectedSeason);
-    this.openModal(this.dom.modalSeries);
+
+    if (needsEpisodeLoad) {
+      this.updateSeasonButton();
+      if (this.dom.seriesEpisodesContainer) {
+        this.dom.seriesEpisodesContainer.innerHTML = `<div class="help-text" style="padding: 1rem; text-align: center;">${this.escapeHtml(i18n.get('loading') || 'Carregando...')}</div>`;
+      }
+      this.openModal(this.dom.modalSeries);
+
+      const xtream = this._buildActiveXtreamApi();
+      const seriesInfo = xtream && typeof xtream.getSeriesInfo === 'function'
+        ? await xtream.getSeriesInfo(series.xtreamSeriesId)
+        : null;
+      if (this.activeSeries?.id !== series.id || this.dom.modalSeries?.classList.contains('hidden')) return;
+
+      const rawEpisodes = seriesInfo?.episodes;
+      const nextSeasons = {};
+      const nextEpisodes = [];
+
+      const appendEp = (sNum, epRaw, fallbackIdx) => {
+        const epId = epRaw?.id ?? epRaw?.stream_id;
+        if (!epId || !xtream) return;
+        const ext = String(epRaw.container_extension || 'mp4').replace(/^\./, '') || 'mp4';
+        const epNum = parseInt(epRaw.episode_num ?? epRaw.num ?? fallbackIdx, 10) || fallbackIdx;
+        const epCover = M3UParser.normalizeLogoUrl(epRaw.info?.movie_image || series.logo || '');
+        const epObj = {
+          id: `${series.id}_s${sNum}e${epNum}_${epId}`,
+          name: epRaw.title || `${series.seriesTitle} S${String(sNum).padStart(2, '0')}E${String(epNum).padStart(2, '0')}`,
+          seriesTitle: series.seriesTitle,
+          group: series.group || 'Séries',
+          logo: epCover,
+          url: xtream.buildSeriesEpisodeUrl(epId, ext),
+          season: sNum,
+          episode: epNum,
+          duration: parseInt(epRaw.info?.duration_secs ?? epRaw.info?.duration, 10) || 0,
+          desc: epRaw.info?.plot || '',
+          type: ItemType.SERIES
+        };
+        if (!nextSeasons[sNum]) nextSeasons[sNum] = [];
+        nextSeasons[sNum].push(epObj);
+        nextEpisodes.push(epObj);
+      };
+
+      if (rawEpisodes && typeof rawEpisodes === 'object' && !Array.isArray(rawEpisodes)) {
+        for (const [k, list] of Object.entries(rawEpisodes)) {
+          if (!Array.isArray(list)) continue;
+          const sNum = parseInt(k, 10) || 1;
+          for (let i = 0; i < list.length; i++) {
+            appendEp(sNum, list[i], i + 1);
+          }
+        }
+      } else if (Array.isArray(rawEpisodes)) {
+        for (let i = 0; i < rawEpisodes.length; i++) {
+          const epRaw = rawEpisodes[i];
+          const sNum = parseInt(epRaw?.season ?? 1, 10) || 1;
+          appendEp(sNum, epRaw, i + 1);
+        }
+      }
+
+      if (nextEpisodes.length > 0) {
+        for (const k of Object.keys(nextSeasons)) {
+          nextSeasons[k].sort((a, b) => (a.episode || 0) - (b.episode || 0));
+        }
+        series.seasons = nextSeasons;
+        series.episodes = nextEpisodes;
+        series.totalSeasons = Object.keys(nextSeasons).length;
+        series.totalEpisodes = nextEpisodes.length;
+        series._xtreamEpisodesLoaded = true;
+
+        const loadedKeys = Object.keys(nextSeasons).map(k => parseInt(k, 10)).sort((a, b) => a - b);
+        this.selectedSeason = loadedKeys[0] || 1;
+        if (this.dom.seriesStats) {
+          this.dom.seriesStats.textContent = `${i18n.get('seasonsCount', { count: series.totalSeasons })} • ${i18n.get('episodesCount', { count: series.totalEpisodes })}`;
+        }
+        this.updateSeasonButton();
+        this.renderSeasonEpisodes(this.selectedSeason);
+      } else if (this.dom.seriesEpisodesContainer) {
+        series._xtreamEpisodesLoaded = true;
+        this.dom.seriesStats && (this.dom.seriesStats.textContent = `${i18n.get('seasonsCount', { count: 0 })} • ${i18n.get('episodesCount', { count: 0 })}`);
+        this.dom.seriesEpisodesContainer.innerHTML = `<div class="help-text" style="padding: 1rem; text-align: center;">${this.escapeHtml(i18n.get('errorM3uEmpty') || 'Nenhum episódio disponível')}</div>`;
+      }
+
+      if (seriesInfo?.info) {
+        if (seriesInfo.info.plot && this.dom.seriesDesc) this.dom.seriesDesc.textContent = seriesInfo.info.plot;
+        if (seriesInfo.info.genre && this.dom.seriesGenre) this.dom.seriesGenre.textContent = seriesInfo.info.genre;
+        const infoCover = M3UParser.normalizeLogoUrl(seriesInfo.info.cover || '');
+        if (infoCover) {
+          series.logo = infoCover;
+          if (this.dom.seriesPoster) this.dom.seriesPoster.src = infoCover;
+        }
+      }
+    } else {
+      this.updateSeasonButton();
+      this.renderSeasonEpisodes(this.selectedSeason);
+      this.openModal(this.dom.modalSeries);
+    }
 
     const meta = await resolveMediaMetadata(series, { kind: 'series' });
     if (this.activeSeries?.id !== series.id || this.dom.modalSeries?.classList.contains('hidden')) return;
@@ -6152,7 +6325,23 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
     });
   }
 
+  _openLazySeriesPlaceholder(item) {
+    return this.openSeriesDetailModal({
+      id: `series_${(item.seriesTitle || item.name || '').toLowerCase().replace(/[^a-z0-9]/g, '')}`,
+      seriesTitle: item.seriesTitle || item.name,
+      group: item.group || 'Séries',
+      logo: item.logo,
+      type: ItemType.SERIES,
+      xtreamSeriesId: item.xtreamSeriesId,
+      seasons: {},
+      episodes: [item],
+      sampleItem: item
+    });
+  }
+
   playChannel(item, opts = {}) {
+    if (!item) return;
+    if (item.type === ItemType.SERIES && !item.url && item.xtreamSeriesId) return this._openLazySeriesPlaceholder(item);
     this.currentPlayingItem = item;
     this._suppressAutoFullscreenUntil = Date.now() + 450;
     if (item.type === ItemType.LIVE) {
