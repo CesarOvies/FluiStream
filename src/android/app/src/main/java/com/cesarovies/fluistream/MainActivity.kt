@@ -119,6 +119,7 @@ class MainActivity : AppCompatActivity() {
         val titleText = findViewById<TextView>(R.id.player_title_text)
         val errorText = findViewById<TextView>(R.id.player_error_text)
         val aspectButton = findViewById<Button>(R.id.btn_player_aspect)
+        val boostButton = findViewById<Button>(R.id.btn_player_boost)
         val closeButton = findViewById<Button>(R.id.btn_player_close)
         applyTopHudWindowInsets(topHud)
 
@@ -149,6 +150,13 @@ class MainActivity : AppCompatActivity() {
                 }
                 webView.evaluateJavascript(
                     "window.dispatchEvent(new CustomEvent('android-fullscreen-changed', { detail: { fullscreen: $fullscreen } }));",
+                    null
+                )
+            },
+            boostButton = boostButton,
+            onImageBoostChanged = { mode ->
+                webView.evaluateJavascript(
+                    "window.fluiStreamApp?.handleNativeImageBoost('$mode');",
                     null
                 )
             }

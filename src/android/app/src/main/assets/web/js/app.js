@@ -10,7 +10,7 @@ import { M3UParser, ItemType } from './m3u-parser.js';
 import { EPGParser } from './epg-parser.js';
 import { XtreamApi } from './xtream-api.js';
 import { storage } from './storage.js';
-import { VideoPlayerController, MultiScreenController } from './player.js';
+import { VideoPlayerController, MultiScreenController, IMAGE_BOOST_MODES } from './player.js';
 import { fetchRemoteText } from './network.js';
 import { UpdateChecker, getCurrentVersion } from './version.js';
 import { resolveMediaMetadata, resolveTrailerPlayback, resolveKnownChannelLogo, normalizeLiveChannelKey, buildProxyLogoFallbackUrl } from './media-metadata.js';
@@ -240,6 +240,10 @@ class FluiStreamApp {
       iconVolumeHigh: document.getElementById('icon-volume-high'),
       iconVolumeMuted: document.getElementById('icon-volume-muted'),
       aspectSelect: document.getElementById('select-aspect-ratio'),
+      imageBoostSelect: document.getElementById('select-image-boost'),
+      btnMetaImageBoost: document.getElementById('btn-meta-image-boost'),
+      metaImageBoostLabel: document.getElementById('meta-image-boost-label'),
+      playerBoostOsd: document.getElementById('player-boost-osd'),
       streamModeSelect: document.getElementById('select-stream-mode'),
       playerEngineSelect: document.getElementById('select-player-engine'),
 
@@ -600,6 +604,88 @@ class FluiStreamApp {
     }
   }
 
+  setImageBoostMode(mode, persist = true) {
+    const norm = IMAGE_BOOST_MODES.includes(mode) ? mode : 'off';
+    this.player?.setImageBoost?.(norm);
+    this.multiScreen?.setImageBoost?.(norm);
+    this.syncImageBoostUi(norm);
+    if (persist) {
+      storage.saveSettings({ imageBoost: norm });
+      this.showImageBoostOsd(norm);
+    }
+    return norm;
+  }
+
+  syncImageBoostUi(mode) {
+    const norm = IMAGE_BOOST_MODES.includes(mode) ? mode : 'off';
+    const labelKey = norm === 'hd_plus'
+      ? 'playerBoostHdPlus'
+      : (norm === 'ultra_2k' ? 'playerBoostUltra2k' : 'playerBoostOff');
+
+    if (this.dom.imageBoostSelect) {
+      this.dom.imageBoostSelect.value = norm;
+    }
+    if (this.dom.btnMetaImageBoost) {
+      this.dom.btnMetaImageBoost.classList.toggle('is-boost-hd', norm === 'hd_plus');
+      this.dom.btnMetaImageBoost.classList.toggle('is-boost-2k', norm === 'ultra_2k');
+      this.dom.btnMetaImageBoost.setAttribute('aria-pressed', String(norm !== 'off'));
+      this.dom.btnMetaImageBoost.setAttribute('data-image-boost', norm);
+    }
+    if (this.dom.metaImageBoostLabel) {
+      this.dom.metaImageBoostLabel.setAttribute('data-i18n', labelKey);
+      this.dom.metaImageBoostLabel.textContent = i18n.get(labelKey);
+    }
+  }
+
+  showImageBoostOsd(mode) {
+    const el = this.dom?.playerBoostOsd;
+    if (!el) return;
+    const norm = IMAGE_BOOST_MODES.includes(mode) ? mode : 'off';
+    const labelKey = norm === 'hd_plus'
+      ? 'playerBoostHdPlus'
+      : (norm === 'ultra_2k' ? 'playerBoostUltra2k' : 'playerBoostOff');
+    const icon = norm === 'off' ? '○' : '⚡';
+    el.textContent = `${icon} ${i18n.get(labelKey)}`;
+    el.setAttribute('data-image-boost', norm);
+    el.classList.remove('hidden');
+    if (this._boostOsdTimer) {
+      clearTimeout(this._boostOsdTimer);
+    }
+    this._boostOsdTimer = setTimeout(() => {
+      el.classList.add('hidden');
+      this._boostOsdTimer = null;
+    }, 2200);
+  }
+
+  handleNativeImageBoost(mode) {
+    const norm = IMAGE_BOOST_MODES.includes(mode) ? mode : 'off';
+    if (this.player) {
+      this.player.imageBoost = norm;
+      try {
+        localStorage.setItem('fluistream_image_boost', norm);
+      } catch {
+        // Ignore
+      }
+      this.player._applyVideoElementBoost(this.player.video, norm);
+      if (this.player.hls && norm !== 'off') {
+        this.player.hls.capLevelToPlayerSize = false;
+      }
+      this.player._syncWebGlUpscaler?.(true);
+    }
+    if (this.multiScreen) {
+      this.multiScreen.imageBoost = norm;
+      for (const slot of this.multiScreen.slots.values()) {
+        if (slot.video) {
+          this.multiScreen.urlHelper._applyVideoElementBoost(slot.video, norm);
+        }
+      }
+    }
+    this.syncImageBoostUi(norm);
+    this.showImageBoostOsd(norm);
+    storage.saveSettings({ imageBoost: norm });
+    return norm;
+  }
+
   handleNativeBack() {
     const activeEl = typeof document !== 'undefined' ? document.activeElement : null;
     if (activeEl && activeEl.dataset?.tvEditing === 'true') {
@@ -942,6 +1028,7 @@ class FluiStreamApp {
       i18n.applyToDOM();
       this.updateClock();
       this.updateSettingsTileSubtitles();
+      this.syncImageBoostUi(this.player?.imageBoost || storage.getSettings().imageBoost || 'off');
       if (this.dom.settingsPlayerEngineSelect && this.dom.settingsPlayerEngineNotice) {
         const effective = this._syncPlayerEngineSelect(this.dom.settingsPlayerEngineSelect, this.dom.settingsPlayerEngineSelect.value);
         this.updatePlayerEngineNotice(effective, this.dom.settingsPlayerEngineNotice);
@@ -1318,6 +1405,19 @@ class FluiStreamApp {
     }
     if (this.dom.aspectSelect) {
       this.dom.aspectSelect.addEventListener('change', (e) => this.player.setAspectRatio(e.target.value));
+    }
+    if (this.dom.imageBoostSelect) {
+      this.dom.imageBoostSelect.addEventListener('change', (e) => this.setImageBoostMode(e.target.value));
+    }
+    if (this.dom.btnMetaImageBoost) {
+      this.dom.btnMetaImageBoost.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const nextMode = this.player?.cycleImageBoost ? this.player.cycleImageBoost() : 'off';
+        this.multiScreen?.setImageBoost?.(nextMode);
+        this.syncImageBoostUi(nextMode);
+        this.showImageBoostOsd(nextMode);
+        storage.saveSettings({ imageBoost: nextMode });
+      });
     }
     if (this.dom.streamModeSelect) {
       this.dom.streamModeSelect.addEventListener('change', () => {
@@ -4698,6 +4798,7 @@ class FluiStreamApp {
     const isDesktop = Boolean(window.chrome?.webview);
 
     this.epg.setTimeshift(Number(cfg.epgTimeshift) || 0);
+    this.setImageBoostMode(cfg.imageBoost || 'off', false);
 
     if (this.dom.streamModeSelect && cfg.streamMode) {
       this.dom.streamModeSelect.value = cfg.streamMode;

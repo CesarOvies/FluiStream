@@ -66,6 +66,14 @@ class NativeBridge(private val activity: MainActivity) {
     }
 
     @JavascriptInterface
+    fun setImageBoost(mode: String?) {
+        val safeMode = mode?.trim().orEmpty().ifEmpty { "off" }
+        activity.runOnUiThread {
+            activity.videoPlayerManager.setImageBoost(safeMode)
+        }
+    }
+
+    @JavascriptInterface
     fun updatePlayerLayout(x: Int, y: Int, width: Int, height: Int, visible: Boolean) {
         activity.runOnUiThread {
             activity.videoPlayerManager.updateLayout(x, y, width, height, visible)

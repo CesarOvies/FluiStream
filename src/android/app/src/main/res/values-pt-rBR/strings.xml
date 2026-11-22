@@ -10,6 +10,9 @@
     <string name="player_aspect_16_9">16:9</string>
     <string name="player_aspect_4_3">4:3</string>
     <string name="player_aspect_fill">Preencher</string>
+    <string name="player_boost_off">Boost: Off</string>
+    <string name="player_boost_hd_plus">Boost: HD+</string>
+    <string name="player_boost_ultra_2k">Boost: 2K Ultra</string>
     <string name="tv_back_exit_hint">Pressione Voltar novamente para sair do FluiStream</string>
     <string name="webview_unavailable">O componente Android System WebView é necessário para executar o FluiStream.</string>
     <string name="update_channel_name">Atualizações do App</string>

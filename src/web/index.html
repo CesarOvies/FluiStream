@@ -85,6 +85,28 @@
   <script src="https://cdn.jsdelivr.net/npm/mpegts.js@1.7.3/dist/mpegts.js"></script>
 </head>
 <body>
+  <svg id="flui-svg-shader-defs" aria-hidden="true" style="position: absolute; width: 0; height: 0; overflow: hidden; pointer-events: none;">
+    <defs>
+      <filter id="flui-boost-hd-plus" color-interpolation-filters="sRGB">
+        <feConvolveMatrix order="3" kernelMatrix="0 -0.45 0 -0.45 2.8 -0.45 0 -0.45 0" preserveAlpha="true" />
+        <feComponentTransfer>
+          <feFuncR type="gamma" amplitude="1.02" exponent="0.98" offset="-0.004" />
+          <feFuncG type="gamma" amplitude="1.02" exponent="0.98" offset="-0.004" />
+          <feFuncB type="gamma" amplitude="1.02" exponent="0.98" offset="-0.004" />
+        </feComponentTransfer>
+        <feColorMatrix type="saturate" values="1.08" />
+      </filter>
+      <filter id="flui-boost-ultra-2k" color-interpolation-filters="sRGB">
+        <feConvolveMatrix order="3" kernelMatrix="-0.18 -0.42 -0.18 -0.42 3.40 -0.42 -0.18 -0.42 -0.18" preserveAlpha="true" />
+        <feComponentTransfer>
+          <feFuncR type="gamma" amplitude="1.04" exponent="0.95" offset="-0.012" />
+          <feFuncG type="gamma" amplitude="1.04" exponent="0.95" offset="-0.012" />
+          <feFuncB type="gamma" amplitude="1.04" exponent="0.95" offset="-0.012" />
+        </feComponentTransfer>
+        <feColorMatrix type="saturate" values="1.14" />
+      </filter>
+    </defs>
+  </svg>
 
   <!-- Barra Superior de Navegação -->
   <header class="app-header" id="app-header">
@@ -316,6 +338,8 @@
                 </button>
               </div>
               <video id="main-video" playsinline webkit-playsinline controlslist="nofullscreen"></video>
+        <canvas id="main-video-upscale-canvas" class="video-upscale-canvas hidden" aria-hidden="true"></canvas>
+        <div id="player-boost-osd" class="player-boost-osd hidden" aria-live="polite"></div>
               <button type="button" class="btn-player-tools" id="btn-player-tools" aria-expanded="false" data-i18n-title="playerToolsMenu" title="Ferramentas do Player">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
                 <span data-i18n="playerToolsBtn">Opções</span>
@@ -357,6 +381,11 @@
                     <option value="4:3">4:3</option>
                     <option value="fill" data-i18n="playerAspectFill">Preencher</option>
                   </select>
+                  <select class="select-custom" id="select-image-boost" title="Boost de Imagem (Upscale)" data-i18n-title="playerImageBoost">
+                    <option value="off" data-i18n="playerBoostOff">Boost: Original (Off)</option>
+                    <option value="hd_plus" data-i18n="playerBoostHdPlus">Boost: Nitidez HD+ (CAS)</option>
+                    <option value="ultra_2k" data-i18n="playerBoostUltra2k">Boost: Super Resolução 2K</option>
+                  </select>
                   <select class="select-custom" id="select-player-audio" title="Faixa de Áudio / Idioma" data-i18n-title="playerAudioTrack">
                     <option value="-1" data-i18n="playerAudioDefault">Áudio: Padrão</option>
                   </select>
@@ -380,6 +409,10 @@
                   </div>
                 </div>
                 <div class="player-meta-actions">
+                  <button type="button" class="btn-secondary btn-meta-player-action" id="btn-meta-image-boost" data-i18n-title="playerImageBoost" title="Boost de Imagem (Upscale)" aria-pressed="false">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+                    <span id="meta-image-boost-label" data-i18n="playerBoostOff">Boost: Original (Off)</span>
+                  </button>
                   <button type="button" class="btn-secondary btn-meta-player-action" id="btn-meta-player-tools" data-i18n-title="playerToolsMenu" title="Ferramentas do Player">
                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
                     <span data-i18n="playerToolsBtn">Opções</span>
@@ -1253,7 +1286,7 @@
   </div>
 
   <!-- Registro do Service Worker e Módulos -->
-  <script type="module" src="js/app.js?v=2.0.0"></script>
+  <script type="module" src="js/app.js?v=2.1.0"></script>
   <script>
     if ('serviceWorker' in navigator && (window.location.protocol === 'https:' || window.location.hostname === 'localhost')) {
       navigator.serviceWorker.register('./sw.js').then((reg) => {
