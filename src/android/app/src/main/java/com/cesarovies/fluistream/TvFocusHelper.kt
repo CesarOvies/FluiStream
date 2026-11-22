@@ -42,7 +42,37 @@ class TvFocusHelper(
         return handleWebViewKeyEvent(event)
     }
 
+    private fun dispatchLiveChannelStep(delta: Int) {
+        webView.post {
+            webView.evaluateJavascript(
+                "window.fluiStreamApp?.handleNativeChannelStep($delta);",
+                null
+            )
+        }
+    }
+
     private fun handlePlayerKeyEvent(event: KeyEvent): KeyEventResult {
+        if (videoPlayerManager.isLiveStream()) {
+            when (event.keyCode) {
+                KeyEvent.KEYCODE_DPAD_UP,
+                KeyEvent.KEYCODE_CHANNEL_UP,
+                KeyEvent.KEYCODE_PAGE_UP -> {
+                    if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
+                        dispatchLiveChannelStep(-1)
+                    }
+                    return KeyEventResult.CONSUMED
+                }
+                KeyEvent.KEYCODE_DPAD_DOWN,
+                KeyEvent.KEYCODE_CHANNEL_DOWN,
+                KeyEvent.KEYCODE_PAGE_DOWN -> {
+                    if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
+                        dispatchLiveChannelStep(1)
+                    }
+                    return KeyEventResult.CONSUMED
+                }
+            }
+        }
+
         if (event.action != KeyEvent.ACTION_DOWN) {
             return KeyEventResult.PASS_THROUGH
         }
@@ -82,6 +112,13 @@ class TvFocusHelper(
     private fun handleWebViewKeyEvent(event: KeyEvent): KeyEventResult {
         if (!webView.hasFocus()) {
             webView.requestFocus()
+        }
+
+        if (event.keyCode == KeyEvent.KEYCODE_CHANNEL_UP || event.keyCode == KeyEvent.KEYCODE_CHANNEL_DOWN) {
+            if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
+                dispatchLiveChannelStep(if (event.keyCode == KeyEvent.KEYCODE_CHANNEL_UP) -1 else 1)
+            }
+            return KeyEventResult.CONSUMED
         }
 
         // Translate TV remote DPAD_CENTER / NUMPAD_ENTER into KEYCODE_ENTER so Chromium activates focused elements

@@ -108,6 +108,8 @@ class VideoPlayerManager(
 
     fun isFullscreen(): Boolean = isFullscreenMode && isPlayingStream
 
+    fun isLiveStream(): Boolean = isPlayingStream && currentPlayItemType.equals("live", ignoreCase = true)
+
     fun setPendingFallbackUrls(urls: List<String>) {
         pendingFallbackUrls.clear()
         urls.asSequence()
@@ -121,11 +123,14 @@ class VideoPlayerManager(
     fun play(url: String, title: String, itemType: String, streamMode: String) {
         ensurePlayer()
 
+        val preserveFullscreen = isFullscreenMode && isPlayingStream && itemType.equals("live", ignoreCase = true)
         currentPlayTitle = title
         currentPlayItemType = itemType
         currentPlayStreamMode = streamMode
         isPlayingStream = true
-        isFullscreenMode = false
+        if (!preserveFullscreen) {
+            isFullscreenMode = false
+        }
 
         if (!hasExplicitFallbackUrls) {
             pendingFallbackUrls.clear()
@@ -149,6 +154,9 @@ class VideoPlayerManager(
         errorText.visibility = View.GONE
         updateInteractionMode()
         applyOverlayLayout()
+        if (preserveFullscreen) {
+            playerView.showController()
+        }
         onOpened()
 
         startPlaybackUrl(url)
