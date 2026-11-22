@@ -3774,6 +3774,11 @@ await test('Arquivos Web, Desktop LibVLC/WebView2 e Android Media3 devem expor I
   assert.match(gradleKts, /androidx\.media3:media3-effect:1\.3\.1/);
   assert.match(playerKt, /fun setImageBoost\(mode: String\)/);
   assert.match(playerKt, /Presentation\.createForHeight\(1440\)/);
+  assert.match(playerKt, /CasSharpenGlEffect/);
+  assert.match(playerKt, /CasSharpenShaderProgram/);
+  assert.match(playerKt, /BaseGlShaderProgram/);
+  assert.match(playerKt, /setEnableColorTransfers\(/);
+  assert.doesNotMatch(playerKt, /\bContrast\(|HslAdjustment/);
   assert.match(playerKt, /player\.setVideoEffects\(effects\)/);
   assert.match(playerKt, /ERROR_CODE_VIDEO_FRAME_PROCESSOR_INIT_FAILED/);
   assert.match(bridgeKt, /@JavascriptInterface[\s\S]*?fun setImageBoost\(/);
