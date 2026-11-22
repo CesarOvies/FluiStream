@@ -12,7 +12,7 @@ import { EPGParser } from '../src/web/js/epg-parser.js';
 import { XtreamApi } from '../src/web/js/xtream-api.js';
 import { translations, SupportedLanguages, i18n } from '../src/web/js/localization.js';
 import { APP_VERSION, getCurrentVersion, parseCleanVersion, isNewerVersion, selectReleaseAssets, checkForUpdate } from '../src/web/js/version.js';
-import { VideoPlayerController, computeOverlayLayout } from '../src/web/js/player.js';
+import { VideoPlayerController, MultiScreenController, WebGlVideoUpscaler, computeOverlayLayout, IMAGE_BOOST_MODES, IMAGE_BOOST_PRESETS } from '../src/web/js/player.js';
 import {
   cleanMediaTitle,
   parseAdoroCinemaHtml,
@@ -134,7 +134,7 @@ await test('Todos os 3 idiomas (pt-BR, en-US, es) devem possuir o mesmo conjunto
   const enKeys = Object.keys(translations['en-US']).sort();
   const esKeys = Object.keys(translations['es']).sort();
 
-  assert.equal(ptKeys.length, 290, `Esperado exatamente 290 chaves i18n em pt-BR, obtido ${ptKeys.length}`);
+  assert.equal(ptKeys.length, 295, `Esperado exatamente 295 chaves i18n em pt-BR, obtido ${ptKeys.length}`);
   assert.deepEqual(ptKeys, enKeys, 'Chaves pt-BR e en-US devem ser idênticas');
   assert.deepEqual(ptKeys, esKeys, 'Chaves pt-BR e es devem ser idênticas');
 
@@ -3558,6 +3558,435 @@ await test('_ensurePlaylistIndexes deve reclassificar itens em cache e recalcula
   assert.equal(inst.playlist.items[2].seriesTitle, undefined);
   assert.equal(inst.playlist.items[3].type, ItemType.SERIES);
   assert.deepEqual(inst.playlist.summary, { total: 4, live: 2, movies: 1, series: 1 });
+});
+
+console.log('\n--- 32. Testes de Image Boost / Super Resolution 2K (Web, Desktop VLC/WebView2 & Android Media3) ---');
+
+await test('IMAGE_BOOST_MODES, VideoPlayerController e MultiScreenController devem aplicar presets, persistir e delegar para Android/VLC', async () => {
+  assert.deepEqual(IMAGE_BOOST_MODES, ['off', 'hd_plus', 'ultra_2k']);
+  assert.equal(IMAGE_BOOST_PRESETS.hd_plus.svgFilterId, 'flui-boost-hd-plus');
+  assert.equal(IMAGE_BOOST_PRESETS.ultra_2k.svgFilterId, 'flui-boost-ultra-2k');
+  assert.equal(IMAGE_BOOST_PRESETS.ultra_2k.targetHeight, 1440);
+  assert.ok(IMAGE_BOOST_PRESETS.ultra_2k.sharpenSigma > IMAGE_BOOST_PRESETS.hd_plus.sharpenSigma);
+
+  await withMockLocalStorage(async () => {
+    const prevWindow = globalThis.window;
+    const prevDoc = globalThis.document;
+    const prevRaf = globalThis.requestAnimationFrame;
+    const androidCalls = [];
+    const webviewMessages = [];
+
+    globalThis.requestAnimationFrame = (cb) => {
+      if (typeof cb === 'function') cb();
+      return 0;
+    };
+
+    const makeClassList = () => {
+      const set = new Set();
+      return {
+        add: (...cls) => cls.forEach(c => set.add(c)),
+        remove: (...cls) => cls.forEach(c => set.delete(c)),
+        contains: (c) => set.has(c)
+      };
+    };
+
+    const makeNode = () => ({
+      style: { display: 'block', filter: '' },
+      classList: makeClassList(),
+      attributes: new Map(),
+      setAttribute(k, v) { this.attributes.set(k, v); },
+      getBoundingClientRect: () => ({ left: 0, top: 100, bottom: 500, width: 640, height: 360 }),
+      closest: () => null,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      pause: () => {},
+      removeAttribute: () => {},
+      load: () => {},
+      play: () => Promise.resolve()
+    });
+
+    globalThis.window = {
+      innerHeight: 720,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      androidBridge: {
+        setImageBoost: (m) => androidCalls.push({ fn: 'setImageBoost', mode: m }),
+        playStream: (url, title, type, mode) => androidCalls.push({ fn: 'playStream', url, title, type, mode })
+      }
+    };
+    globalThis.document = {
+      body: { classList: makeClassList() },
+      addEventListener: () => {},
+      querySelector: () => null,
+      getElementById: () => null
+    };
+
+    try {
+      const videoEl = makeNode();
+      const containerEl = makeNode();
+      const ctrl = new VideoPlayerController(videoEl, containerEl);
+      ctrl.hls = { capLevelToPlayerSize: true };
+
+      assert.equal(ctrl.setImageBoost('hd_plus'), 'hd_plus');
+      assert.equal(videoEl.classList.contains('boost-hd-plus'), true);
+      assert.equal(containerEl.classList.contains('boost-hd-plus'), true);
+      assert.match(videoEl.style.filter, /#flui-boost-hd-plus/);
+      assert.equal(ctrl.hls.capLevelToPlayerSize, false);
+      assert.equal(globalThis.localStorage.getItem('fluistream_image_boost'), 'hd_plus');
+      assert.deepEqual(androidCalls[0], { fn: 'setImageBoost', mode: 'hd_plus' });
+
+      assert.equal(ctrl.cycleImageBoost(), 'ultra_2k');
+      assert.equal(videoEl.classList.contains('boost-ultra-2k'), true);
+      assert.match(videoEl.style.filter, /#flui-boost-ultra-2k/);
+
+      await ctrl.playStream({ name: 'Canal FHD', type: 'live', url: 'http://ex.com/live/u/p/10.m3u8' }, '', 'auto', 'hls');
+      const lastSetIdx = androidCalls.map(c => c.fn).lastIndexOf('setImageBoost');
+      const playIdx = androidCalls.map(c => c.fn).lastIndexOf('playStream');
+      assert.ok(lastSetIdx >= 0 && playIdx > lastSetIdx, 'Deve sincronizar setImageBoost antes de playStream no Android');
+      assert.equal(androidCalls[playIdx].mode, 'auto');
+
+      assert.equal(ctrl.cycleImageBoost(), 'off');
+      assert.equal(videoEl.style.filter, '');
+      assert.equal(videoEl.classList.contains('boost-off'), true);
+
+      // Desktop WebView2 + VLC mode
+      delete globalThis.window.androidBridge;
+      globalThis.window.chrome = {
+        webview: {
+          postMessage: (msg) => webviewMessages.push(msg),
+          addEventListener: () => {}
+        }
+      };
+
+      const vlcVideo = makeNode();
+      const vlcContainer = makeNode();
+      const vlcCtrl = new VideoPlayerController(vlcVideo, vlcContainer);
+      vlcCtrl.setImageBoost('ultra_2k');
+      assert.ok(webviewMessages.some(m => m.type === 'VLC_PLAYER_COMMAND' && m.action === 'SET_IMAGE_BOOST' && m.mode === 'ultra_2k'));
+
+      webviewMessages.length = 0;
+      await vlcCtrl.playStream({ name: 'Canal VLC', type: 'live', url: 'http://ex.com/live/u/p/20.m3u8' }, '', 'auto', 'vlc');
+      const playCmd = webviewMessages.find(m => m.type === 'VLC_PLAYER_COMMAND' && m.action === 'PLAY');
+      assert.ok(playCmd);
+      assert.equal(playCmd.imageBoost, 'ultra_2k');
+
+      // MultiScreenController
+      webviewMessages.length = 0;
+      const ms = new MultiScreenController();
+      const slotVideo = makeNode();
+      const slotStage = makeNode();
+      ms.setImageBoost('hd_plus');
+      ms.attachSlot(0, slotVideo, { id: 'ms1', name: 'Slot 1', type: 'live', url: 'http://ex.com/1.mp4' }, '', 'auto', 'hls', slotStage);
+      assert.equal(slotVideo.classList.contains('boost-hd-plus'), true);
+      assert.match(slotVideo.style.filter, /#flui-boost-hd-plus/);
+
+      ms.setImageBoost('ultra_2k');
+      assert.equal(slotVideo.classList.contains('boost-ultra-2k'), true);
+      assert.ok(webviewMessages.some(m => m.action === 'SET_IMAGE_BOOST' && m.mode === 'ultra_2k'));
+      vlcCtrl.stop();
+      ms.clearAll();
+    } finally {
+      if (prevWindow === undefined) delete globalThis.window;
+      else globalThis.window = prevWindow;
+      if (prevDoc === undefined) delete globalThis.document;
+      else globalThis.document = prevDoc;
+      if (prevRaf === undefined) delete globalThis.requestAnimationFrame;
+      else globalThis.requestAnimationFrame = prevRaf;
+    }
+  });
+});
+
+await test('StorageService deve persistir imageBoost e limpar fluistream_image_boost em clearAll()', async () => {
+  await withMockLocalStorage(async (store) => {
+    const svc = new StorageService();
+    assert.equal(svc.getSettings().imageBoost, 'off');
+
+    svc.saveProfile({ id: 'p_boost', name: 'Perfil Boost', type: 'm3u_file' });
+    svc.saveSettings({ imageBoost: 'ultra_2k' });
+    assert.equal(svc.getSettings().imageBoost, 'ultra_2k');
+    assert.equal(svc.getActiveProfile().imageBoost, 'ultra_2k');
+
+    globalThis.localStorage.setItem('fluistream_image_boost', 'ultra_2k');
+    await svc.clearAll();
+    assert.equal(svc.getSettings().imageBoost, 'off');
+    assert.equal(store.size, 0);
+  });
+});
+
+await test('Arquivos Web, Desktop LibVLC/WebView2 e Android Media3 devem expor Image Boost sincronizado', () => {
+  const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+  const html = readFileSync(resolve(rootDir, 'src/web/index.html'), 'utf8');
+  const css = readFileSync(resolve(rootDir, 'src/web/css/style.css'), 'utf8');
+  const appJs = readFileSync(resolve(rootDir, 'src/web/js/app.js'), 'utf8');
+  const playerJs = readFileSync(resolve(rootDir, 'src/web/js/player.js'), 'utf8');
+  const locJs = readFileSync(resolve(rootDir, 'src/web/js/localization.js'), 'utf8');
+  const storageJs = readFileSync(resolve(rootDir, 'src/web/js/storage.js'), 'utf8');
+  const swJs = readFileSync(resolve(rootDir, 'src/web/sw.js'), 'utf8');
+
+  assert.match(html, /id="flui-svg-shader-defs"/);
+  assert.match(html, /id="flui-boost-hd-plus"/);
+  assert.match(html, /id="flui-boost-ultra-2k"/);
+  assert.match(html, /id="main-video-upscale-canvas"/);
+  assert.match(html, /id="player-boost-osd"/);
+  assert.match(html, /id="select-image-boost"/);
+  assert.match(html, /id="btn-meta-image-boost"/);
+  assert.match(html, /id="meta-image-boost-label"/);
+  assert.match(html, /js\/app\.js\?v=2\.1\.0/);
+
+  assert.match(css, /\.video-upscale-canvas/);
+  assert.match(css, /#player-wrapper\.webgl-upscale-active #main-video/);
+  assert.match(css, /\.player-boost-osd/);
+  assert.match(css, /#main-video\.boost-hd-plus/);
+  assert.match(css, /#main-video\.boost-ultra-2k/);
+  assert.match(css, /\.multiscreen-slot video\.boost-ultra-2k/);
+  assert.match(css, /#btn-meta-image-boost\.is-boost-2k/);
+
+  assert.match(appJs, /setImageBoostMode\(/);
+  assert.match(appJs, /syncImageBoostUi\(/);
+  assert.match(appJs, /showImageBoostOsd\(/);
+  assert.match(appJs, /handleNativeImageBoost\(/);
+  assert.match(playerJs, /export class WebGlVideoUpscaler/);
+  assert.match(playerJs, /_configureVideoCrossOrigin\(/);
+  assert.match(playerJs, /_syncWebGlUpscaler\(/);
+  assert.match(swJs, /CACHE_NAME\s*=\s*'fluistream-v2\.1\.0'/);
+
+  // Desktop Windows LibVLC & WebView2 VSR
+  const mainFormCs = readFileSync(resolve(rootDir, 'src/desktop/MainForm.cs'), 'utf8');
+  const locCs = readFileSync(resolve(rootDir, 'src/desktop/LocalizationService.cs'), 'utf8');
+  assert.match(mainFormCs, /NvidiaVpSuperResolution,VpSuperResolution/);
+  assert.match(mainFormCs, /ApplyVlcImageBoostToMedia/);
+  assert.match(mainFormCs, /ApplyVlcImageBoostToPlayer/);
+  assert.match(mainFormCs, /:d3d11-upscaling=super/);
+  assert.match(mainFormCs, /action == "SET_IMAGE_BOOST"/);
+  assert.match(mainFormCs, /_cmbVlcBoost/);
+  assert.match(mainFormCs, /handleNativeImageBoost/);
+  assert.match(locCs, /\["VlcBoostLabel"\]/);
+  assert.match(locCs, /\["VlcBoostUltra2k"\]/);
+
+  // Android & Android TV Media3 Effects
+  const gradleKts = readFileSync(resolve(rootDir, 'src/android/app/build.gradle.kts'), 'utf8');
+  const playerKt = readFileSync(resolve(rootDir, 'src/android/app/src/main/java/com/cesarovies/fluistream/VideoPlayerManager.kt'), 'utf8');
+  const bridgeKt = readFileSync(resolve(rootDir, 'src/android/app/src/main/java/com/cesarovies/fluistream/NativeBridge.kt'), 'utf8');
+  const mainActivityKt = readFileSync(resolve(rootDir, 'src/android/app/src/main/java/com/cesarovies/fluistream/MainActivity.kt'), 'utf8');
+  const activityXml = readFileSync(resolve(rootDir, 'src/android/app/src/main/res/layout/activity_main.xml'), 'utf8');
+  const stringsXml = readFileSync(resolve(rootDir, 'src/android/app/src/main/res/values/strings.xml'), 'utf8');
+
+  assert.match(gradleKts, /androidx\.media3:media3-effect:1\.3\.1/);
+  assert.match(playerKt, /fun setImageBoost\(mode: String\)/);
+  assert.match(playerKt, /Presentation\.createForHeight\(1440\)/);
+  assert.match(playerKt, /player\.setVideoEffects\(effects\)/);
+  assert.match(playerKt, /ERROR_CODE_VIDEO_FRAME_PROCESSOR_INIT_FAILED/);
+  assert.match(bridgeKt, /@JavascriptInterface[\s\S]*?fun setImageBoost\(/);
+  assert.match(mainActivityKt, /R\.id\.btn_player_boost/);
+  assert.match(mainActivityKt, /handleNativeImageBoost/);
+  assert.match(activityXml, /android:id="@\+id\/btn_player_boost"/);
+  assert.match(stringsXml, /name="player_boost_ultra_2k"/);
+
+  // Sincronização src/web -> src/android/app/src/main/assets/web
+  const webFiles = {
+    'index.html': html,
+    'css/style.css': css,
+    'js/app.js': appJs,
+    'js/player.js': playerJs,
+    'js/localization.js': locJs,
+    'js/storage.js': storageJs,
+    'sw.js': swJs
+  };
+  for (const [rel, expected] of Object.entries(webFiles)) {
+    const synced = readFileSync(resolve(rootDir, 'src/android/app/src/main/assets/web', rel), 'utf8');
+    assert.equal(synced, expected, `Asset Android ${rel} deve estar sincronizado com src/web/${rel}`);
+  }
+});
+
+await test('WebGlVideoUpscaler, CORS crossOrigin e fallback CSS devem renderizar e proteger fluxos sem CORS', () => {
+  assert.equal(IMAGE_BOOST_PRESETS.off.webgl.enabled, false);
+  assert.equal(IMAGE_BOOST_PRESETS.hd_plus.webgl.enabled, true);
+  assert.equal(IMAGE_BOOST_PRESETS.ultra_2k.webgl.enabled, true);
+  assert.ok(IMAGE_BOOST_PRESETS.ultra_2k.webgl.sharpness > IMAGE_BOOST_PRESETS.hd_plus.webgl.sharpness);
+
+  const prevWindow = globalThis.window;
+  const prevDoc = globalThis.document;
+  const prevRaf = globalThis.requestAnimationFrame;
+  const prevCancelRaf = globalThis.cancelAnimationFrame;
+
+  const makeClassList = (initial = []) => {
+    const set = new Set(initial);
+    return {
+      add: (...cls) => cls.forEach(c => set.add(c)),
+      remove: (...cls) => cls.forEach(c => set.delete(c)),
+      contains: (c) => set.has(c)
+    };
+  };
+
+  let throwTaint = false;
+  let drawCalls = 0;
+  let texImageCalls = 0;
+  const uniformsSet = {};
+  const mockGl = {
+    VERTEX_SHADER: 1,
+    FRAGMENT_SHADER: 2,
+    COMPILE_STATUS: 3,
+    LINK_STATUS: 4,
+    ARRAY_BUFFER: 5,
+    STATIC_DRAW: 6,
+    FLOAT: 7,
+    TEXTURE_2D: 8,
+    UNPACK_FLIP_Y_WEBGL: 9,
+    TEXTURE_WRAP_S: 10,
+    TEXTURE_WRAP_T: 11,
+    TEXTURE_MIN_FILTER: 12,
+    TEXTURE_MAG_FILTER: 13,
+    CLAMP_TO_EDGE: 14,
+    LINEAR: 15,
+    MAX_VIEWPORT_DIMS: 16,
+    TEXTURE0: 17,
+    RGBA: 18,
+    UNSIGNED_BYTE: 19,
+    TRIANGLES: 20,
+    createShader: () => ({}),
+    shaderSource: () => {},
+    compileShader: () => {},
+    getShaderParameter: () => true,
+    deleteShader: () => {},
+    createProgram: () => ({}),
+    attachShader: () => {},
+    linkProgram: () => {},
+    getProgramParameter: () => true,
+    useProgram: () => {},
+    createBuffer: () => ({}),
+    bindBuffer: () => {},
+    bufferData: () => {},
+    getAttribLocation: () => 0,
+    enableVertexAttribArray: () => {},
+    vertexAttribPointer: () => {},
+    createTexture: () => ({}),
+    bindTexture: () => {},
+    pixelStorei: () => {},
+    texParameteri: () => {},
+    getUniformLocation: (_p, name) => name,
+    getParameter: () => [4096, 4096],
+    viewport: () => {},
+    activeTexture: () => {},
+    texImage2D: () => {
+      if (throwTaint) {
+        const err = new Error('The operation is insecure.');
+        err.name = 'SecurityError';
+        throw err;
+      }
+      texImageCalls++;
+    },
+    uniform1i: () => {},
+    uniform2f: () => {},
+    uniform1f: (loc, val) => { uniformsSet[loc] = val; },
+    drawArrays: () => { drawCalls++; },
+    isContextLost: () => false
+  };
+
+  const upscaleCanvas = {
+    id: 'main-video-upscale-canvas',
+    width: 0,
+    height: 0,
+    clientHeight: 720,
+    style: {},
+    classList: makeClassList(['video-upscale-canvas', 'hidden']),
+    addEventListener: () => {},
+    getContext: (type) => (type === 'webgl' ? mockGl : null)
+  };
+  const attrs = new Map();
+  const mockVideo = {
+    readyState: 4,
+    videoWidth: 1280,
+    videoHeight: 720,
+    currentTime: 12.5,
+    paused: false,
+    crossOrigin: null,
+    style: { display: 'block', filter: '' },
+    classList: makeClassList(),
+    setAttribute(k, v) { attrs.set(k, v); },
+    removeAttribute(k) { attrs.delete(k); },
+    addEventListener: () => {},
+    pause: () => {},
+    load: () => {},
+    play: () => Promise.resolve()
+  };
+  const container = {
+    clientHeight: 720,
+    classList: makeClassList(),
+    attributes: new Map(),
+    setAttribute(k, v) { this.attributes.set(k, v); },
+    querySelector: (sel) => (sel === '#main-video-upscale-canvas' ? upscaleCanvas : null)
+  };
+
+  globalThis.window = {
+    devicePixelRatio: 2,
+    __fluiLocalProxyUrl: 'http://127.0.0.1:5055',
+    addEventListener: () => {},
+    removeEventListener: () => {}
+  };
+  globalThis.document = {
+    body: { classList: makeClassList() },
+    addEventListener: () => {},
+    querySelector: () => null,
+    getElementById: (id) => (id === 'main-video-upscale-canvas' ? upscaleCanvas : null)
+  };
+  globalThis.requestAnimationFrame = () => 1;
+  globalThis.cancelAnimationFrame = () => {};
+
+  try {
+    const ctrl = new VideoPlayerController(mockVideo, container);
+    ctrl.isStopped = false;
+    ctrl.currentEngine = 'hls';
+
+    // 1. CORS & fila VOD com boost ativo
+    assert.equal(ctrl._configureVideoCrossOrigin('http://127.0.0.1:5055/proxy?url=http%3A%2F%2Fex.com%2F1.mp4', false), true);
+    assert.equal(mockVideo.crossOrigin, 'anonymous');
+    assert.equal(ctrl._configureVideoCrossOrigin('http://cdn.ex.com/movie.mp4', false), false);
+    assert.equal(mockVideo.crossOrigin, null);
+
+    ctrl.imageBoost = 'off';
+    const queueOff = ctrl._buildHtml5AttemptQueue(['http://cdn.ex.com/movie.mp4'], { type: 'movie' }, '', 'auto');
+    assert.ok(queueOff[0].url.startsWith('http://cdn.ex.com/'), 'VOD sem boost deve tentar URL direta primeiro');
+    ctrl.imageBoost = 'ultra_2k';
+    const queueBoost = ctrl._buildHtml5AttemptQueue(['http://cdn.ex.com/movie.mp4'], { type: 'movie' }, '', 'auto');
+    assert.ok(queueBoost[0].url.startsWith('http://127.0.0.1:5055/proxy?url='), 'VOD com Image Boost ativo deve priorizar proxy local CORS para WebGL');
+    assert.equal(queueBoost[0].corsProxied, true);
+
+    // 2. Render WebGL 2K CAS + aspect ratio sincronizado
+    ctrl.setImageBoost('ultra_2k');
+    assert.ok(ctrl.webglUpscaler instanceof WebGlVideoUpscaler);
+    assert.equal(texImageCalls >= 1, true);
+    assert.equal(drawCalls >= 1, true);
+    assert.equal(upscaleCanvas.height, 1440);
+    assert.equal(upscaleCanvas.width, 2560);
+    assert.equal(upscaleCanvas.classList.contains('hidden'), false);
+    assert.equal(container.classList.contains('webgl-upscale-active'), true);
+    assert.equal(uniformsSet.u_sharpness, IMAGE_BOOST_PRESETS.ultra_2k.webgl.sharpness);
+
+    ctrl.setAspectRatio('fill');
+    assert.equal(upscaleCanvas.classList.contains('aspect-fill'), true);
+    assert.equal(upscaleCanvas.style.objectFit, 'fill');
+
+    // 3. Fallback automatico em SecurityError (tainted canvas) mantendo boost CSS no <video>
+    throwTaint = true;
+    ctrl.webglUpscaler.renderFrame(true);
+    assert.equal(ctrl._webglCorsBlocked, true);
+    assert.equal(ctrl.webglUpscaler.active, false);
+    assert.equal(upscaleCanvas.classList.contains('hidden'), true);
+    assert.equal(container.classList.contains('webgl-upscale-active'), false);
+    assert.equal(mockVideo.classList.contains('boost-ultra-2k'), true);
+
+    ctrl.stop();
+    assert.equal(ctrl.webglUpscaler.active, false);
+  } finally {
+    if (prevWindow === undefined) delete globalThis.window;
+    else globalThis.window = prevWindow;
+    if (prevDoc === undefined) delete globalThis.document;
+    else globalThis.document = prevDoc;
+    if (prevRaf === undefined) delete globalThis.requestAnimationFrame;
+    else globalThis.requestAnimationFrame = prevRaf;
+    if (prevCancelRaf === undefined) delete globalThis.cancelAnimationFrame;
+    else globalThis.cancelAnimationFrame = prevCancelRaf;
+  }
 });
 
 console.log(`\n========================================`);
