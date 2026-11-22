@@ -509,6 +509,7 @@ export class StorageService {
       corsProxy: '',
       volume: 0.8,
       aspectRatio: 'auto',
+      imageBoost: 'off',
       streamMode: 'auto',
       playerEngine: 'vlc',
       preferEmbeddedEpg: true,
@@ -534,6 +535,7 @@ export class StorageService {
         corsProxy: activeProfile?.corsProxy ?? globalCfg.corsProxy ?? defaults.corsProxy,
         volume: globalCfg.volume ?? defaults.volume,
         aspectRatio: globalCfg.aspectRatio ?? defaults.aspectRatio,
+        imageBoost: activeProfile?.imageBoost ?? globalCfg.imageBoost ?? defaults.imageBoost,
         streamMode: activeProfile?.streamMode ?? globalCfg.streamMode ?? defaults.streamMode,
         playerEngine: activeProfile?.playerEngine ?? globalCfg.playerEngine ?? defaults.playerEngine,
         preferEmbeddedEpg: activeProfile?.preferEmbeddedEpg ?? globalCfg.preferEmbeddedEpg ?? defaults.preferEmbeddedEpg,
@@ -603,6 +605,7 @@ export class StorageService {
       if (activeProfile) {
         if (settings?.streamMode) activeProfile.streamMode = settings.streamMode;
         if (settings?.playerEngine) activeProfile.playerEngine = settings.playerEngine;
+        if (settings?.imageBoost) activeProfile.imageBoost = settings.imageBoost;
         if (settings?.corsProxy !== undefined) activeProfile.corsProxy = settings.corsProxy;
         if (settings?.autoRefresh !== undefined) activeProfile.autoRefresh = Boolean(merged.autoRefresh);
         if (settings?.autoRefreshIntervalHours !== undefined) activeProfile.autoRefreshIntervalHours = merged.autoRefreshIntervalHours;
@@ -642,6 +645,7 @@ export class StorageService {
     localStorage.removeItem('fluistream_playlist_meta');
     localStorage.removeItem('fluistream_settings');
     localStorage.removeItem('fluistream_notifications');
+    localStorage.removeItem('fluistream_image_boost');
 
     if (typeof localStorage !== 'undefined' && typeof localStorage.length === 'number' && typeof localStorage.key === 'function') {
       const dynamicPrefixes = [

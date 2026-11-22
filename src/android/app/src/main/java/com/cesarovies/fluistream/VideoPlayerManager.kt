@@ -9,6 +9,7 @@ import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.annotation.OptIn
+import androidx.media3.common.Effect
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
@@ -16,6 +17,9 @@ import androidx.media3.common.Player
 import androidx.media3.common.VideoSize
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.effect.Contrast
+import androidx.media3.effect.HslAdjustment
+import androidx.media3.effect.Presentation
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
@@ -39,25 +43,38 @@ class VideoPlayerManager(
     private val closeButton: Button,
     private val onOpened: () -> Unit = {},
     private val onClosed: () -> Unit,
-    private val onFullscreenChanged: (Boolean) -> Unit = {}
+    private val onFullscreenChanged: (Boolean) -> Unit = {},
+    private val boostButton: Button? = null,
+    private val onImageBoostChanged: (String) -> Unit = {}
 ) {
 
     private var exoPlayer: ExoPlayer? = null
     private var currentAspectRatio: String = "auto"
+    private var currentImageBoost: String = "off"
     private var naturalVideoAspectRatio: Float = 0f
     private val pendingFallbackUrls = ArrayDeque<String>()
     private var hasExplicitFallbackUrls: Boolean = false
     private var currentPlayTitle: String = ""
     private var currentPlayItemType: String = "live"
     private var currentPlayStreamMode: String = "auto"
+    private var currentPlayUrl: String = ""
     private var isPlayingStream: Boolean = false
     private var isFullscreenMode: Boolean = false
     private val lastBounds: Rect = Rect(0, 0, 0, 0)
     private var lastLayoutVisible: Boolean = true
 
     private val aspectCycle = listOf("auto", "16:9", "4:3", "fill")
+    private val boostCycle = listOf("off", "hd_plus", "ultra_2k")
 
     init {
+        boostButton?.setOnClickListener {
+            val currentIdx = boostCycle.indexOf(currentImageBoost).let { if (it >= 0) it else 0 }
+            val nextMode = boostCycle[(currentIdx + 1) % boostCycle.size]
+            setImageBoost(nextMode)
+            onImageBoostChanged(currentImageBoost)
+        }
+        updateBoostButtonText(currentImageBoost)
+
         aspectButton.setOnClickListener {
             val nextIdx = (aspectCycle.indexOf(currentAspectRatio) + 1) % aspectCycle.size
             setAspectRatio(aspectCycle[nextIdx])
@@ -139,6 +156,27 @@ class VideoPlayerManager(
         applyAspectRatio(currentAspectRatio)
     }
 
+    fun setImageBoost(mode: String) {
+        val normalized = when (mode.trim().lowercase()) {
+            "hd_plus" -> "hd_plus"
+            "ultra_2k" -> "ultra_2k"
+            else -> "off"
+        }
+        val modeChanged = normalized != currentImageBoost
+        currentImageBoost = normalized
+        updateBoostButtonText(normalized)
+
+        val player = exoPlayer ?: return
+        if (!modeChanged) return
+
+        if (isPlayingStream && currentPlayUrl.isNotEmpty()) {
+            restartPlaybackWithCurrentBoost(player, currentPlayUrl)
+        } else {
+            // Drop idle player so the next play() initializes VideoSink cleanly for the new mode.
+            release()
+        }
+    }
+
     fun updateLayout(x: Int, y: Int, width: Int, height: Int, visible: Boolean) {
         lastLayoutVisible = visible
         if (!isFullscreenMode && width > 0 && height > 0) {
@@ -177,6 +215,7 @@ class VideoPlayerManager(
         val wasFullscreen = isFullscreenMode
         isPlayingStream = false
         isFullscreenMode = false
+        currentPlayUrl = ""
         pendingFallbackUrls.clear()
         hasExplicitFallbackUrls = false
         exoPlayer?.let { player ->
@@ -357,6 +396,30 @@ class VideoPlayerManager(
                     "PlaybackException (code=${error.errorCode}): ${error.message}",
                     error
                 )
+                if (currentImageBoost != "off" &&
+                    (error.errorCode == PlaybackException.ERROR_CODE_VIDEO_FRAME_PROCESSOR_INIT_FAILED ||
+                        error.errorCode == PlaybackException.ERROR_CODE_VIDEO_FRAME_PROCESSING_FAILED)
+                ) {
+                    android.util.Log.w(
+                        "VideoPlayerManager",
+                        "Video frame processor error (${error.errorCode}); falling back to boost=off",
+                        error
+                    )
+                    currentImageBoost = "off"
+                    applyImageBoostEffects(player, "off")
+                    updateBoostButtonText("off")
+                    onImageBoostChanged("off")
+                    errorText.visibility = View.GONE
+                    val fallbackUrl = currentPlayUrl
+                    if (isPlayingStream && fallbackUrl.isNotEmpty()) {
+                        playerView.post {
+                            if (isPlayingStream && currentPlayUrl == fallbackUrl && exoPlayer === player) {
+                                restartPlaybackWithCurrentBoost(player, fallbackUrl)
+                            }
+                        }
+                        return
+                    }
+                }
                 if (pendingFallbackUrls.isNotEmpty()) {
                     val nextUrl = pendingFallbackUrls.removeFirst()
                     errorText.visibility = View.GONE
@@ -391,8 +454,68 @@ class VideoPlayerManager(
             }
         })
 
+        if (currentImageBoost != "off") {
+            applyImageBoostEffects(player, currentImageBoost)
+        }
+
         exoPlayer = player
         playerView.player = player
+    }
+
+    private fun updateBoostButtonText(mode: String) {
+        boostButton?.text = when (mode) {
+            "hd_plus" -> context.getString(R.string.player_boost_hd_plus)
+            "ultra_2k" -> context.getString(R.string.player_boost_ultra_2k)
+            else -> context.getString(R.string.player_boost_off)
+        }
+    }
+
+    private fun applyImageBoostEffects(player: ExoPlayer, mode: String) {
+        val effects: List<Effect> = when (mode) {
+            "hd_plus" -> listOf(
+                Presentation.createForHeight(1080),
+                Contrast(0.08f),
+                HslAdjustment.Builder()
+                    .adjustSaturation(8f)
+                    .build()
+            )
+            "ultra_2k" -> listOf(
+                Presentation.createForHeight(1440),
+                Contrast(0.15f),
+                HslAdjustment.Builder()
+                    .adjustSaturation(14f)
+                    .adjustLightness(1.5f)
+                    .build()
+            )
+            else -> emptyList()
+        }
+        runCatching {
+            player.setVideoEffects(effects)
+        }.onFailure { err ->
+            android.util.Log.w("VideoPlayerManager", "Failed to apply video effects ($mode)", err)
+        }
+    }
+
+    private fun restartPlaybackWithCurrentBoost(player: ExoPlayer, url: String) {
+        val hadBoostFocus = boostButton?.hasFocus() == true
+        val shouldPlay = player.playWhenReady
+        val resumePos = if (!player.isCurrentMediaItemLive && player.isCurrentMediaItemSeekable) {
+            player.currentPosition.coerceAtLeast(0L)
+        } else {
+            0L
+        }
+        errorText.visibility = View.GONE
+        // Recreate ExoPlayer so MediaCodecVideoRenderer cleanly binds or detaches VideoSink before prepare().
+        release()
+        ensurePlayer()
+        startPlaybackUrl(url, resumePositionMs = resumePos, autoPlay = shouldPlay)
+        applyAspectRatio(currentAspectRatio)
+        if (isFullscreenMode) {
+            playerView.showController()
+            if (hadBoostFocus) {
+                boostButton?.requestFocus()
+            }
+        }
     }
 
     private fun applyAspectRatio(ratio: String) {
@@ -421,7 +544,12 @@ class VideoPlayerManager(
         }
     }
 
-    private fun startPlaybackUrl(url: String) {
+    private fun startPlaybackUrl(
+        url: String,
+        resumePositionMs: Long = 0L,
+        autoPlay: Boolean = true
+    ) {
+        currentPlayUrl = url
         val player = exoPlayer ?: return
         val mediaItemBuilder = MediaItem.Builder().setUri(Uri.parse(url))
         detectMimeType(url, currentPlayItemType, currentPlayStreamMode)?.let { mime ->
@@ -431,8 +559,11 @@ class VideoPlayerManager(
         player.stop()
         player.clearMediaItems()
         player.setMediaItem(mediaItemBuilder.build())
+        if (resumePositionMs > 0L) {
+            player.seekTo(resumePositionMs)
+        }
         player.prepare()
-        player.playWhenReady = true
+        player.playWhenReady = autoPlay
     }
 
     private fun buildDefaultFallbackUrls(url: String, itemType: String, streamMode: String): List<String> {

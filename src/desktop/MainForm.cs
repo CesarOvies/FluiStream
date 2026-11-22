@@ -48,6 +48,7 @@ public partial class MainForm : Form
     private string[] _vlcFallbackUrls = Array.Empty<string>();
     private int _vlcFallbackIndex = 0;
     private string _vlcAspectRatio = "auto";
+    private string _vlcImageBoost = "off";
     private const int MaxMultiScreenSlots = 4;
     private readonly LibVLCSharp.Shared.MediaPlayer?[] _msPlayers = new LibVLCSharp.Shared.MediaPlayer?[MaxMultiScreenSlots];
     private readonly VideoView?[] _msVideoViews = new VideoView?[MaxMultiScreenSlots];
@@ -60,6 +61,7 @@ public partial class MainForm : Form
     private ComboBox? _cmbVlcAspect;
     private ComboBox? _cmbVlcAudio;
     private ComboBox? _cmbVlcSubtitles;
+    private ComboBox? _cmbVlcBoost;
     private TrackBar? _trkVlcVolume;
     private Button? _btnVlcMute;
     private bool _suppressVlcTrackEvents = false;
@@ -286,7 +288,7 @@ public partial class MainForm : Form
 
             // Opções do WebView2: desativar restrições CORS para IPTV e ativar aceleração por hardware e Picture-in-Picture
             var envOptions = new CoreWebView2EnvironmentOptions(
-                additionalBrowserArguments: "--disable-web-security --allow-running-insecure-content --disable-features=BlockInsecurePrivateNetworkRequests,IsolateOrigins,site-per-process --disable-site-isolation-trials --autoplay-policy=no-user-gesture-required --enable-features=HardwareAcceleratedVideoDecode,PictureInPicture"
+                additionalBrowserArguments: "--disable-web-security --allow-running-insecure-content --disable-features=BlockInsecurePrivateNetworkRequests,IsolateOrigins,site-per-process --disable-site-isolation-trials --autoplay-policy=no-user-gesture-required --enable-features=HardwareAcceleratedVideoDecode,PictureInPicture,NvidiaVpSuperResolution,VpSuperResolution"
             );
 
             var env = await CoreWebView2Environment.CreateAsync(null, userDataFolder, envOptions);
@@ -431,6 +433,7 @@ public partial class MainForm : Form
                             {
                                 string? streamUrl = doc.RootElement.TryGetProperty("url", out var uEl) ? uEl.GetString() : null;
                                 string? ratio = doc.RootElement.TryGetProperty("aspectRatio", out var rEl) ? rEl.GetString() : "auto";
+                                string? boost = doc.RootElement.TryGetProperty("imageBoost", out var bEl) ? bEl.GetString() : null;
                                 string[]? fallbacks = null;
                                 if (doc.RootElement.TryGetProperty("fallbackUrls", out var fbEl) && fbEl.ValueKind == System.Text.Json.JsonValueKind.Array)
                                 {
@@ -444,7 +447,7 @@ public partial class MainForm : Form
                                 }
                                 if (!string.IsNullOrEmpty(streamUrl))
                                 {
-                                    BeginInvoke(() => PlayVlcStream(streamUrl, ratio, fallbacks));
+                                    BeginInvoke(() => PlayVlcStream(streamUrl, ratio, fallbacks, boost));
                                 }
                             }
                             else if (action == "MS_PLAY_SLOT")
@@ -452,6 +455,7 @@ public partial class MainForm : Form
                                 int sIdx = doc.RootElement.TryGetProperty("slotIndex", out var idxEl) ? idxEl.GetInt32() : -1;
                                 string? streamUrl = doc.RootElement.TryGetProperty("url", out var uEl) ? uEl.GetString() : null;
                                 bool muted = !doc.RootElement.TryGetProperty("muted", out var mEl) || mEl.GetBoolean();
+                                string? boost = doc.RootElement.TryGetProperty("imageBoost", out var bEl) ? bEl.GetString() : null;
                                 var fbList = new System.Collections.Generic.List<string>();
                                 if (doc.RootElement.TryGetProperty("fallbackUrls", out var fbEl) && fbEl.ValueKind == System.Text.Json.JsonValueKind.Array)
                                 {
@@ -463,7 +467,14 @@ public partial class MainForm : Form
                                 }
                                 if (!string.IsNullOrEmpty(streamUrl) && sIdx >= 0 && sIdx < MaxMultiScreenSlots)
                                 {
-                                    BeginInvoke(() => PlayMultiScreenSlot(sIdx, streamUrl, fbList.ToArray(), muted));
+                                    BeginInvoke(() =>
+                                    {
+                                        if (!string.IsNullOrEmpty(boost))
+                                        {
+                                            _vlcImageBoost = NormalizeImageBoostMode(boost);
+                                        }
+                                        PlayMultiScreenSlot(sIdx, streamUrl, fbList.ToArray(), muted, boost);
+                                    });
                                 }
                             }
                             else if (action == "MS_SET_AUDIO_SLOT")
@@ -502,6 +513,23 @@ public partial class MainForm : Form
                                 {
                                     _vlcAspectRatio = ratio ?? "auto";
                                     SetVlcAspectRatio(ratio);
+                                    SyncVlcToolsControls();
+                                });
+                            }
+                            else if (action == "SET_IMAGE_BOOST")
+                            {
+                                string? mode = doc.RootElement.TryGetProperty("mode", out var mEl) ? mEl.GetString() : "off";
+                                BeginInvoke(() =>
+                                {
+                                    _vlcImageBoost = NormalizeImageBoostMode(mode);
+                                    ApplyVlcImageBoostToPlayer(_vlcPlayer, _vlcImageBoost);
+                                    for (int i = 0; i < MaxMultiScreenSlots; i++)
+                                    {
+                                        if (_msPlayers[i] != null)
+                                        {
+                                            ApplyVlcImageBoostToPlayer(_msPlayers[i], _vlcImageBoost);
+                                        }
+                                    }
                                     SyncVlcToolsControls();
                                 });
                             }
@@ -804,11 +832,66 @@ public partial class MainForm : Form
         promptForm.ShowDialog(this);
     }
 
-    private void PlayVlcStream(string streamUrl, string? ratio = "auto", string[]? fallbackUrls = null)
+    private static string NormalizeImageBoostMode(string? mode)
+    {
+        return (mode ?? "").Trim().ToLowerInvariant() switch
+        {
+            "hd_plus" => "hd_plus",
+            "ultra_2k" => "ultra_2k",
+            _ => "off"
+        };
+    }
+
+    private void ApplyVlcImageBoostToMedia(Media media, string? boostMode)
+    {
+        switch (NormalizeImageBoostMode(boostMode))
+        {
+            case "hd_plus":
+                media.AddOption(":video-filter=sharpen:adjust");
+                media.AddOption(":sharpen-sigma=0.18");
+                media.AddOption(":d3d11-upscaling=super");
+                break;
+            case "ultra_2k":
+                media.AddOption(":video-filter=sharpen:postproc:adjust");
+                media.AddOption(":sharpen-sigma=0.32");
+                media.AddOption(":postproc-q=4");
+                media.AddOption(":d3d11-upscaling=super");
+                break;
+        }
+    }
+
+    private void ApplyVlcImageBoostToPlayer(LibVLCSharp.Shared.MediaPlayer? player, string? boostMode)
+    {
+        if (player == null) return;
+        try
+        {
+            var (enable, contrast, saturation, brightness, gamma) = NormalizeImageBoostMode(boostMode) switch
+            {
+                "hd_plus" => (1, 1.06f, 1.10f, 1.01f, 0.98f),
+                "ultra_2k" => (1, 1.12f, 1.16f, 1.02f, 0.95f),
+                _ => (0, 1.0f, 1.0f, 1.0f, 1.0f)
+            };
+            player.SetAdjustInt(VideoAdjustOption.Enable, enable);
+            player.SetAdjustFloat(VideoAdjustOption.Contrast, contrast);
+            player.SetAdjustFloat(VideoAdjustOption.Saturation, saturation);
+            player.SetAdjustFloat(VideoAdjustOption.Brightness, brightness);
+            player.SetAdjustFloat(VideoAdjustOption.Gamma, gamma);
+        }
+        catch
+        {
+            // Ignore
+        }
+    }
+
+    private void PlayVlcStream(string streamUrl, string? ratio = "auto", string[]? fallbackUrls = null, string? imageBoost = null)
     {
         if (_vlcPlayer == null || _libVLC == null || _videoView == null) return;
         _isVlcActive = true;
         _vlcAspectRatio = ratio ?? "auto";
+        if (imageBoost != null)
+        {
+            _vlcImageBoost = NormalizeImageBoostMode(imageBoost);
+        }
         _vlcFallbackUrls = fallbackUrls ?? Array.Empty<string>();
         _vlcFallbackIndex = 0;
         StartVlcMedia(streamUrl, _vlcAspectRatio);
@@ -839,6 +922,8 @@ public partial class MainForm : Form
             media.AddOption(":network-caching=2000");
             media.AddOption(":live-caching=2000");
             media.AddOption(":http-reconnect");
+            ApplyVlcImageBoostToMedia(media, _vlcImageBoost);
+            ApplyVlcImageBoostToPlayer(_vlcPlayer, _vlcImageBoost);
             _vlcPlayer.Play(media);
         }
         catch (Exception ex)
@@ -913,9 +998,13 @@ public partial class MainForm : Form
         _msVideoViews[slotIndex] = vv;
     }
 
-    private void PlayMultiScreenSlot(int slotIndex, string streamUrl, string[]? fallbackUrls, bool muted)
+    private void PlayMultiScreenSlot(int slotIndex, string streamUrl, string[]? fallbackUrls, bool muted, string? imageBoost = null)
     {
         if (slotIndex < 0 || slotIndex >= MaxMultiScreenSlots) return;
+        if (!string.IsNullOrEmpty(imageBoost))
+        {
+            _vlcImageBoost = NormalizeImageBoostMode(imageBoost);
+        }
         EnsureMultiScreenSlotInitialized(slotIndex);
         if (!muted) _msActiveAudioSlot = slotIndex;
         _msSlotActive[slotIndex] = true;
@@ -926,12 +1015,16 @@ public partial class MainForm : Form
         {
             mp.Mute = slotIndex != _msActiveAudioSlot;
         }
-        StartMultiScreenCandidate(slotIndex, streamUrl);
+        StartMultiScreenCandidate(slotIndex, streamUrl, imageBoost);
     }
 
-    private void StartMultiScreenCandidate(int slotIndex, string streamUrl)
+    private void StartMultiScreenCandidate(int slotIndex, string streamUrl, string? imageBoost = null)
     {
         if (_libVLC == null || slotIndex < 0 || slotIndex >= MaxMultiScreenSlots) return;
+        if (!string.IsNullOrEmpty(imageBoost))
+        {
+            _vlcImageBoost = NormalizeImageBoostMode(imageBoost);
+        }
         var mp = _msPlayers[slotIndex];
         var vv = _msVideoViews[slotIndex];
         if (mp == null || vv == null) return;
@@ -941,6 +1034,8 @@ public partial class MainForm : Form
             media.AddOption(":network-caching=2000");
             media.AddOption(":live-caching=2000");
             media.AddOption(":http-reconnect");
+            ApplyVlcImageBoostToMedia(media, _vlcImageBoost);
+            ApplyVlcImageBoostToPlayer(mp, _vlcImageBoost);
             mp.Mute = slotIndex != _msActiveAudioSlot;
             mp.Play(media);
         }
@@ -1462,7 +1557,8 @@ public partial class MainForm : Form
                 bool menuOrDropdownOpen = (_pnlVlcToolsMenu != null && _pnlVlcToolsMenu.Visible) ||
                     (_cmbVlcAspect?.DroppedDown == true) ||
                     (_cmbVlcAudio?.DroppedDown == true) ||
-                    (_cmbVlcSubtitles?.DroppedDown == true);
+                    (_cmbVlcSubtitles?.DroppedDown == true) ||
+                    (_cmbVlcBoost?.DroppedDown == true);
                 if (menuOrDropdownOpen)
                 {
                     _lastVlcActivityTick = Environment.TickCount64;
@@ -1554,7 +1650,7 @@ public partial class MainForm : Form
 
         _pnlVlcToolsMenu = new Panel
         {
-            Size = new Size(316, 316),
+            Size = new Size(316, 370),
             BackColor = darkSurface,
             ForeColor = lightText,
             Visible = false
@@ -1782,6 +1878,54 @@ public partial class MainForm : Form
             }
         };
 
+        var lblBoost = new Label
+        {
+            Text = LocalizationService.Get("VlcBoostLabel"),
+            Location = new Point(12, 308),
+            Size = new Size(292, 18),
+            ForeColor = mutedText,
+            Font = new Font("Segoe UI", 8.5f, FontStyle.Regular)
+        };
+
+        _cmbVlcBoost = new ComboBox
+        {
+            Location = new Point(12, 328),
+            Size = new Size(292, 26),
+            DropDownStyle = ComboBoxStyle.DropDownList,
+            BackColor = darkInput,
+            ForeColor = lightText,
+            FlatStyle = FlatStyle.Flat
+        };
+        _cmbVlcBoost.Items.AddRange(new object[]
+        {
+            new { Tag = "off", Text = LocalizationService.Get("VlcBoostOff") },
+            new { Tag = "hd_plus", Text = LocalizationService.Get("VlcBoostHdPlus") },
+            new { Tag = "ultra_2k", Text = LocalizationService.Get("VlcBoostUltra2k") }
+        });
+        _cmbVlcBoost.DisplayMember = "Text";
+        _cmbVlcBoost.SelectedIndex = 0;
+        _cmbVlcBoost.SelectedIndexChanged += (_, _) =>
+        {
+            if (_suppressVlcTrackEvents || _cmbVlcBoost.SelectedItem == null) return;
+            string mode = _cmbVlcBoost.SelectedIndex switch
+            {
+                1 => "hd_plus",
+                2 => "ultra_2k",
+                _ => "off"
+            };
+            _vlcImageBoost = mode;
+            ApplyVlcImageBoostToPlayer(_vlcPlayer, _vlcImageBoost);
+            for (int i = 0; i < MaxMultiScreenSlots; i++)
+            {
+                if (_msPlayers[i] != null)
+                {
+                    ApplyVlcImageBoostToPlayer(_msPlayers[i], _vlcImageBoost);
+                }
+            }
+            string serialized = System.Text.Json.JsonSerializer.Serialize(mode);
+            _webView.CoreWebView2?.ExecuteScriptAsync($"window.fluiStreamApp?.handleNativeImageBoost({serialized});");
+        };
+
         _pnlVlcToolsMenu.Controls.AddRange(new Control[]
         {
             lblTitle, btnCloseMenu,
@@ -1789,7 +1933,8 @@ public partial class MainForm : Form
             _btnVlcMute, _trkVlcVolume,
             lblAspect, _cmbVlcAspect,
             lblAudio, _cmbVlcAudio,
-            lblSubtitles, _cmbVlcSubtitles
+            lblSubtitles, _cmbVlcSubtitles,
+            lblBoost, _cmbVlcBoost
         });
         Controls.Add(_pnlVlcToolsMenu);
     }
@@ -1835,6 +1980,15 @@ public partial class MainForm : Form
                     "16:9" => 1,
                     "4:3" => 2,
                     "fill" => 3,
+                    _ => 0
+                };
+            }
+            if (_cmbVlcBoost != null)
+            {
+                _cmbVlcBoost.SelectedIndex = NormalizeImageBoostMode(_vlcImageBoost) switch
+                {
+                    "hd_plus" => 1,
+                    "ultra_2k" => 2,
                     _ => 0
                 };
             }

@@ -63,6 +63,10 @@ public static class LocalizationService
         ["VlcAudioDefault"] = ("Padrão", "Default", "Predeterminado"),
         ["VlcSubtitleLabel"] = ("Legendas", "Subtitles", "Subtítulos"),
         ["VlcSubtitleNone"] = ("Desativadas", "Off", "Desactivados"),
+        ["VlcBoostLabel"] = ("Boost de Imagem (Upscale)", "Image Boost (Upscale)", "Boost de Imagen (Upscale)"),
+        ["VlcBoostOff"] = ("Original (Off)", "Original (Off)", "Original (Off)"),
+        ["VlcBoostHdPlus"] = ("Nitidez HD+ (CAS)", "HD+ Sharpness (CAS)", "Nitidez HD+ (CAS)"),
+        ["VlcBoostUltra2k"] = ("Super Resolução 2K", "2K Super Resolution", "Súper Resolución 2K"),
         ["VlcCloseMenu"] = ("✕", "✕", "✕"),
         ["UpdatePromptHeader"] = ("🚀 Nova Versão Disponível: v{0} → {1}", "🚀 New Version Available: v{0} → {1}", "🚀 Nueva Versión Disponible: v{0} → {1}"),
         ["UpdateNotesFallback"] = ("Melhorias de desempenho, estabilidade na reprodução e atualizações visuais.", "Performance improvements, playback stability, and visual updates.", "Mejoras de rendimiento, estabilidad en la reproducción y actualizaciones visuales.")
