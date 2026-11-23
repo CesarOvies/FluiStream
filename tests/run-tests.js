@@ -4403,6 +4403,64 @@ await test('app.js navigateChannel e handleGlobalKeyDown trocam canais via Setas
   assert.equal(app.played.length, 0);
 });
 
+console.log('\n--- 35. Testes Regressao Listas M3U Grandes (>50MB / 200k+ itens) ---');
+
+await test('FluiStreamApp.mergeSectionItems mescla 200k+ itens sem estourar call stack (Maximum call stack size exceeded)', async () => {
+  const { runInNewContext } = await import('node:vm');
+  const { M3UParser } = await import('../src/web/js/m3u-parser.js');
+  const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+  const appJs = readFileSync(resolve(rootDir, 'src/web/js/app.js'), 'utf8');
+
+  assert.doesNotMatch(appJs, /merged\.push\(\.\.\./, 'Nao deve usar spread ... em merged.push para listas grandes');
+
+  const start = appJs.indexOf('  static mergeSectionItems(');
+  assert.ok(start >= 0, 'Método static mergeSectionItems deve existir em app.js');
+  let i = appJs.indexOf('{', start);
+  let depth = 0;
+  let methodSrc = '';
+  for (; i < appJs.length; i++) {
+    const ch = appJs[i];
+    if (ch === '{') depth++;
+    else if (ch === '}') {
+      depth--;
+      if (depth === 0) {
+        methodSrc = appJs.slice(start, i + 1);
+        break;
+      }
+    }
+  }
+  assert.ok(methodSrc, 'Corpo de mergeSectionItems extraido');
+
+  const MergeHarness = runInNewContext(`(() => class MergeHarness {
+    ${methodSrc}
+  })()`, { M3UParser });
+
+  const oldItems = [
+    { id: 'live_1', name: 'Canal 1', group: 'TV', type: 'live' },
+    { id: 'ser_old', name: 'Serie Antiga', group: 'Series', type: 'series' },
+    { id: 'mov_1', name: 'Filme 1', group: 'Filmes', type: 'movie' }
+  ];
+  const freshItems = new Array(200_000);
+  for (let idx = 0; idx < freshItems.length; idx++) {
+    freshItems[idx] = { id: '', name: `Ep ${idx}`, group: 'Series', type: 'series' };
+  }
+
+  const merged = MergeHarness.mergeSectionItems(oldItems, freshItems, 'series');
+  assert.equal(merged.length, 200_002);
+  assert.equal(merged[0].name, 'Canal 1');
+  assert.equal(merged[1].name, 'Ep 0');
+  assert.equal(merged[200_000].name, 'Ep 199999');
+  assert.equal(merged[200_001].name, 'Filme 1');
+});
+
+await test('Android MainActivity.kt permite listas >50MB em dispositivos nao low-RAM mantendo limite 16M em low-RAM', () => {
+  const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+  const mainActivityKt = readFileSync(resolve(rootDir, 'src/android/app/src/main/java/com/cesarovies/fluistream/MainActivity.kt'), 'utf8');
+
+  assert.match(mainActivityKt, /val maxChars = if \(isLowMemoryDevice\(\)\) 16_000_000 else 128_000_000/);
+  assert.match(mainActivityKt, /StringBuilder\(initialCapacity\)/);
+});
+
 console.log(`\n========================================`);
 console.log(`Resultados dos Testes: ${passedTests}/${totalTests} passaram.`);
 console.log(`========================================\n`);

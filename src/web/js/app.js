@@ -5881,11 +5881,18 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
     const fresh = freshItems.filter(x => x.type === type);
     const merged = [];
     let inserted = false;
-    for (const it of oldItems) {
+    const appendFresh = () => {
+      for (let i = 0; i < fresh.length; i++) {
+        merged.push(fresh[i]);
+      }
+      inserted = true;
+    };
+    for (let i = 0; i < oldItems.length; i++) {
+      const it = oldItems[i];
       if (it.type !== type) { merged.push(it); continue; }
-      if (!inserted) { merged.push(...fresh); inserted = true; }
+      if (!inserted) appendFresh();
     }
-    if (!inserted) merged.push(...fresh);
+    if (!inserted) appendFresh();
     M3UParser.ensureUniqueItemIds(merged);
     return merged;
   }
