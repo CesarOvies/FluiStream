@@ -404,9 +404,11 @@ class MainActivity : AppCompatActivity() {
             pushback
         }
 
-        val maxChars = if (isLowMemoryDevice()) 16_000_000 else 48_000_000
+        val maxChars = if (isLowMemoryDevice()) 16_000_000 else 128_000_000
+        val contentLength = if (!isGzip) conn.contentLength else -1
+        val initialCapacity = if (contentLength in 1..maxChars) contentLength else 65_536
         val reader = java.io.InputStreamReader(stream, charset)
-        val sb = StringBuilder()
+        val sb = StringBuilder(initialCapacity)
         val buffer = CharArray(32768)
         var truncated = false
         try {
