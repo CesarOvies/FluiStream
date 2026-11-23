@@ -1667,14 +1667,14 @@ body.desktop-mini-pip .player-wrapper {
 .multiscreen-slot video.boost-hd-plus {
   will-change: filter;
   transform: translateZ(0);
-  filter: contrast(1.12) saturate(1.16) brightness(1.02);
+  filter: contrast(1.04) saturate(1.05);
 }
 
 #main-video.boost-ultra-2k,
 .multiscreen-slot video.boost-ultra-2k {
   will-change: filter;
   transform: translateZ(0);
-  filter: contrast(1.22) saturate(1.26) brightness(1.03);
+  filter: contrast(1.06) saturate(1.08);
 }
 
 .player-meta-bar {

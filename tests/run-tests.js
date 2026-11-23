@@ -3774,6 +3774,11 @@ await test('Arquivos Web, Desktop LibVLC/WebView2 e Android Media3 devem expor I
   assert.match(gradleKts, /androidx\.media3:media3-effect:1\.3\.1/);
   assert.match(playerKt, /fun setImageBoost\(mode: String\)/);
   assert.match(playerKt, /Presentation\.createForHeight\(1440\)/);
+  assert.match(playerKt, /CasSharpenGlEffect/);
+  assert.match(playerKt, /CasSharpenShaderProgram/);
+  assert.match(playerKt, /BaseGlShaderProgram/);
+  assert.match(playerKt, /setEnableColorTransfers\(/);
+  assert.doesNotMatch(playerKt, /\bContrast\(|HslAdjustment/);
   assert.match(playerKt, /player\.setVideoEffects\(effects\)/);
   assert.match(playerKt, /ERROR_CODE_VIDEO_FRAME_PROCESSOR_INIT_FAILED/);
   assert.match(bridgeKt, /@JavascriptInterface[\s\S]*?fun setImageBoost\(/);
@@ -4262,6 +4267,140 @@ http://ex.com/3.m3u8`;
     if (prevStorage === undefined) delete globalThis.localStorage;
     else globalThis.localStorage = prevStorage;
   }
+});
+
+console.log('\n--- 34. Testes Zapping de Canais Live TV (Setas Cima/Baixo e Channel+/Channel-) ---');
+
+await test('Android TvFocusHelper.kt e VideoPlayerManager.kt suportam Channel+/Channel- e Setas apenas em Live TV preservando fullscreen', () => {
+  const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+  const tvFocusKt = readFileSync(resolve(rootDir, 'src/android/app/src/main/java/com/cesarovies/fluistream/TvFocusHelper.kt'), 'utf8');
+  const playerKt = readFileSync(resolve(rootDir, 'src/android/app/src/main/java/com/cesarovies/fluistream/VideoPlayerManager.kt'), 'utf8');
+
+  assert.match(playerKt, /fun isLiveStream\(\): Boolean/);
+  assert.match(playerKt, /val preserveFullscreen = isFullscreenMode && isPlayingStream && itemType\.equals\("live", ignoreCase = true\)/);
+  assert.match(tvFocusKt, /if \(videoPlayerManager\.isLiveStream\(\)\)/);
+  assert.match(tvFocusKt, /KeyEvent\.KEYCODE_CHANNEL_UP/);
+  assert.match(tvFocusKt, /KeyEvent\.KEYCODE_CHANNEL_DOWN/);
+  assert.match(tvFocusKt, /handleNativeChannelStep/);
+});
+
+await test('app.js navigateChannel e handleGlobalKeyDown trocam canais via Setas e Channel+/Channel- apenas no modo Live TV', async () => {
+  const { runInNewContext } = await import('node:vm');
+  const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+  const appJs = readFileSync(resolve(rootDir, 'src/web/js/app.js'), 'utf8');
+
+  const extractMethod = (name) => {
+    const start = appJs.indexOf(`  ${name}(`);
+    assert.ok(start >= 0, `Método ${name} deve existir em app.js`);
+    let i = appJs.indexOf('{', start);
+    let depth = 0;
+    for (; i < appJs.length; i++) {
+      const ch = appJs[i];
+      if (ch === '{') depth++;
+      else if (ch === '}') {
+        depth--;
+        if (depth === 0) return appJs.slice(start, i + 1);
+      }
+    }
+    throw new Error(`Fechamento não encontrado para ${name}`);
+  };
+
+  let modalOpen = false;
+  let toolsHidden = true;
+  const rows = [];
+  const mockDoc = {
+    activeElement: null,
+    querySelector: (sel) => (sel === '.modal-backdrop:not(.hidden)' && modalOpen ? {} : null),
+    querySelectorAll: (sel) => (sel === '.sidebar-item-row' ? rows : [])
+  };
+
+  const ZappingHarness = runInNewContext(`(() => class ZappingHarness {
+    constructor() {
+      this.toolsHidden = true;
+      this.dom = { playerToolsMenu: { classList: { contains: () => this.toolsHidden } } };
+      this.player = { isStopped: false };
+      this.activeScreen = 'browse';
+      this.sidebarDrillMode = 'items';
+      this.playlist = { items: [] };
+      this.currentFilteredItems = [];
+      this.currentPlayingItem = null;
+      this.fullscreen = false;
+      this.played = [];
+      this.spatialCalls = [];
+    }
+    isPlayerFullscreen() { return this.fullscreen; }
+    _clearChannelLongPressTimer() {}
+    _isTextEntryElement() { return false; }
+    _isTvNavigationMode() { return true; }
+    wakePlayerControls() {}
+    seekRelative() {}
+    moveSpatialFocus(dir) { this.spatialCalls.push(dir); return true; }
+    playChannel(item) { this.currentPlayingItem = item; this.played.push(item.id); }
+    ${extractMethod('isLiveTvPlaybackActive')}
+    ${extractMethod('handleNativeChannelStep')}
+    ${extractMethod('_syncPlayingChannelSidebarRow')}
+    ${extractMethod('navigateChannel')}
+    ${extractMethod('handleGlobalKeyDown')}
+  })()`, { document: mockDoc, ItemType: { LIVE: 'live', MOVIE: 'movie', SERIES: 'series' } });
+
+  const app = new ZappingHarness();
+  const live1 = { id: 'l1', name: 'Globo', type: 'live' };
+  const live2 = { id: 'l2', name: 'SBT', type: 'live' };
+  const live3 = { id: 'l3', name: 'Band', type: 'live' };
+  const vod1 = { id: 'm1', name: 'Matrix', type: 'movie' };
+  const ser1 = { id: 's1', name: 'Dark S01E01', type: 'series' };
+
+  app.playlist.items = [live1, live2, live3, vod1, ser1];
+  app.currentFilteredItems = [live1, live2, live3];
+
+  const mkTarget = (matches) => ({ closest: (sel) => matches.some(m => sel.includes(m)) ? {} : null });
+
+  // 1. Live TV em fullscreen: ArrowDown/ArrowUp trocam canal com wrap-around sem mover foco espacial
+  app.currentPlayingItem = live2;
+  app.fullscreen = true;
+  let prevented = false;
+  app.handleGlobalKeyDown({ key: 'ArrowDown', target: mkTarget(['.sidebar-item-row']), preventDefault: () => { prevented = true; } });
+  assert.equal(prevented, true);
+  assert.equal(app.currentPlayingItem.id, 'l3');
+  app.handleGlobalKeyDown({ key: 'ArrowDown', target: { closest: null }, preventDefault: () => {} });
+  assert.equal(app.currentPlayingItem.id, 'l1', 'Wrap-around para primeiro canal');
+  app.handleGlobalKeyDown({ key: 'ArrowUp', target: mkTarget(['body']), preventDefault: () => {} });
+  assert.equal(app.currentPlayingItem.id, 'l3', 'Wrap-around para ultimo canal');
+  assert.equal(app.spatialCalls.length, 0);
+
+  // 2. Live TV em tela cheia com menu de ferramentas aberto -> Setas navegam menu, nao trocam canal
+  app.toolsHidden = false;
+  app.handleGlobalKeyDown({ key: 'ArrowDown', target: mkTarget(['button']), preventDefault: () => {} });
+  assert.equal(app.currentPlayingItem.id, 'l3');
+  assert.deepEqual(Array.from(app.spatialCalls), ['ArrowDown']);
+  app.toolsHidden = true;
+
+  // 3. Live TV fora do fullscreen: ArrowDown na sidebar navega lista (moveSpatialFocus), ChannelUp/Down troca canal
+  app.fullscreen = false;
+  app.spatialCalls.length = 0;
+  app.handleGlobalKeyDown({ key: 'ArrowDown', target: mkTarget(['.sidebar-item-row']), preventDefault: () => {} });
+  assert.deepEqual(Array.from(app.spatialCalls), ['ArrowDown']);
+  assert.equal(app.currentPlayingItem.id, 'l3');
+
+  app.handleGlobalKeyDown({ key: 'ChannelDown', keyCode: 167, target: mkTarget(['.sidebar-item-row']), preventDefault: () => {} });
+  assert.equal(app.currentPlayingItem.id, 'l1');
+  app.handleGlobalKeyDown({ key: 'ChannelUp', keyCode: 166, target: mkTarget(['.sidebar-item-row']), preventDefault: () => {} });
+  assert.equal(app.currentPlayingItem.id, 'l3');
+  assert.equal(app.handleNativeChannelStep(-1), true);
+  assert.equal(app.currentPlayingItem.id, 'l2');
+
+  // 4. Modo Filme/Serie (VOD): Setas e Channel+/Channel- NUNCA trocam para Live TV
+  app.currentPlayingItem = vod1;
+  app.fullscreen = true;
+  app.played.length = 0;
+  app.handleGlobalKeyDown({ key: 'ArrowDown', target: mkTarget(['#player-center-hit']), preventDefault: () => {} });
+  app.handleGlobalKeyDown({ key: 'ChannelUp', keyCode: 166, target: mkTarget(['#player-center-hit']), preventDefault: () => {} });
+  assert.equal(app.navigateChannel(1), false);
+  assert.equal(app.played.length, 0);
+
+  app.currentPlayingItem = ser1;
+  assert.equal(app.handleNativeChannelStep(-1), false);
+  assert.equal(app.played.length, 0);
 });
 
 console.log(`\n========================================`);

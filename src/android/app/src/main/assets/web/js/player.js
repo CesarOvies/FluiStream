@@ -31,18 +31,18 @@ export const IMAGE_BOOST_PRESETS = {
     id: 'hd_plus',
     cssClass: 'boost-hd-plus',
     svgFilterId: 'flui-boost-hd-plus',
-    cssFilter: 'url(#flui-boost-hd-plus) contrast(1.12) saturate(1.16) brightness(1.02)',
+    cssFilter: 'url(#flui-boost-hd-plus) contrast(1.04) saturate(1.05)',
     sharpenSigma: 0.18,
-    contrast: 1.06,
-    saturation: 1.10,
+    contrast: 1.03,
+    saturation: 1.05,
     targetHeight: 1080,
     webgl: {
       enabled: true,
-      sharpness: 0.58,
-      detailGain: 0.36,
-      deblock: 0.22,
-      contrast: 1.06,
-      vibrance: 0.14,
+      sharpness: 0.55,
+      detailGain: 0.32,
+      deblock: 0.20,
+      contrast: 1.0,
+      vibrance: 0.05,
       superScale: 1.5
     }
   },
@@ -50,18 +50,18 @@ export const IMAGE_BOOST_PRESETS = {
     id: 'ultra_2k',
     cssClass: 'boost-ultra-2k',
     svgFilterId: 'flui-boost-ultra-2k',
-    cssFilter: 'url(#flui-boost-ultra-2k) contrast(1.22) saturate(1.26) brightness(1.03)',
+    cssFilter: 'url(#flui-boost-ultra-2k) contrast(1.06) saturate(1.08)',
     sharpenSigma: 0.32,
-    contrast: 1.12,
-    saturation: 1.16,
+    contrast: 1.05,
+    saturation: 1.08,
     targetHeight: 1440,
     webgl: {
       enabled: true,
-      sharpness: 0.92,
-      detailGain: 0.62,
-      deblock: 0.35,
-      contrast: 1.12,
-      vibrance: 0.24,
+      sharpness: 0.88,
+      detailGain: 0.54,
+      deblock: 0.30,
+      contrast: 1.0,
+      vibrance: 0.08,
       superScale: 2.0
     }
   }
@@ -95,7 +95,7 @@ uniform float u_vibrance;
 varying vec2 v_texCoord;
 
 float luma(vec3 c) {
-  return dot(c, vec3(0.299, 0.587, 0.114));
+  return dot(c, vec3(0.2126, 0.7152, 0.0722));
 }
 
 void main() {
@@ -112,53 +112,63 @@ void main() {
   vec3 h = texture2D(u_texture, v_texCoord + dy).rgb;
   vec3 i = texture2D(u_texture, v_texCoord + dx + dy).rgb;
 
-  // Bilateral MPEG deblock (preserves edges, smooths H.264/HEVC flat blocking)
+  // Edge-preserving bilateral deblock (smooths H.264/HEVC flat macroblocks without blurring edges)
   float le = luma(e);
-  float wb = exp(-abs(luma(b) - le) * 18.0);
-  float wd = exp(-abs(luma(d) - le) * 18.0);
-  float wf = exp(-abs(luma(f) - le) * 18.0);
-  float wh = exp(-abs(luma(h) - le) * 18.0);
+  float la = luma(a);
+  float lb = luma(b);
+  float lc = luma(c);
+  float ld = luma(d);
+  float lf = luma(f);
+  float lg = luma(g);
+  float lh = luma(h);
+  float li = luma(i);
+
+  float wb = exp(-abs(lb - le) * 20.0);
+  float wd = exp(-abs(ld - le) * 20.0);
+  float wf = exp(-abs(lf - le) * 20.0);
+  float wh = exp(-abs(lh - le) * 20.0);
   float wSum = 1.0 + wb + wd + wf + wh;
   vec3 smoothBase = (e + b * wb + d * wd + f * wf + h * wh) / wSum;
-  vec3 base = mix(e, smoothBase, clamp(u_deblock * 0.55, 0.0, 0.6));
+  vec3 base = mix(e, smoothBase, clamp(u_deblock * 0.55, 0.0, 0.5));
+  float lBase = luma(base);
 
-  // AMD FidelityFX CAS 9-tap (Contrast Adaptive Sharpening)
+  // Luminance-driven AMD FidelityFX CAS 9-tap + shadow noise guard
+  float minL = min(min(ld, lf), min(lb, lh));
+  minL = min(minL, lBase);
+  float minL2 = min(minL, min(min(la, lc), min(lg, li)));
+  minL = (minL + minL2) * 0.5;
+
+  float maxL = max(max(ld, lf), max(lb, lh));
+  maxL = max(maxL, lBase);
+  float maxL2 = max(maxL, max(max(la, lc), max(lg, li)));
+  maxL = (maxL + maxL2) * 0.5;
+
+  float ampL = clamp(min(minL, max(2.0 - maxL, 0.0)) / max(maxL, 0.0001), 0.0, 1.0);
+  ampL = sqrt(ampL);
+
+  float peak = -1.0 / mix(8.5, 5.2, clamp(u_sharpness, 0.0, 1.0));
+  float wL = max(ampL * peak, -0.19);
+  float casLuma = clamp((lb * wL + ld * wL + lf * wL + lh * wL + lBase) / (1.0 + 4.0 * wL), 0.0, 1.0);
+
+  // High-frequency detail reconstruction gated in dark shadows (zero black crush or block noise)
+  float blurL = (lb + ld + lf + lh) * 0.25;
+  float detailL = (lBase - blurL) * (u_detailGain * 0.65);
+  float shadowGuard = smoothstep(0.015, 0.07, le);
+  float targetLuma = clamp(lBase + ((casLuma - lBase) + detailL) * shadowGuard, minL, maxL);
+  float deltaL = targetLuma - lBase;
+
   vec3 minRGB = min(min(d, f), min(b, h));
   minRGB = min(minRGB, base);
-  vec3 minRGB2 = min(minRGB, min(min(a, c), min(g, i)));
-  minRGB = (minRGB + minRGB2) * 0.5;
-
   vec3 maxRGB = max(max(d, f), max(b, h));
   maxRGB = max(maxRGB, base);
-  vec3 maxRGB2 = max(maxRGB, max(max(a, c), max(g, i)));
-  maxRGB = (maxRGB + maxRGB2) * 0.5;
+  vec3 color = clamp(base + vec3(deltaL), minRGB, maxRGB);
 
-  vec3 rcpMaxRGB = vec3(1.0) / max(maxRGB, vec3(0.0001));
-  vec3 ampRGB = clamp(min(minRGB, 2.0 - maxRGB) * rcpMaxRGB, 0.0, 1.0);
-  ampRGB = sqrt(ampRGB);
-
-  float peak = -1.0 / mix(8.0, 5.0, clamp(u_sharpness, 0.0, 1.0));
-  vec3 wRGB = max(ampRGB * peak, vec3(-0.20));
-  vec3 rcpWeight = vec3(1.0) / (vec3(1.0) + 4.0 * wRGB);
-  vec3 color = clamp((b * wRGB + d * wRGB + f * wRGB + h * wRGB + base) * rcpWeight, 0.0, 1.0);
-
-  // High-frequency unsharp detail reconstruction clamped to prevent halo ringing
-  vec3 blurCross = (b + d + f + h) * 0.25;
-  vec3 detail = base - blurCross;
-  color = clamp(color + detail * (u_detailGain * 0.65), max(minRGB - vec3(0.03), vec3(0.0)), min(maxRGB + vec3(0.03), vec3(1.0)));
-
-  // Gentle S-curve + micro-contrast
-  vec3 sCurve = color * color * (3.0 - 2.0 * color);
-  float sMix = clamp((u_contrast - 1.0) * 1.4, 0.0, 0.35);
-  color = mix(color, sCurve, sMix);
-  color = clamp((color - vec3(0.5)) * u_contrast + vec3(0.5), 0.0, 1.0);
-
-  // Adaptive vibrance
+  // Subtle shadow-guarded adaptive vibrance (never clips black levels or skin hues)
   float maxC = max(color.r, max(color.g, color.b));
   float minC = min(color.r, min(color.g, color.b));
   float avgC = (color.r + color.g + color.b) * 0.3333333;
   float sat = maxC - minC;
-  float vib = u_vibrance * (1.0 - clamp(sat * 1.25, 0.0, 1.0));
+  float vib = u_vibrance * shadowGuard * (1.0 - clamp(sat * 1.4, 0.0, 1.0));
   color = clamp(mix(vec3(avgC), color, 1.0 + vib), 0.0, 1.0);
 
   gl_FragColor = vec4(color, 1.0);

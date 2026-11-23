@@ -867,8 +867,8 @@ public partial class MainForm : Form
         {
             var (enable, contrast, saturation, brightness, gamma) = NormalizeImageBoostMode(boostMode) switch
             {
-                "hd_plus" => (1, 1.06f, 1.10f, 1.01f, 0.98f),
-                "ultra_2k" => (1, 1.12f, 1.16f, 1.02f, 0.95f),
+                "hd_plus" => (1, 1.03f, 1.03f, 1.0f, 1.0f),
+                "ultra_2k" => (1, 1.05f, 1.05f, 1.0f, 1.0f),
                 _ => (0, 1.0f, 1.0f, 1.0f, 1.0f)
             };
             player.SetAdjustInt(VideoAdjustOption.Enable, enable);

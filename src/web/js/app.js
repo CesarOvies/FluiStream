@@ -2206,15 +2206,34 @@ class FluiStreamApp {
       return;
     }
 
+    const isChannelUpKey = e.key === 'ChannelUp' || e.key === 'PageUp' || e.key === 'MediaTrackPrevious' || e.keyCode === 166 || e.keyCode === 427;
+    const isChannelDownKey = e.key === 'ChannelDown' || e.key === 'PageDown' || e.key === 'MediaTrackNext' || e.keyCode === 167 || e.keyCode === 428;
+    if ((isChannelUpKey || isChannelDownKey) && !isModalOpen) {
+      if (this.isLiveTvPlaybackActive?.()) {
+        e.preventDefault();
+        this.navigateChannel?.(isChannelUpKey ? -1 : 1);
+      }
+      return;
+    }
+
     if (isArrow) {
-      // Se foco está dentro da área de vídeo/slider, controla canal/seek; nos controles/botões usa navegação espacial
-      const inPlayerRange = Boolean(target.closest('[role="slider"], #player-center-hit, #btn-player-center-toggle'));
-      if (inPlayerRange && !isModalOpen) {
-        if (e.key === 'ArrowUp') { e.preventDefault(); this.navigateChannel(-1); }
-        else if (e.key === 'ArrowDown') { e.preventDefault(); this.navigateChannel(1); }
-        else if (e.key === 'ArrowLeft') { e.preventDefault(); this.seekRelative(-10); }
-        else if (e.key === 'ArrowRight') { e.preventDefault(); this.seekRelative(10); }
-        return;
+      const isLivePlaying = Boolean(this.isLiveTvPlaybackActive?.());
+      const inFullscreen = Boolean(this.isPlayerFullscreen?.());
+      const toolsMenuOpen = Boolean(this.dom?.playerToolsMenu && !this.dom.playerToolsMenu.classList.contains('hidden'));
+      const seasonsPopupOpen = Boolean(this.dom?.seasonsPopup && !this.dom.seasonsPopup.classList.contains('hidden'));
+      const inPlayerRange = Boolean(target?.closest?.('[role="slider"], #player-center-hit, #btn-player-center-toggle, #main-video, #main-video-upscale-canvas, .player-video-stage'));
+
+      if (!isModalOpen && !toolsMenuOpen && !seasonsPopupOpen) {
+        if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && isLivePlaying && (inFullscreen || inPlayerRange)) {
+          e.preventDefault();
+          this.navigateChannel?.(e.key === 'ArrowUp' ? -1 : 1);
+          return;
+        }
+        if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && inPlayerRange) {
+          e.preventDefault();
+          this.seekRelative?.(e.key === 'ArrowLeft' ? -10 : 10);
+          return;
+        }
       }
 
       if (this.moveSpatialFocus(e.key, isModalOpen)) {
@@ -6436,15 +6455,68 @@ https://test-streams.mux.dev/pts_shift/master.m3u8
     setTimeout(() => fallbackTarget?.focus(), 20);
   }
 
-  navigateChannel(delta) {
-    const liveItems = (this.currentFilteredItems.length > 0 ? this.currentFilteredItems : this.playlist.items).filter(x => x.type === ItemType.LIVE);
-    if (liveItems.length === 0) return;
-    let nextIndex = 0;
-    if (this.currentPlayingItem) {
-      const curIdx = liveItems.findIndex(x => x.id === this.currentPlayingItem.id);
-      if (curIdx !== -1) nextIndex = (curIdx + delta + liveItems.length) % liveItems.length;
+  isLiveTvPlaybackActive() {
+    return Boolean(this.currentPlayingItem && this.currentPlayingItem.type === ItemType.LIVE && !this.player?.isStopped);
+  }
+
+  handleNativeChannelStep(delta) {
+    return this.navigateChannel(delta);
+  }
+
+  _syncPlayingChannelSidebarRow(item) {
+    if (!item || typeof document === 'undefined') return;
+    if (
+      this.activeScreen === 'browse' &&
+      this.sidebarDrillMode === 'items' &&
+      Array.isArray(this.currentFilteredItems)
+    ) {
+      const idx = this.currentFilteredItems.findIndex(x => x && x.id === item.id);
+      while (idx >= 0 && idx >= this.renderedCount && typeof this.appendNextSidebarBatch === 'function') {
+        const before = this.renderedCount;
+        this.appendNextSidebarBatch();
+        if (this.renderedCount <= before) break;
+      }
     }
-    this.playChannel(liveItems[nextIndex]);
+    const rows = document.querySelectorAll?.('.sidebar-item-row') || [];
+    let playingRow = null;
+    rows.forEach(row => {
+      const isMatch = String(row.getAttribute('data-id')) === String(item.id);
+      row.classList.toggle('playing', isMatch);
+      if (isMatch) playingRow = row;
+    });
+    if (playingRow) {
+      if (typeof playingRow.scrollIntoView === 'function') {
+        playingRow.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+      }
+      const activeEl = document.activeElement;
+      if (activeEl && activeEl.classList?.contains('sidebar-item-row') && typeof playingRow.focus === 'function') {
+        playingRow.focus({ preventScroll: true });
+      }
+    }
+  }
+
+  navigateChannel(delta) {
+    if (!this.isLiveTvPlaybackActive()) return false;
+    const step = Number(delta) < 0 ? -1 : 1;
+    let liveItems = Array.isArray(this.currentFilteredItems) && this.currentFilteredItems.length > 0
+      ? this.currentFilteredItems.filter(x => x && x.type === ItemType.LIVE)
+      : [];
+    let curIdx = liveItems.findIndex(x => x.id === this.currentPlayingItem.id);
+    if (liveItems.length === 0 || curIdx === -1) {
+      liveItems = Array.isArray(this.playlist?.items)
+        ? this.playlist.items.filter(x => x && x.type === ItemType.LIVE)
+        : [];
+      curIdx = liveItems.findIndex(x => x.id === this.currentPlayingItem.id);
+    }
+    if (liveItems.length === 0) return false;
+    const nextIndex = curIdx !== -1
+      ? (curIdx + step + liveItems.length) % liveItems.length
+      : 0;
+    const nextItem = liveItems[nextIndex];
+    if (!nextItem) return false;
+    this.playChannel(nextItem, { preserveEpgMode: true });
+    this._syncPlayingChannelSidebarRow(nextItem);
+    return true;
   }
 
   seekRelative(secondsDelta) {
